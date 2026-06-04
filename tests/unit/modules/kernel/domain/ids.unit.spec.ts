@@ -1,23 +1,18 @@
+import { fc, PROPERTY_DEFAULTS, test } from '@tests/support/property-testing';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { ZodError } from 'zod';
 
-import { fc, PROPERTY_DEFAULTS, test } from '@tests/support/property-testing';
-
 import { IdValidationError } from '@/modules/kernel/domain/errors/id-validation-error';
 import {
-  type BookId,
   type EmailAddress,
   type ScopeKey,
-  type UserId,
-  toBookId,
+  type SessionId,
   toEmailAddress,
-  toGenreId,
   toScopeKey,
   toSessionId,
   toUserId,
-  zBookId,
+  type UserId,
   zEmailAddress,
-  zGenreId,
   zScopeKey,
   zSessionId,
   zUserId,
@@ -37,8 +32,6 @@ const whitespaceOnlyString = fc
 describe('kernel domain ids', () => {
   it('parses branded IDs from trimmed strings', () => {
     expect(zUserId().parse(' cm123 ')).toBe('cm123');
-    expect(zBookId().parse(' book-1 ')).toBe('book-1');
-    expect(zGenreId().parse(' genre-1 ')).toBe('genre-1');
     expect(zSessionId().parse(' session-1 ')).toBe('session-1');
     expect(zScopeKey().parse(' anonymous ')).toBe('anonymous');
     expect(() => zUserId().parse('')).toThrow(ZodError);
@@ -51,8 +44,6 @@ describe('kernel domain ids', () => {
 
   it('converts primitive strings into branded domain values', () => {
     expect(toUserId(' user-1 ')).toBe('user-1');
-    expect(toBookId(' book-1 ')).toBe('book-1');
-    expect(toGenreId(' genre-1 ')).toBe('genre-1');
     expect(toSessionId(' session-1 ')).toBe('session-1');
     expect(toScopeKey(' anonymous ')).toBe('anonymous');
     expect(toEmailAddress(' user@example.com ')).toBe('user@example.com');
@@ -61,12 +52,12 @@ describe('kernel domain ids', () => {
 
   it('keeps domain brands distinct at compile time', () => {
     expectTypeOf(toUserId('user-1')).toEqualTypeOf<UserId>();
-    expectTypeOf(toBookId('book-1')).toEqualTypeOf<BookId>();
+    expectTypeOf(toSessionId('session-1')).toEqualTypeOf<SessionId>();
     expectTypeOf(toScopeKey('anonymous')).toEqualTypeOf<ScopeKey>();
     expectTypeOf(
       toEmailAddress('user@example.com')
     ).toEqualTypeOf<EmailAddress>();
-    expectTypeOf(toUserId('user-1')).not.toEqualTypeOf<BookId>();
+    expectTypeOf(toUserId('user-1')).not.toEqualTypeOf<SessionId>();
     expectTypeOf<string>().not.toExtend<UserId>();
     expectTypeOf<UserId>().toExtend<string>();
   });
@@ -110,8 +101,6 @@ describe('kernel domain ids', () => {
       const expected = value.trim();
 
       expect(toUserId(value)).toBe(expected);
-      expect(toBookId(value)).toBe(expected);
-      expect(toGenreId(value)).toBe(expected);
       expect(toSessionId(value)).toBe(expected);
       expect(toScopeKey(value)).toBe(expected);
     }
@@ -121,8 +110,6 @@ describe('kernel domain ids', () => {
     'throws first-class validation errors for whitespace-only IDs',
     (value) => {
       expect(() => toUserId(value)).toThrow(IdValidationError);
-      expect(() => toBookId(value)).toThrow(IdValidationError);
-      expect(() => toGenreId(value)).toThrow(IdValidationError);
       expect(() => toSessionId(value)).toThrow(IdValidationError);
       expect(() => toScopeKey(value)).toThrow(IdValidationError);
     }
@@ -132,8 +119,6 @@ describe('kernel domain ids', () => {
     'keeps Zod ID schemas aligned with branded ID constructors',
     (value) => {
       expect(zUserId().parse(value)).toBe(toUserId(value));
-      expect(zBookId().parse(value)).toBe(toBookId(value));
-      expect(zGenreId().parse(value)).toBe(toGenreId(value));
       expect(zSessionId().parse(value)).toBe(toSessionId(value));
       expect(zScopeKey().parse(value)).toBe(toScopeKey(value));
     }

@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
+  BuildingIcon,
   LayoutDashboardIcon,
   PanelLeftIcon,
   UsersIcon,
@@ -9,7 +10,6 @@ import { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Logo } from '@/platform/components/brand/logo';
-import { IconBookOpen } from '@/platform/components/icons/generated';
 import {
   Sidebar,
   SidebarContent,
@@ -82,14 +82,14 @@ export const NavSidebar = (props: { children?: ReactNode }) => {
                   </Link>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <Link to="/manager/books">
+                  <Link to="/manager/workspaces">
                     {({ isActive }) => (
                       <SidebarMenuButton
                         isActive={isActive}
                         render={
                           <span>
-                            <IconBookOpen />
-                            <span>{t('layout:nav.books')}</span>
+                            <BuildingIcon />
+                            <span>{t('layout:nav.workspaces')}</span>
                           </span>
                         }
                       />

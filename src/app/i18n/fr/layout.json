@@ -8,6 +8,8 @@
     "home": "Accueil",
     "apiDocumentation": "Documentation API",
     "openApp": "Ouvrir l'application",
-    "books": "Livres"
+    "report": "Rapport",
+    "reports": "Rapports",
+    "workspaces": "Espaces de travail"
   }
 }

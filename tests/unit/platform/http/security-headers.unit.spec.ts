@@ -27,7 +27,6 @@ describe('security headers', () => {
     const policy = buildContentSecurityPolicy({
       baseUrl: 'https://app.example',
       isProduction: true,
-      s3BucketPublicUrl: 'https://assets.example/books',
     });
 
     expect(policy).toContain("default-src 'self'");
@@ -42,9 +41,9 @@ describe('security headers', () => {
     );
     expect(policy).toContain("style-src-attr 'unsafe-inline'");
     expect(policy).toContain(
-      "img-src 'self' data: blob: https://assets.example https://raw.githubusercontent.com"
+      "img-src 'self' data: blob: https://raw.githubusercontent.com"
     );
-    expect(policy).toContain("connect-src 'self' https://assets.example");
+    expect(policy).toContain("connect-src 'self'");
     expect(policy).not.toContain('sentry.io');
     expect(policy).toContain("font-src 'self' data:");
     expect(policy).toContain("manifest-src 'self'");

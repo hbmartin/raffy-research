@@ -29,6 +29,20 @@
       "when": 1780348117171,
       "tag": "0003_drop_verification_identifier_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780588576518,
+      "tag": "0004_naive_inhumans",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780588631769,
+      "tag": "0005_strange_venus",
+      "breakpoints": true
     }
   ]
 }

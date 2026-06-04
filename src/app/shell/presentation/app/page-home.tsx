@@ -5,12 +5,6 @@ import {
   PageLayoutTopBar,
 } from '@/platform/components/page-layout/app';
 
-import {
-  DemoAppSwitch,
-  DemoMarketingBento,
-  DemoWelcome,
-} from '@/app/demo/presentation';
-
 export const PageHome = () => {
   return (
     <PageLayout>
@@ -18,11 +12,7 @@ export const PageHome = () => {
         <Logo className="mx-auto w-24" />
       </PageLayoutTopBar>
       <PageLayoutContent>
-        <div className="flex flex-1 flex-col gap-4">
-          <DemoWelcome />
-          <DemoAppSwitch />
-          <DemoMarketingBento />
-        </div>
+        <div className="flex flex-1 flex-col gap-4" />
       </PageLayoutContent>
     </PageLayout>
   );

@@ -11,7 +11,6 @@ import { FieldRadioGroup } from '@/platform/components/form/field-radio-group';
 import { FieldSelect } from '@/platform/components/form/field-select';
 import { FieldText } from '@/platform/components/form/field-text';
 import { FieldTextarea } from '@/platform/components/form/field-textarea';
-import { FieldUploadInput } from '@/platform/components/form/field-upload-input';
 import {
   fieldContext,
   formContext,
@@ -52,7 +51,6 @@ export const { useAppForm, useTypedAppFormContext, withForm } = createFormHook({
     FieldSelect,
     FieldText,
     FieldTextarea,
-    FieldUploadInput,
   },
   formComponents: {},
 });

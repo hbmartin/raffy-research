@@ -6,8 +6,6 @@ import {
   session,
   user,
 } from '@/modules/auth/infrastructure/drizzle/schema';
-import { book } from '@/modules/book/infrastructure/drizzle/schema';
-import { genre } from '@/modules/genre/infrastructure/drizzle/schema';
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
@@ -34,15 +32,4 @@ export const authIdentityRelations = relations(authIdentity, ({ one }) => ({
     fields: [authIdentity.userId],
     references: [user.id],
   }),
-}));
-
-export const bookRelations = relations(book, ({ one }) => ({
-  genre: one(genre, {
-    fields: [book.genreId],
-    references: [genre.id],
-  }),
-}));
-
-export const genreRelations = relations(genre, ({ many }) => ({
-  books: many(book),
 }));

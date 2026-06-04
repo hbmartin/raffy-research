@@ -1,6 +1,4 @@
 import type {
-  NewBook,
-  NewGenre,
   NewSession,
   NewUser,
 } from '@/modules/kernel/infrastructure/db/schema';
@@ -29,20 +27,5 @@ export const makeSessionRow = (
   createdAt: testTimestamps.createdAt,
   updatedAt: testTimestamps.updatedAt,
   expiresAt: testTimestamps.expiresAt,
-  ...overrides,
-});
-
-export const makeGenreRow = (overrides: Partial<NewGenre> = {}): NewGenre => ({
-  id: 'genre-1',
-  name: 'Genre',
-  color: '#111111',
-  ...overrides,
-});
-
-export const makeBookRow = (overrides: Partial<NewBook> = {}): NewBook => ({
-  id: 'book-1',
-  title: 'Book',
-  author: 'Author',
-  genreId: 'genre-1',
   ...overrides,
 });

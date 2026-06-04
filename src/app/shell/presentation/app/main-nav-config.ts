@@ -1,8 +1,6 @@
 import { linkOptions } from '@tanstack/react-router';
 
 import {
-  IconBookOpenDuotone,
-  IconBookOpenFill,
   IconHouseDuotone,
   IconHouseFill,
   IconUserCircleDuotone,
@@ -11,17 +9,11 @@ import {
 
 export const MAIN_NAV_LINKS = linkOptions([
   {
-    labelTranslationKey: 'layout:nav.home',
+    labelTranslationKey: 'layout:nav.report',
     icon: IconHouseDuotone,
     iconActive: IconHouseFill,
     to: '/app',
     activeOptions: { exact: true },
-  },
-  {
-    labelTranslationKey: 'layout:nav.books',
-    icon: IconBookOpenDuotone,
-    iconActive: IconBookOpenFill,
-    to: '/app/books',
   },
   {
     labelTranslationKey: 'layout:nav.account',
