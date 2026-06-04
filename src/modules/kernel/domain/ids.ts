@@ -21,6 +21,29 @@ export const zEmailWebhookEventIdSchema =
   zBrandedNonEmptyString<'EmailWebhookEventId'>();
 export const zEmailRecipientListSchema =
   zBrandedNonEmptyString<'EmailRecipientList'>();
+export const zWorkspaceIdSchema = zBrandedNonEmptyString<'WorkspaceId'>();
+export const zWorkspaceKeywordIdSchema =
+  zBrandedNonEmptyString<'WorkspaceKeywordId'>();
+export const zWorkspaceSocialAccountIdSchema =
+  zBrandedNonEmptyString<'WorkspaceSocialAccountId'>();
+export const zWorkspaceCompetitorIdSchema =
+  zBrandedNonEmptyString<'WorkspaceCompetitorId'>();
+export const zProviderConfigIdSchema =
+  zBrandedNonEmptyString<'ProviderConfigId'>();
+export const zInternalNoteConfigIdSchema =
+  zBrandedNonEmptyString<'InternalNoteConfigId'>();
+export const zSourceRecordIdSchema = zBrandedNonEmptyString<'SourceRecordId'>();
+export const zSearchResultIdSchema = zBrandedNonEmptyString<'SearchResultId'>();
+export const zSourceSummaryIdSchema =
+  zBrandedNonEmptyString<'SourceSummaryId'>();
+export const zWeeklyReportIdSchema = zBrandedNonEmptyString<'WeeklyReportId'>();
+export const zWeeklyReportSourceIdSchema =
+  zBrandedNonEmptyString<'WeeklyReportSourceId'>();
+export const zFeedbackEventIdSchema =
+  zBrandedNonEmptyString<'FeedbackEventId'>();
+export const zIngestionRunIdSchema = zBrandedNonEmptyString<'IngestionRunId'>();
+export const zProviderCallbackEventIdSchema =
+  zBrandedNonEmptyString<'ProviderCallbackEventId'>();
 export const zOtpCodeSchema = z.string().trim().length(6).brand<'OtpCode'>();
 export const zLanguageCodeSchema = zBrandedNonEmptyString<'LanguageCode'>();
 export const zEmailAddressSchema = z
@@ -40,6 +63,26 @@ export type EmailProviderMessageId = z.infer<
 export type EmailIdempotencyKey = z.infer<typeof zEmailIdempotencyKeySchema>;
 export type EmailWebhookEventId = z.infer<typeof zEmailWebhookEventIdSchema>;
 export type EmailRecipientList = z.infer<typeof zEmailRecipientListSchema>;
+export type WorkspaceId = z.infer<typeof zWorkspaceIdSchema>;
+export type WorkspaceKeywordId = z.infer<typeof zWorkspaceKeywordIdSchema>;
+export type WorkspaceSocialAccountId = z.infer<
+  typeof zWorkspaceSocialAccountIdSchema
+>;
+export type WorkspaceCompetitorId = z.infer<
+  typeof zWorkspaceCompetitorIdSchema
+>;
+export type ProviderConfigId = z.infer<typeof zProviderConfigIdSchema>;
+export type InternalNoteConfigId = z.infer<typeof zInternalNoteConfigIdSchema>;
+export type SourceRecordId = z.infer<typeof zSourceRecordIdSchema>;
+export type SearchResultId = z.infer<typeof zSearchResultIdSchema>;
+export type SourceSummaryId = z.infer<typeof zSourceSummaryIdSchema>;
+export type WeeklyReportId = z.infer<typeof zWeeklyReportIdSchema>;
+export type WeeklyReportSourceId = z.infer<typeof zWeeklyReportSourceIdSchema>;
+export type FeedbackEventId = z.infer<typeof zFeedbackEventIdSchema>;
+export type IngestionRunId = z.infer<typeof zIngestionRunIdSchema>;
+export type ProviderCallbackEventId = z.infer<
+  typeof zProviderCallbackEventIdSchema
+>;
 export type OtpCode = z.infer<typeof zOtpCodeSchema>;
 export type LanguageCode = z.infer<typeof zLanguageCodeSchema>;
 export type EmailAddress = z.infer<typeof zEmailAddressSchema>;
@@ -92,6 +135,58 @@ export const toEmailWebhookEventId = (value: string): EmailWebhookEventId =>
   parseBrandedString(zEmailWebhookEventIdSchema, value, 'EmailWebhookEventId');
 export const toEmailRecipientList = (value: string): EmailRecipientList =>
   parseBrandedString(zEmailRecipientListSchema, value, 'EmailRecipientList');
+export const toWorkspaceId = (value: string): WorkspaceId =>
+  parseBrandedString(zWorkspaceIdSchema, value, 'WorkspaceId');
+export const toWorkspaceKeywordId = (value: string): WorkspaceKeywordId =>
+  parseBrandedString(zWorkspaceKeywordIdSchema, value, 'WorkspaceKeywordId');
+export const toWorkspaceSocialAccountId = (
+  value: string
+): WorkspaceSocialAccountId =>
+  parseBrandedString(
+    zWorkspaceSocialAccountIdSchema,
+    value,
+    'WorkspaceSocialAccountId'
+  );
+export const toWorkspaceCompetitorId = (value: string): WorkspaceCompetitorId =>
+  parseBrandedString(
+    zWorkspaceCompetitorIdSchema,
+    value,
+    'WorkspaceCompetitorId'
+  );
+export const toProviderConfigId = (value: string): ProviderConfigId =>
+  parseBrandedString(zProviderConfigIdSchema, value, 'ProviderConfigId');
+export const toInternalNoteConfigId = (value: string): InternalNoteConfigId =>
+  parseBrandedString(
+    zInternalNoteConfigIdSchema,
+    value,
+    'InternalNoteConfigId'
+  );
+export const toSourceRecordId = (value: string): SourceRecordId =>
+  parseBrandedString(zSourceRecordIdSchema, value, 'SourceRecordId');
+export const toSearchResultId = (value: string): SearchResultId =>
+  parseBrandedString(zSearchResultIdSchema, value, 'SearchResultId');
+export const toSourceSummaryId = (value: string): SourceSummaryId =>
+  parseBrandedString(zSourceSummaryIdSchema, value, 'SourceSummaryId');
+export const toWeeklyReportId = (value: string): WeeklyReportId =>
+  parseBrandedString(zWeeklyReportIdSchema, value, 'WeeklyReportId');
+export const toWeeklyReportSourceId = (value: string): WeeklyReportSourceId =>
+  parseBrandedString(
+    zWeeklyReportSourceIdSchema,
+    value,
+    'WeeklyReportSourceId'
+  );
+export const toFeedbackEventId = (value: string): FeedbackEventId =>
+  parseBrandedString(zFeedbackEventIdSchema, value, 'FeedbackEventId');
+export const toIngestionRunId = (value: string): IngestionRunId =>
+  parseBrandedString(zIngestionRunIdSchema, value, 'IngestionRunId');
+export const toProviderCallbackEventId = (
+  value: string
+): ProviderCallbackEventId =>
+  parseBrandedString(
+    zProviderCallbackEventIdSchema,
+    value,
+    'ProviderCallbackEventId'
+  );
 export const toOtpCode = (value: string): OtpCode =>
   parseBrandedString(zOtpCodeSchema, value, 'OtpCode', 'OtpCode is invalid');
 export const toLanguageCode = (value: string): LanguageCode =>
@@ -121,6 +216,20 @@ export const zEmailProviderMessageId = () => zEmailProviderMessageIdSchema;
 export const zEmailIdempotencyKey = () => zEmailIdempotencyKeySchema;
 export const zEmailWebhookEventId = () => zEmailWebhookEventIdSchema;
 export const zEmailRecipientList = () => zEmailRecipientListSchema;
+export const zWorkspaceId = () => zWorkspaceIdSchema;
+export const zWorkspaceKeywordId = () => zWorkspaceKeywordIdSchema;
+export const zWorkspaceSocialAccountId = () => zWorkspaceSocialAccountIdSchema;
+export const zWorkspaceCompetitorId = () => zWorkspaceCompetitorIdSchema;
+export const zProviderConfigId = () => zProviderConfigIdSchema;
+export const zInternalNoteConfigId = () => zInternalNoteConfigIdSchema;
+export const zSourceRecordId = () => zSourceRecordIdSchema;
+export const zSearchResultId = () => zSearchResultIdSchema;
+export const zSourceSummaryId = () => zSourceSummaryIdSchema;
+export const zWeeklyReportId = () => zWeeklyReportIdSchema;
+export const zWeeklyReportSourceId = () => zWeeklyReportSourceIdSchema;
+export const zFeedbackEventId = () => zFeedbackEventIdSchema;
+export const zIngestionRunId = () => zIngestionRunIdSchema;
+export const zProviderCallbackEventId = () => zProviderCallbackEventIdSchema;
 export const zOtpCode = () => zOtpCodeSchema;
 export const zLanguageCode = () => zLanguageCodeSchema;
 export const zEmailAddress = () => zEmailAddressSchema;

@@ -16,6 +16,11 @@ export {
   getEmailUseCases,
 } from './email';
 export {
+  __resetIntelligenceComposition,
+  getIntelligenceUseCases,
+  type IntelligenceOverrides,
+} from './intelligence';
+export {
   __resetKernelComposition,
   getKernel,
   type KernelOverrides,
@@ -28,6 +33,10 @@ export {
 
 import { type AccountOverrides, getAccountUseCases } from './account';
 import { type EmailOverrides, getEmailServices } from './email';
+import {
+  getIntelligenceUseCases,
+  type IntelligenceOverrides,
+} from './intelligence';
 import { getKernel, type KernelOverrides } from './kernel';
 import { getUserUseCases, type UserOverrides } from './user';
 
@@ -36,6 +45,7 @@ export type ServicesOverrides = {
   user?: Omit<UserOverrides, 'kernel'>;
   account?: Omit<AccountOverrides, 'kernel'>;
   email?: Omit<EmailOverrides, 'kernel' | 'db'>;
+  intelligence?: Omit<IntelligenceOverrides, 'kernel'>;
 };
 
 export function getServices(overrides?: ServicesOverrides) {
@@ -45,6 +55,7 @@ export function getServices(overrides?: ServicesOverrides) {
       user: getUserUseCases(),
       account: getAccountUseCases(),
       email: getEmailServices(),
+      intelligence: getIntelligenceUseCases(),
     } as const;
   }
 
@@ -54,5 +65,9 @@ export function getServices(overrides?: ServicesOverrides) {
     user: getUserUseCases({ ...overrides.user, kernel }),
     account: getAccountUseCases({ ...overrides.account, kernel }),
     email: getEmailServices({ ...overrides.email, kernel }),
+    intelligence: getIntelligenceUseCases({
+      ...overrides.intelligence,
+      kernel,
+    }),
   } as const;
 }
