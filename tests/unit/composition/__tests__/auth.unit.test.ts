@@ -62,7 +62,7 @@ describe('auth composition', () => {
 
     await first.checkPermission({
       userId: toUserId('user-1'),
-      permissions: { book: ['read'] },
+      permissions: { account: ['update'] },
       headers: new Headers(),
     });
     expect(

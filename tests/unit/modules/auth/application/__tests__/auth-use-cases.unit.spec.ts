@@ -112,14 +112,14 @@ describe('auth use cases', () => {
 
     const allowed = await useCases.checkPermission({
       userId: toUserId('user-1'),
-      permissions: { book: ['create'] },
+      permissions: { user: ['create'] },
       headers,
     });
 
     expect(getOk(allowed)).toEqual({ type: 'auth_permission_granted' });
     expect(deps.authorizationGateway.userHasPermission).toHaveBeenCalledWith({
       userId: toUserId('user-1'),
-      permissions: { book: ['create'] },
+      permissions: { user: ['create'] },
       headers,
     });
   });

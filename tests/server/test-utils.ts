@@ -22,8 +22,6 @@ type MockedDb = {
   query: {
     user: DrizzleQueryMock;
     session: DrizzleQueryMock;
-    book: DrizzleQueryMock;
-    genre: DrizzleQueryMock;
     account: DrizzleQueryMock;
     authIdentity: DrizzleQueryMock;
     verification: DrizzleQueryMock;
@@ -79,8 +77,6 @@ function buildMockDb(): MockedDb {
     query: {
       user: makeQueryMock(),
       session: makeQueryMock(),
-      book: makeQueryMock(),
-      genre: makeQueryMock(),
       account: makeQueryMock(),
       authIdentity: makeQueryMock(),
       verification: makeQueryMock(),

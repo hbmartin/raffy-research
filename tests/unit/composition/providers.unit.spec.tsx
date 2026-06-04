@@ -19,19 +19,8 @@ vi.mock('@/platform/components/ui/sonner', () => ({
   Sonner: () => null,
 }));
 
-vi.mock('@/app/demo/presentation', () => ({
-  DemoModeDrawer: () => null,
-  useIsDemoModeDrawerVisible: () => false,
-}));
-
 vi.mock('@/modules/auth/client', () => ({
   useCurrentSessionQuery: () => ({ data: null }),
-}));
-
-vi.mock('@/platform/env/client', () => ({
-  envClient: {
-    VITE_IS_DEMO: false,
-  },
 }));
 
 describe('Providers', () => {

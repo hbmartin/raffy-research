@@ -10,14 +10,8 @@ const zBrandedNonEmptyString = <TBrand extends string>() =>
   z.string().trim().min(1).brand<TBrand>();
 
 export const zUserIdSchema = zBrandedNonEmptyString<'UserId'>();
-export const zBookIdSchema = zBrandedNonEmptyString<'BookId'>();
-export const zGenreIdSchema = zBrandedNonEmptyString<'GenreId'>();
 export const zSessionIdSchema = zBrandedNonEmptyString<'SessionId'>();
 export const zScopeKeySchema = zBrandedNonEmptyString<'ScopeKey'>();
-export const zAuthorIdSchema = zBrandedNonEmptyString<'AuthorId'>();
-export const zPublisherIdSchema = zBrandedNonEmptyString<'PublisherId'>();
-export const zBookCoverObjectKeySchema =
-  zBrandedNonEmptyString<'BookCoverObjectKey'>();
 export const zEmailStatusIdSchema = zBrandedNonEmptyString<'EmailStatusId'>();
 export const zEmailProviderMessageIdSchema =
   zBrandedNonEmptyString<'EmailProviderMessageId'>();
@@ -36,14 +30,9 @@ export const zEmailAddressSchema = z
   .brand<'EmailAddress'>();
 
 export type UserId = z.infer<typeof zUserIdSchema>;
-export type BookId = z.infer<typeof zBookIdSchema>;
-export type GenreId = z.infer<typeof zGenreIdSchema>;
 export type SessionId = z.infer<typeof zSessionIdSchema>;
 export type AuthSessionId = SessionId;
 export type ScopeKey = z.infer<typeof zScopeKeySchema>;
-export type AuthorId = z.infer<typeof zAuthorIdSchema>;
-export type PublisherId = z.infer<typeof zPublisherIdSchema>;
-export type BookCoverObjectKey = z.infer<typeof zBookCoverObjectKeySchema>;
 export type EmailStatusId = z.infer<typeof zEmailStatusIdSchema>;
 export type EmailProviderMessageId = z.infer<
   typeof zEmailProviderMessageIdSchema
@@ -83,20 +72,10 @@ const parseBrandedString = <TSchema extends z.ZodType>(
 
 export const toUserId = (value: string): UserId =>
   parseBrandedString(zUserIdSchema, value, 'UserId');
-export const toBookId = (value: string): BookId =>
-  parseBrandedString(zBookIdSchema, value, 'BookId');
-export const toGenreId = (value: string): GenreId =>
-  parseBrandedString(zGenreIdSchema, value, 'GenreId');
 export const toSessionId = (value: string): SessionId =>
   parseBrandedString(zSessionIdSchema, value, 'SessionId');
 export const toScopeKey = (value: string): ScopeKey =>
   parseBrandedString(zScopeKeySchema, value, 'ScopeKey');
-export const toAuthorId = (value: string): AuthorId =>
-  parseBrandedString(zAuthorIdSchema, value, 'AuthorId');
-export const toPublisherId = (value: string): PublisherId =>
-  parseBrandedString(zPublisherIdSchema, value, 'PublisherId');
-export const toBookCoverObjectKey = (value: string): BookCoverObjectKey =>
-  parseBrandedString(zBookCoverObjectKeySchema, value, 'BookCoverObjectKey');
 export const toEmailStatusId = (value: string): EmailStatusId =>
   parseBrandedString(zEmailStatusIdSchema, value, 'EmailStatusId');
 export const toEmailProviderMessageId = (
@@ -135,13 +114,8 @@ export const toCacheKey = (value: string): CacheKey =>
   ensureNonEmptyId(value, 'CacheKey') as CacheKey;
 
 export const zUserId = () => zUserIdSchema;
-export const zBookId = () => zBookIdSchema;
-export const zGenreId = () => zGenreIdSchema;
 export const zSessionId = () => zSessionIdSchema;
 export const zScopeKey = () => zScopeKeySchema;
-export const zAuthorId = () => zAuthorIdSchema;
-export const zPublisherId = () => zPublisherIdSchema;
-export const zBookCoverObjectKey = () => zBookCoverObjectKeySchema;
 export const zEmailStatusId = () => zEmailStatusIdSchema;
 export const zEmailProviderMessageId = () => zEmailProviderMessageIdSchema;
 export const zEmailIdempotencyKey = () => zEmailIdempotencyKeySchema;

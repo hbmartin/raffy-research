@@ -30,12 +30,12 @@ describe('scope authorization helpers', () => {
     const result = await hasScopePermission({
       permissionChecker,
       scope,
-      permissions: { book: ['read'] },
+      permissions: { account: ['update'] },
     });
 
     expect(getOk(result)).toEqual({ type: 'permission_granted' });
     expect(permissionChecker.hasPermission).toHaveBeenCalledWith('user-1', {
-      book: ['read'],
+      account: ['update'],
     });
   });
 });

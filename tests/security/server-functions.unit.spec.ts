@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { accountUpdateInfo } from '@/modules/account/server';
-import { bookGetAll } from '@/modules/book/server';
-import { genreGetAll } from '@/modules/genre/server';
 import { userGetAll } from '@/modules/user/server';
 import {
   mockGetSession,
@@ -12,16 +10,6 @@ import {
 } from '@tests/server/test-utils';
 
 const protectedReadCalls = [
-  {
-    data: { limit: 20, searchTerm: '' },
-    name: 'bookGetAll',
-    serverFn: bookGetAll,
-  },
-  {
-    data: { limit: 20, searchTerm: '' },
-    name: 'genreGetAll',
-    serverFn: genreGetAll,
-  },
   {
     data: { limit: 20, searchTerm: '' },
     name: 'userGetAll',

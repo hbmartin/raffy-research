@@ -152,7 +152,7 @@ describe('server function middleware', () => {
     });
 
     await expect(
-      tools.assertPermission(toUserId('user-1'), { book: ['read'] })
+      tools.assertPermission(toUserId('user-1'), { account: ['update'] })
     ).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });

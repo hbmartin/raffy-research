@@ -5,12 +5,6 @@ import {
   PageLayoutTopBarTitle,
 } from '@/platform/components/page-layout/manager';
 
-import {
-  DemoAppSwitch,
-  DemoMarketingBento,
-  DemoWelcome,
-} from '@/app/demo/presentation';
-
 export const PageDashboard = () => {
   return (
     <PageLayout>
@@ -18,10 +12,17 @@ export const PageDashboard = () => {
         <PageLayoutTopBarTitle>Dashboard</PageLayoutTopBarTitle>
       </PageLayoutTopBar>
       <PageLayoutContent containerClassName="max-w-4xl">
-        <div className="flex flex-col gap-4">
-          <DemoWelcome />
-          <DemoAppSwitch />
-          <DemoMarketingBento />
+        <div className="flex min-h-[50dvh] flex-col justify-center gap-3">
+          <p className="text-sm font-medium text-muted-foreground">
+            Operations
+          </p>
+          <h1 className="text-3xl font-semibold tracking-normal">
+            Configure intelligence workspaces from this area.
+          </h1>
+          <p className="text-base text-muted-foreground">
+            Workspace, provider, and report controls will live in the manager
+            navigation as the market intelligence product is added.
+          </p>
         </div>
       </PageLayoutContent>
     </PageLayout>

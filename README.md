@@ -49,7 +49,7 @@ This project uses Vite's native `resolve.tsconfigPaths: true` option to resolve 
 ```bash
 cp .env.example .env  # Setup your env variables
 pnpm install          # Install dependencies
-pnpm dk:init          # Start Docker containers (PostgreSQL, MinIO)
+pnpm dk:init          # Start Docker containers (PostgreSQL)
 pnpm db:init          # Push the Drizzle schema and seed the database
 ```
 
@@ -88,7 +88,7 @@ The app uses OpenTelemetry for traces, metrics, and server-emitted logs, with Se
 * Browser fetch instrumentation only propagates `traceparent` and `baggage` to same-origin requests and ignores `/api/telemetry/*`.
 * Server OTel exports directly to `OTEL_COLLECTOR_URL` when configured. Without that env, server export is no-op and local/test proxy summaries can be written to `.telemetry/telemetry.sqlite`.
 
-The telemetry layer derives Query and mutation operation names from static TanStack Query key segments, such as `book.getAll`. Dynamic key values are hashed before becoming attributes; raw dynamic values are only exposed in localhost/debug mode. Route loaders and `beforeLoad` guards are wrapped with route-level spans so navigation time, guard time, loader time, and Query time can be separated.
+The telemetry layer derives Query and mutation operation names from static TanStack Query key segments. Dynamic key values are hashed before becoming attributes; raw dynamic values are only exposed in localhost/debug mode. Route loaders and `beforeLoad` guards are wrapped with route-level spans so navigation time, guard time, loader time, and Query time can be separated.
 
 TanStack Query retry policy is intentionally bounded: queries retry transient/network and 5xx-style failures up to two times, do not retry numeric 4xx client errors, and mutations do not retry by default. Keep query keys aligned with `validateSearch` and `loaderDeps` for routes that read search params.
 
@@ -196,7 +196,7 @@ This app is a TanStack Start app with Nitro already enabled in `vite.config.ts`.
 Before deploying anywhere:
 
 * Use Node.js 24 or newer to match the current `package.json` engine.
-* Set production values for the required variables in `.env.example`, especially `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL`, S3 storage, email, OAuth, and any public `VITE_*` values.
+* Set production values for the required variables in `.env.example`, especially `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL`, email, OAuth, and any public `VITE_*` values.
 * Point `VITE_BASE_URL` at the deployed HTTPS URL. For preview domains, also configure `AUTH_ALLOWED_HOSTS` as needed.
 * Run your versioned migration command against the production database before serving production traffic. Do not use `pnpm db:push` for production deployments because it bypasses migration history.
 
@@ -224,7 +224,7 @@ For source-controlled Worker configuration, install Wrangler and the Cloudflare 
 pnpm add -D wrangler @cloudflare/vite-plugin
 ```
 
-Cloudflare Workers is not a normal Node server, so validate database, storage, and email dependencies with Workers-compatible providers or bindings instead of local Docker, MinIO, and Maildev URLs.
+Cloudflare Workers is not a normal Node server, so validate database and email dependencies with Workers-compatible providers or bindings instead of local Docker URLs.
 
 Docs: [Cloudflare TanStack Start](https://developers.cloudflare.com/workers/framework-guides/web-apps/tanstack-start/), [Workers Builds image](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)
 

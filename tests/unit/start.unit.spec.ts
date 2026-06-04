@@ -44,9 +44,9 @@ describe('TanStack Start instance', () => {
       shouldProtectBrowserMutation({
         handlerType: 'router',
         method: 'POST',
-        pathname: '/api/upload',
+        pathname: '/api/providers/exa/callback',
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldProtectBrowserMutation({
         handlerType: 'router',
@@ -93,8 +93,8 @@ describe('TanStack Start instance', () => {
     ).handler({
       handlerType: 'router',
       next,
-      pathname: '/api/upload',
-      request: new Request('https://app.example/api/upload', {
+      pathname: '/logout',
+      request: new Request('https://app.example/logout', {
         headers: { origin: 'https://evil.example' },
         method: 'POST',
       }),
@@ -104,7 +104,7 @@ describe('TanStack Start instance', () => {
     expect(mockLogger.warn).toHaveBeenCalledWith({
       details: {
         method: 'POST',
-        pathname: '/api/upload',
+        pathname: '/logout',
         reason: 'origin_cross_origin',
       },
       direction: 'inbound',
@@ -176,8 +176,8 @@ describe('TanStack Start instance', () => {
     ).handler({
       handlerType: 'router',
       next,
-      pathname: '/api/upload',
-      request: new Request('https://app.example/api/upload', {
+      pathname: '/logout',
+      request: new Request('https://app.example/logout', {
         headers: { 'Sec-Fetch-Site': 'same-origin' },
         method: 'POST',
       }),
@@ -207,8 +207,8 @@ describe('TanStack Start instance', () => {
     ).handler({
       handlerType: 'router',
       next,
-      pathname: '/api/upload',
-      request: new Request('https://app.example/api/upload', {
+      pathname: '/logout',
+      request: new Request('https://app.example/logout', {
         headers: { origin: 'https://evil.example' },
         method: 'POST',
       }),

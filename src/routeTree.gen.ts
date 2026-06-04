@@ -19,14 +19,11 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ManagerIndexRouteImport } from './routes/manager/index'
 import { Route as LoginIndexRouteImport } from './routes/login/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
-import { Route as ApiUploadRouteImport } from './routes/api/upload'
 import { Route as ManagerUsersIndexRouteImport } from './routes/manager/users/index'
 import { Route as ManagerDashboardIndexRouteImport } from './routes/manager/dashboard.index'
-import { Route as ManagerBooksIndexRouteImport } from './routes/manager/books/index'
 import { Route as ManagerAccountIndexRouteImport } from './routes/manager/account.index'
 import { Route as LoginVerifyIndexRouteImport } from './routes/login/verify.index'
 import { Route as LoginErrorIndexRouteImport } from './routes/login/error.index'
-import { Route as AppBooksIndexRouteImport } from './routes/app/books/index'
 import { Route as AppAccountIndexRouteImport } from './routes/app/account.index'
 import { Route as ApiWebhooksResendRouteImport } from './routes/api/webhooks.resend'
 import { Route as ApiTelemetrySentryTunnelRouteImport } from './routes/api/telemetry.sentry-tunnel'
@@ -34,12 +31,8 @@ import { Route as ApiTelemetryLogsRouteImport } from './routes/api/telemetry.log
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as ManagerUsersNewIndexRouteImport } from './routes/manager/users/new.index'
 import { Route as ManagerUsersIdIndexRouteImport } from './routes/manager/users/$id.index'
-import { Route as ManagerBooksNewIndexRouteImport } from './routes/manager/books/new.index'
-import { Route as ManagerBooksIdIndexRouteImport } from './routes/manager/books/$id.index'
-import { Route as AppBooksIdIndexRouteImport } from './routes/app/books/$id.index'
 import { Route as ApiDevEmailTemplateRouteImport } from './routes/api/dev.email.$template'
 import { Route as ManagerUsersIdUpdateIndexRouteImport } from './routes/manager/users/$id.update.index'
-import { Route as ManagerBooksIdUpdateIndexRouteImport } from './routes/manager/books/$id.update.index'
 import { Route as ApiTelemetryOtelV1TracesRouteImport } from './routes/api/telemetry.otel.v1.traces'
 import { Route as ApiTelemetryOtelV1MetricsRouteImport } from './routes/api/telemetry.otel.v1.metrics'
 
@@ -93,11 +86,6 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const ApiUploadRoute = ApiUploadRouteImport.update({
-  id: '/api/upload',
-  path: '/api/upload',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ManagerUsersIndexRoute = ManagerUsersIndexRouteImport.update({
   id: '/users/',
   path: '/users/',
@@ -106,11 +94,6 @@ const ManagerUsersIndexRoute = ManagerUsersIndexRouteImport.update({
 const ManagerDashboardIndexRoute = ManagerDashboardIndexRouteImport.update({
   id: '/dashboard/',
   path: '/dashboard/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerBooksIndexRoute = ManagerBooksIndexRouteImport.update({
-  id: '/books/',
-  path: '/books/',
   getParentRoute: () => ManagerRouteRoute,
 } as any)
 const ManagerAccountIndexRoute = ManagerAccountIndexRouteImport.update({
@@ -127,11 +110,6 @@ const LoginErrorIndexRoute = LoginErrorIndexRouteImport.update({
   id: '/error/',
   path: '/error/',
   getParentRoute: () => LoginRouteRoute,
-} as any)
-const AppBooksIndexRoute = AppBooksIndexRouteImport.update({
-  id: '/books/',
-  path: '/books/',
-  getParentRoute: () => AppRouteRoute,
 } as any)
 const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
   id: '/account/',
@@ -169,21 +147,6 @@ const ManagerUsersIdIndexRoute = ManagerUsersIdIndexRouteImport.update({
   path: '/users/$id/',
   getParentRoute: () => ManagerRouteRoute,
 } as any)
-const ManagerBooksNewIndexRoute = ManagerBooksNewIndexRouteImport.update({
-  id: '/books/new/',
-  path: '/books/new/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerBooksIdIndexRoute = ManagerBooksIdIndexRouteImport.update({
-  id: '/books/$id/',
-  path: '/books/$id/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const AppBooksIdIndexRoute = AppBooksIdIndexRouteImport.update({
-  id: '/books/$id/',
-  path: '/books/$id/',
-  getParentRoute: () => AppRouteRoute,
-} as any)
 const ApiDevEmailTemplateRoute = ApiDevEmailTemplateRouteImport.update({
   id: '/api/dev/email/$template',
   path: '/api/dev/email/$template',
@@ -193,12 +156,6 @@ const ManagerUsersIdUpdateIndexRoute =
   ManagerUsersIdUpdateIndexRouteImport.update({
     id: '/users/$id/update/',
     path: '/users/$id/update/',
-    getParentRoute: () => ManagerRouteRoute,
-  } as any)
-const ManagerBooksIdUpdateIndexRoute =
-  ManagerBooksIdUpdateIndexRouteImport.update({
-    id: '/books/$id/update/',
-    path: '/books/$id/update/',
     getParentRoute: () => ManagerRouteRoute,
   } as any)
 const ApiTelemetryOtelV1TracesRoute =
@@ -221,7 +178,6 @@ export interface FileRoutesByFullPath {
   '/manager': typeof ManagerRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/logout': typeof LogoutRoute
-  '/api/upload': typeof ApiUploadRoute
   '/app/': typeof AppIndexRoute
   '/login/': typeof LoginIndexRoute
   '/manager/': typeof ManagerIndexRoute
@@ -231,28 +187,21 @@ export interface FileRoutesByFullPath {
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account/': typeof AppAccountIndexRoute
-  '/app/books/': typeof AppBooksIndexRoute
   '/login/error/': typeof LoginErrorIndexRoute
   '/login/verify/': typeof LoginVerifyIndexRoute
   '/manager/account/': typeof ManagerAccountIndexRoute
-  '/manager/books/': typeof ManagerBooksIndexRoute
   '/manager/dashboard/': typeof ManagerDashboardIndexRoute
   '/manager/users/': typeof ManagerUsersIndexRoute
   '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
-  '/app/books/$id/': typeof AppBooksIdIndexRoute
-  '/manager/books/$id/': typeof ManagerBooksIdIndexRoute
-  '/manager/books/new/': typeof ManagerBooksNewIndexRoute
   '/manager/users/$id/': typeof ManagerUsersIdIndexRoute
   '/manager/users/new/': typeof ManagerUsersNewIndexRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
-  '/manager/books/$id/update/': typeof ManagerBooksIdUpdateIndexRoute
   '/manager/users/$id/update/': typeof ManagerUsersIdUpdateIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/logout': typeof LogoutRoute
-  '/api/upload': typeof ApiUploadRoute
   '/app': typeof AppIndexRoute
   '/login': typeof LoginIndexRoute
   '/manager': typeof ManagerIndexRoute
@@ -262,22 +211,16 @@ export interface FileRoutesByTo {
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account': typeof AppAccountIndexRoute
-  '/app/books': typeof AppBooksIndexRoute
   '/login/error': typeof LoginErrorIndexRoute
   '/login/verify': typeof LoginVerifyIndexRoute
   '/manager/account': typeof ManagerAccountIndexRoute
-  '/manager/books': typeof ManagerBooksIndexRoute
   '/manager/dashboard': typeof ManagerDashboardIndexRoute
   '/manager/users': typeof ManagerUsersIndexRoute
   '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
-  '/app/books/$id': typeof AppBooksIdIndexRoute
-  '/manager/books/$id': typeof ManagerBooksIdIndexRoute
-  '/manager/books/new': typeof ManagerBooksNewIndexRoute
   '/manager/users/$id': typeof ManagerUsersIdIndexRoute
   '/manager/users/new': typeof ManagerUsersNewIndexRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
-  '/manager/books/$id/update': typeof ManagerBooksIdUpdateIndexRoute
   '/manager/users/$id/update': typeof ManagerUsersIdUpdateIndexRoute
 }
 export interface FileRoutesById {
@@ -288,7 +231,6 @@ export interface FileRoutesById {
   '/manager': typeof ManagerRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/logout': typeof LogoutRoute
-  '/api/upload': typeof ApiUploadRoute
   '/app/': typeof AppIndexRoute
   '/login/': typeof LoginIndexRoute
   '/manager/': typeof ManagerIndexRoute
@@ -298,22 +240,16 @@ export interface FileRoutesById {
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
   '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account/': typeof AppAccountIndexRoute
-  '/app/books/': typeof AppBooksIndexRoute
   '/login/error/': typeof LoginErrorIndexRoute
   '/login/verify/': typeof LoginVerifyIndexRoute
   '/manager/account/': typeof ManagerAccountIndexRoute
-  '/manager/books/': typeof ManagerBooksIndexRoute
   '/manager/dashboard/': typeof ManagerDashboardIndexRoute
   '/manager/users/': typeof ManagerUsersIndexRoute
   '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
-  '/app/books/$id/': typeof AppBooksIdIndexRoute
-  '/manager/books/$id/': typeof ManagerBooksIdIndexRoute
-  '/manager/books/new/': typeof ManagerBooksNewIndexRoute
   '/manager/users/$id/': typeof ManagerUsersIdIndexRoute
   '/manager/users/new/': typeof ManagerUsersNewIndexRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
-  '/manager/books/$id/update/': typeof ManagerBooksIdUpdateIndexRoute
   '/manager/users/$id/update/': typeof ManagerUsersIdUpdateIndexRoute
 }
 export interface FileRouteTypes {
@@ -325,7 +261,6 @@ export interface FileRouteTypes {
     | '/manager'
     | '/onboarding'
     | '/logout'
-    | '/api/upload'
     | '/app/'
     | '/login/'
     | '/manager/'
@@ -335,28 +270,21 @@ export interface FileRouteTypes {
     | '/api/telemetry/sentry-tunnel'
     | '/api/webhooks/resend'
     | '/app/account/'
-    | '/app/books/'
     | '/login/error/'
     | '/login/verify/'
     | '/manager/account/'
-    | '/manager/books/'
     | '/manager/dashboard/'
     | '/manager/users/'
     | '/api/dev/email/$template'
-    | '/app/books/$id/'
-    | '/manager/books/$id/'
-    | '/manager/books/new/'
     | '/manager/users/$id/'
     | '/manager/users/new/'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
-    | '/manager/books/$id/update/'
     | '/manager/users/$id/update/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/logout'
-    | '/api/upload'
     | '/app'
     | '/login'
     | '/manager'
@@ -366,22 +294,16 @@ export interface FileRouteTypes {
     | '/api/telemetry/sentry-tunnel'
     | '/api/webhooks/resend'
     | '/app/account'
-    | '/app/books'
     | '/login/error'
     | '/login/verify'
     | '/manager/account'
-    | '/manager/books'
     | '/manager/dashboard'
     | '/manager/users'
     | '/api/dev/email/$template'
-    | '/app/books/$id'
-    | '/manager/books/$id'
-    | '/manager/books/new'
     | '/manager/users/$id'
     | '/manager/users/new'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
-    | '/manager/books/$id/update'
     | '/manager/users/$id/update'
   id:
     | '__root__'
@@ -391,7 +313,6 @@ export interface FileRouteTypes {
     | '/manager'
     | '/onboarding'
     | '/logout'
-    | '/api/upload'
     | '/app/'
     | '/login/'
     | '/manager/'
@@ -401,22 +322,16 @@ export interface FileRouteTypes {
     | '/api/telemetry/sentry-tunnel'
     | '/api/webhooks/resend'
     | '/app/account/'
-    | '/app/books/'
     | '/login/error/'
     | '/login/verify/'
     | '/manager/account/'
-    | '/manager/books/'
     | '/manager/dashboard/'
     | '/manager/users/'
     | '/api/dev/email/$template'
-    | '/app/books/$id/'
-    | '/manager/books/$id/'
-    | '/manager/books/new/'
     | '/manager/users/$id/'
     | '/manager/users/new/'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
-    | '/manager/books/$id/update/'
     | '/manager/users/$id/update/'
   fileRoutesById: FileRoutesById
 }
@@ -427,7 +342,6 @@ export interface RootRouteChildren {
   ManagerRouteRoute: typeof ManagerRouteRouteWithChildren
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   LogoutRoute: typeof LogoutRoute
-  ApiUploadRoute: typeof ApiUploadRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiTelemetryLogsRoute: typeof ApiTelemetryLogsRoute
   ApiTelemetrySentryTunnelRoute: typeof ApiTelemetrySentryTunnelRoute
@@ -509,13 +423,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/api/upload': {
-      id: '/api/upload'
-      path: '/api/upload'
-      fullPath: '/api/upload'
-      preLoaderRoute: typeof ApiUploadRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/manager/users/': {
       id: '/manager/users/'
       path: '/users'
@@ -528,13 +435,6 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/manager/dashboard/'
       preLoaderRoute: typeof ManagerDashboardIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/books/': {
-      id: '/manager/books/'
-      path: '/books'
-      fullPath: '/manager/books/'
-      preLoaderRoute: typeof ManagerBooksIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
     '/manager/account/': {
@@ -557,13 +457,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/login/error/'
       preLoaderRoute: typeof LoginErrorIndexRouteImport
       parentRoute: typeof LoginRouteRoute
-    }
-    '/app/books/': {
-      id: '/app/books/'
-      path: '/books'
-      fullPath: '/app/books/'
-      preLoaderRoute: typeof AppBooksIndexRouteImport
-      parentRoute: typeof AppRouteRoute
     }
     '/app/account/': {
       id: '/app/account/'
@@ -614,27 +507,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerUsersIdIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
-    '/manager/books/new/': {
-      id: '/manager/books/new/'
-      path: '/books/new'
-      fullPath: '/manager/books/new/'
-      preLoaderRoute: typeof ManagerBooksNewIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/books/$id/': {
-      id: '/manager/books/$id/'
-      path: '/books/$id'
-      fullPath: '/manager/books/$id/'
-      preLoaderRoute: typeof ManagerBooksIdIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/app/books/$id/': {
-      id: '/app/books/$id/'
-      path: '/books/$id'
-      fullPath: '/app/books/$id/'
-      preLoaderRoute: typeof AppBooksIdIndexRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
     '/api/dev/email/$template': {
       id: '/api/dev/email/$template'
       path: '/api/dev/email/$template'
@@ -647,13 +519,6 @@ declare module '@tanstack/react-router' {
       path: '/users/$id/update'
       fullPath: '/manager/users/$id/update/'
       preLoaderRoute: typeof ManagerUsersIdUpdateIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/books/$id/update/': {
-      id: '/manager/books/$id/update/'
-      path: '/books/$id/update'
-      fullPath: '/manager/books/$id/update/'
-      preLoaderRoute: typeof ManagerBooksIdUpdateIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
     '/api/telemetry/otel/v1/traces': {
@@ -676,15 +541,11 @@ declare module '@tanstack/react-router' {
 interface AppRouteRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppAccountIndexRoute: typeof AppAccountIndexRoute
-  AppBooksIndexRoute: typeof AppBooksIndexRoute
-  AppBooksIdIndexRoute: typeof AppBooksIdIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppAccountIndexRoute: AppAccountIndexRoute,
-  AppBooksIndexRoute: AppBooksIndexRoute,
-  AppBooksIdIndexRoute: AppBooksIdIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
@@ -710,28 +571,20 @@ const LoginRouteRouteWithChildren = LoginRouteRoute._addFileChildren(
 interface ManagerRouteRouteChildren {
   ManagerIndexRoute: typeof ManagerIndexRoute
   ManagerAccountIndexRoute: typeof ManagerAccountIndexRoute
-  ManagerBooksIndexRoute: typeof ManagerBooksIndexRoute
   ManagerDashboardIndexRoute: typeof ManagerDashboardIndexRoute
   ManagerUsersIndexRoute: typeof ManagerUsersIndexRoute
-  ManagerBooksIdIndexRoute: typeof ManagerBooksIdIndexRoute
-  ManagerBooksNewIndexRoute: typeof ManagerBooksNewIndexRoute
   ManagerUsersIdIndexRoute: typeof ManagerUsersIdIndexRoute
   ManagerUsersNewIndexRoute: typeof ManagerUsersNewIndexRoute
-  ManagerBooksIdUpdateIndexRoute: typeof ManagerBooksIdUpdateIndexRoute
   ManagerUsersIdUpdateIndexRoute: typeof ManagerUsersIdUpdateIndexRoute
 }
 
 const ManagerRouteRouteChildren: ManagerRouteRouteChildren = {
   ManagerIndexRoute: ManagerIndexRoute,
   ManagerAccountIndexRoute: ManagerAccountIndexRoute,
-  ManagerBooksIndexRoute: ManagerBooksIndexRoute,
   ManagerDashboardIndexRoute: ManagerDashboardIndexRoute,
   ManagerUsersIndexRoute: ManagerUsersIndexRoute,
-  ManagerBooksIdIndexRoute: ManagerBooksIdIndexRoute,
-  ManagerBooksNewIndexRoute: ManagerBooksNewIndexRoute,
   ManagerUsersIdIndexRoute: ManagerUsersIdIndexRoute,
   ManagerUsersNewIndexRoute: ManagerUsersNewIndexRoute,
-  ManagerBooksIdUpdateIndexRoute: ManagerBooksIdUpdateIndexRoute,
   ManagerUsersIdUpdateIndexRoute: ManagerUsersIdUpdateIndexRoute,
 }
 
@@ -758,7 +611,6 @@ const rootRouteChildren: RootRouteChildren = {
   ManagerRouteRoute: ManagerRouteRouteWithChildren,
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   LogoutRoute: LogoutRoute,
-  ApiUploadRoute: ApiUploadRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiTelemetryLogsRoute: ApiTelemetryLogsRoute,
   ApiTelemetrySentryTunnelRoute: ApiTelemetrySentryTunnelRoute,

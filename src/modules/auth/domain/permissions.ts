@@ -16,8 +16,6 @@ export const permissionStatements = {
   session: ['list', 'revoke', 'delete'],
   account: ['read', 'update'],
   apps: ['app', 'manager'],
-  book: ['read', 'create', 'update', 'delete'],
-  genre: ['read'],
 } as const;
 
 export type Permission = {
@@ -32,8 +30,6 @@ export const rolePermissions = {
     session: [],
     account: ['update'],
     apps: ['app'],
-    book: ['read'],
-    genre: ['read'],
   },
   admin: {
     user: [
@@ -48,8 +44,6 @@ export const rolePermissions = {
     session: ['list', 'revoke', 'delete'],
     account: ['update'],
     apps: ['app', 'manager'],
-    book: ['read', 'create', 'update', 'delete'],
-    genre: ['read'],
   },
 } as const satisfies Record<UserRole, Permission>;
 
@@ -83,6 +77,4 @@ export const hasRolePermission = (role: Role, permissions: Permission) => {
 export const defaultUserPermissions = {
   account: ['update'],
   apps: ['app'],
-  book: ['read'],
-  genre: ['read'],
 } as const satisfies Permission;

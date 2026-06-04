@@ -41,7 +41,7 @@ Use a layered verification loop rather than relying on one broad command.
 - Run `pnpm build` for production build/runtime changes, and `pnpm verify` before merge-level handoff.
 - When tests fail, inspect Playwright traces, screenshots, videos, console output, network evidence, and auth diagnostics before changing code. Treat retries as a diagnostic signal, not proof of correctness.
 
-Local full-stack verification with seeded data, Maildev, MinIO, and the local database is the default realism level for agent work. Production smoke testing is out of scope unless read-only routes, credentials, and data safety rules are explicitly provided.
+Local full-stack verification with seeded data and the local database is the default realism level for agent work. Production smoke testing is out of scope unless read-only routes, credentials, and data safety rules are explicitly provided.
 
 Task verification artifacts should be grouped under `test-results/task-verification/<timestamp>/` when using `pnpm verify:task`. Keep Playwright traces, screenshots, videos, and failure attachments in their default `test-results/` locations and link or summarize the relevant paths in the final handoff. Visual test baselines are reviewed repo artifacts; do not silently update them without saying why.
 
@@ -67,7 +67,7 @@ Do not deep-import another module's `domain/`, `application/`, `infrastructure/`
 
 ## Result and Outcome Policy
 
-- Expected business outcomes must be domain-tagged `Result.Ok` variants from `@swan-io/boxed`, such as `{ type: 'book_found'; book: Book }` or `{ type: 'book_not_found' }`.
+- Expected business outcomes must be domain-tagged `Result.Ok` variants from `@swan-io/boxed`, such as `{ type: 'workspace_found'; workspace: Workspace }` or `{ type: 'workspace_not_found' }`.
 - Internal, external-service, system, and persistence failures must be `Result.Error(AppError)`.
 - Use direct Boxed APIs (`Result.Ok`, `Result.Error`, `isOk`, `isError`, `get`, `getError`) instead of local `ok` / `fail` wrappers.
 - Use `ts-pattern` with Boxed interop (`Result.P.Ok(...)` and `Result.P.Error(...)`) for exhaustive result handling at mapping boundaries.
