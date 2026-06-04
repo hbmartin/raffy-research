@@ -57,5 +57,10 @@ const factory = createCachedFactory(buildIntelligenceUseCases);
 export const getIntelligenceUseCases = (overrides?: IntelligenceOverrides) =>
   factory.get(overrides);
 
+export { getIntelligenceRuntimeConfig };
+
+export const getIntelligenceProviderAdapter = (providerName: string) =>
+  providerAdapters[providerName as keyof typeof providerAdapters];
+
 /** Test-only. */
 export const __resetIntelligenceComposition = () => factory.reset();

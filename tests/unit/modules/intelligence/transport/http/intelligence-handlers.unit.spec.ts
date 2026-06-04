@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { IntelligenceRepository } from '@/modules/intelligence';
 import type { IntelligenceUseCases } from '@/modules/intelligence/factory';
+import { providerAdapters } from '@/modules/intelligence/infrastructure/providers/provider-registry';
 import { createIntelligenceHttpHandlers } from '@/modules/intelligence/transport/http/intelligence-handlers';
 import { toGeneratedId } from '@/modules/kernel';
 
@@ -15,6 +16,7 @@ describe('intelligence HTTP handlers', () => {
         openAiModel: 'gpt-5.4-mini',
         providerCredentials: {},
       }),
+      getProviderAdapter: (providerName) => providerAdapters[providerName],
       getUseCases: vi.fn(),
       idGenerator: { createId: () => toGeneratedId('id-1') },
       startDailyIngestionWorkflow,
@@ -62,7 +64,12 @@ describe('intelligence HTTP handlers', () => {
     } as unknown as IntelligenceRepository;
     const handlers = createIntelligenceHttpHandlers({
       clock: { now: () => new Date('2026-06-03T14:00:00.000Z') },
-      getRuntimeConfig: vi.fn(),
+      getRuntimeConfig: () => ({
+        openAiModel: 'gpt-5.4-mini',
+        providerCallbackSecret: 'callback-secret',
+        providerCredentials: {},
+      }),
+      getProviderAdapter: (providerName) => providerAdapters[providerName],
       getUseCases: () =>
         ({
           repository,
@@ -89,7 +96,10 @@ describe('intelligence HTTP handlers', () => {
               },
             ],
           }),
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            authorization: 'Bearer callback-secret',
+            'content-type': 'application/json',
+          },
           method: 'POST',
         }
       ),
@@ -106,5 +116,42 @@ describe('intelligence HTTP handlers', () => {
         workspaceId: 'workspace-1',
       })
     );
+  });
+
+  it('rejects provider callbacks without the shared callback secret', async () => {
+    const repository = {
+      insertProviderCallbackEvent: vi.fn(),
+    } as unknown as IntelligenceRepository;
+    const handlers = createIntelligenceHttpHandlers({
+      clock: { now: () => new Date('2026-06-03T14:00:00.000Z') },
+      getRuntimeConfig: () => ({
+        openAiModel: 'gpt-5.4-mini',
+        providerCallbackSecret: 'callback-secret',
+        providerCredentials: {},
+      }),
+      getProviderAdapter: (providerName) => providerAdapters[providerName],
+      getUseCases: () =>
+        ({
+          repository,
+        }) as IntelligenceUseCases,
+      idGenerator: { createId: () => toGeneratedId('id-1') },
+      startDailyIngestionWorkflow: vi.fn(),
+      startWeeklyReportsWorkflow: vi.fn(),
+    });
+
+    await expect(
+      handlers.receiveProviderCallback({
+        provider: 'exa',
+        request: new Request(
+          'https://app.example/api/providers/exa/callback?workspaceId=workspace-1',
+          {
+            body: JSON.stringify({ results: [] }),
+            headers: { 'content-type': 'application/json' },
+            method: 'POST',
+          }
+        ),
+      })
+    ).rejects.toMatchObject({ status: 401 });
+    expect(repository.insertProviderCallbackEvent).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
 export {
   intelligenceAcceptSuggestedCompetitor,
   intelligenceRecordFeedback,
-} from './presentation/wired-actions';
+} from '../server';

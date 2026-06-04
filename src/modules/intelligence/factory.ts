@@ -3,6 +3,7 @@ import type { IdGenerator, Logger } from '@/modules/kernel';
 import type { IntelligenceRepository } from './application/ports/intelligence-repository';
 import type { ProviderAdapter } from './application/ports/provider-adapter';
 import type { ReportGenerator } from './application/ports/report-generator';
+import type { IntelligenceRuntimeConfig } from './application/ports/runtime-config';
 import {
   createGenerateWeeklyReportsUseCase,
   type WeeklyReportGenerationSummary,
@@ -13,7 +14,6 @@ import {
   type DailyIngestionSummary,
 } from './application/use-cases/run-daily-ingestion';
 import type { ProviderName } from './domain/intelligence';
-import type { IntelligenceRuntimeConfig } from './infrastructure/config/intelligence-env';
 
 export type IntelligenceUseCases = {
   generateWeeklyReports: () => Promise<WeeklyReportGenerationSummary>;

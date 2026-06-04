@@ -2,11 +2,11 @@ import type { Logger } from '@/modules/kernel';
 import type { IdGenerator } from '@/modules/kernel/application/ports/id-generator';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
+import type { ProviderAdapter } from '../../application/ports/provider-adapter';
+import type { IntelligenceRuntimeConfig } from '../../application/ports/runtime-config';
 import type { ProviderName } from '../../domain/intelligence';
 import { zProviderName } from '../../domain/intelligence';
 import type { IntelligenceUseCases } from '../../factory';
-import type { IntelligenceRuntimeConfig } from '../../infrastructure/config/intelligence-env';
-import { getProviderAdapter } from '../../infrastructure/providers/provider-registry';
 
 type StartWorkflow = () => Promise<{ runId: string }>;
 
@@ -14,7 +14,9 @@ type IntelligenceHttpHandlerDeps = {
   clock: { now(): Date };
   getRuntimeConfig: (options?: {
     requireCronSecret?: boolean;
+    requireProviderCallbackSecret?: boolean;
   }) => IntelligenceRuntimeConfig;
+  getProviderAdapter: (providerName: ProviderName) => ProviderAdapter;
   getUseCases: () => IntelligenceUseCases;
   idGenerator: IdGenerator;
   logger?: Pick<Logger, 'error' | 'warn'>;
@@ -82,6 +84,30 @@ function assertCronAuthorization(request: Request, cronSecret: string) {
   });
 }
 
+function assertProviderCallbackAuthorization(
+  request: Request,
+  providerCallbackSecret: string
+) {
+  if (!providerCallbackSecret) {
+    throw new AppError({
+      category: 'system',
+      code: 'INTELLIGENCE_PROVIDER_CALLBACK_SECRET_MISSING',
+      message: 'Provider callback secret is not configured.',
+      status: 500,
+    });
+  }
+
+  const expected = `Bearer ${providerCallbackSecret}`;
+  if (request.headers.get('authorization') === expected) return;
+
+  throw new AppError({
+    category: 'unauthorized',
+    code: 'INTELLIGENCE_PROVIDER_CALLBACK_UNAUTHORIZED',
+    message: 'Provider callback authorization failed.',
+    status: 401,
+  });
+}
+
 export function createIntelligenceHttpHandlers(
   deps: IntelligenceHttpHandlerDeps
 ) {
@@ -90,6 +116,14 @@ export function createIntelligenceHttpHandlers(
     request: Request;
   }) => {
     const providerName = parseProvider(input.provider);
+    const runtimeConfig = deps.getRuntimeConfig({
+      requireProviderCallbackSecret: true,
+    });
+    assertProviderCallbackAuthorization(
+      input.request,
+      runtimeConfig.providerCallbackSecret ?? ''
+    );
+
     const payload = await readPayload(input.request);
     const workspaceId = requestWorkspaceId(input.request, payload);
     const now = deps.clock.now();
@@ -114,11 +148,13 @@ export function createIntelligenceHttpHandlers(
     }
 
     try {
-      const normalized = getProviderAdapter(providerName).normalizeCallback({
-        now,
-        payload,
-        providerName,
-      });
+      const normalized = deps
+        .getProviderAdapter(providerName)
+        .normalizeCallback({
+          now,
+          payload,
+          providerName,
+        });
 
       for (const source of normalized.sourceRecords) {
         await repository.insertSourceRecord({

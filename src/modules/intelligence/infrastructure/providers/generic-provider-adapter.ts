@@ -1,3 +1,4 @@
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { ProviderConfig } from '@/modules/kernel/infrastructure/db/schema';
 
 import type {
@@ -298,9 +299,13 @@ export function createGenericProviderAdapter(
       });
 
       if (!response.ok) {
-        throw new Error(
-          `${providerName} ingestion failed with HTTP ${response.status}`
-        );
+        throw new AppError({
+          category: 'system',
+          code: 'INTELLIGENCE_PROVIDER_INGEST_FAILED',
+          message: `${providerName} ingestion failed with HTTP ${response.status}`,
+          status: 502,
+          details: { providerName, status: response.status },
+        });
       }
 
       const payload = (await response.json()) as unknown;

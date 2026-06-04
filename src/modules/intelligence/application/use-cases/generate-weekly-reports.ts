@@ -2,9 +2,9 @@ import type { IdGenerator, Logger } from '@/modules/kernel';
 
 import type { IntelligenceRepository } from '../ports/intelligence-repository';
 import type { ReportGenerator } from '../ports/report-generator';
+import type { IntelligenceRuntimeConfig } from '../ports/runtime-config';
 import { calculateCompletedWeekWindow } from '../../domain/report-period';
 import type { ReportData } from '../../domain/report-schema';
-import type { IntelligenceRuntimeConfig } from '../../infrastructure/config/intelligence-env';
 
 export type WeeklyReportGenerationSummary = {
   failed: number;

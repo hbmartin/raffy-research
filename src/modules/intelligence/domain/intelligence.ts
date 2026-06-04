@@ -35,6 +35,20 @@ export type ReportSourceRelationType =
   (typeof reportSourceRelationTypes)[number];
 export type FeedbackEventType = (typeof feedbackEventTypes)[number];
 
+export const defaultProviderCredentialRefs = {
+  ahrefs: 'AHREFS_API_KEY',
+  apify: 'APIFY_TOKEN',
+  awario: 'AWARIO_API_KEY',
+  distill: 'DISTILL_API_KEY',
+  exa: 'EXA_API_KEY',
+  forumscout: 'FORUMSCOUT_API_KEY',
+  notion: 'NOTION_TOKEN',
+  semrush: 'SEMRUSH_API_KEY',
+  slack: 'SLACK_BOT_TOKEN',
+  trigify: 'TRIGIFY_API_KEY',
+  visualping: 'VISUALPING_API_KEY',
+} satisfies Record<ProviderName, string>;
+
 export const zProviderName = () => z.enum(providerNames);
 export const zCompetitorState = () => z.enum(competitorStates);
 export const zReportStatus = () => z.enum(reportStatuses);

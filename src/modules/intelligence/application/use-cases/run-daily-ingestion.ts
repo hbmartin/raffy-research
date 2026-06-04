@@ -2,11 +2,11 @@ import type { IdGenerator, Logger } from '@/modules/kernel';
 
 import type { IntelligenceRepository } from '../ports/intelligence-repository';
 import type { ProviderAdapter } from '../ports/provider-adapter';
-import type { ProviderName } from '../../domain/intelligence';
+import type { IntelligenceRuntimeConfig } from '../ports/runtime-config';
 import {
   defaultProviderCredentialRefs,
-  type IntelligenceRuntimeConfig,
-} from '../../infrastructure/config/intelligence-env';
+  type ProviderName,
+} from '../../domain/intelligence';
 
 export type DailyIngestionSummary = {
   providersCompleted: number;

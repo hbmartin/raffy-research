@@ -5,6 +5,7 @@ overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.0
   '@types/node': ^24
   body-parser: 1.20.4
+  devalue: 5.8.1
   effect: 3.21.2
   # PR #40, 2026-05-27: keep toolchain consumers on a known-good current glob 13 release.
   # Re-evaluate after the next dependency compatibility pass confirms the override is no longer needed.
@@ -14,6 +15,7 @@ overrides:
   kysely: 0.28.17
   qs: 6.15.2
   'react-cosmos>ws': 8.20.1
+  undici: 7.24.0
 
 peerDependencyRules:
   allowedVersions:

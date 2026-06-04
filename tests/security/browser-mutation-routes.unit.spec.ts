@@ -54,6 +54,7 @@ describe('browser mutation route coverage', () => {
 
     expect(postRoutes).toEqual([
       '/api/auth/$',
+      '/api/providers/$provider/callback',
       '/api/telemetry/logs',
       '/api/telemetry/otel/v1/metrics',
       '/api/telemetry/otel/v1/traces',
@@ -70,6 +71,7 @@ describe('browser mutation route coverage', () => {
     ]);
     expect(externallyProtectedRoutes).toEqual([
       '/api/auth/$',
+      '/api/providers/$provider/callback',
       '/api/webhooks/resend',
     ]);
   });

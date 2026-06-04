@@ -19,19 +19,22 @@ type IntelligenceServerRuntimeDeps = {
 const getDeps = createServerOnlyFn(
   async (): Promise<IntelligenceServerRuntimeDeps> => {
     const [
-      { getIntelligenceUseCases },
+      {
+        getIntelligenceProviderAdapter,
+        getIntelligenceRuntimeConfig,
+        getIntelligenceUseCases,
+      },
       { getKernel },
-      { getIntelligenceRuntimeConfig },
     ] = await Promise.all([
       import('@/composition/intelligence'),
       import('@/composition/kernel'),
-      import('./infrastructure/config/intelligence-env'),
     ]);
     const kernel = getKernel();
 
     return {
       handlers: createIntelligenceHttpHandlers({
         clock: kernel.clock,
+        getProviderAdapter: getIntelligenceProviderAdapter,
         getRuntimeConfig: getIntelligenceRuntimeConfig,
         getUseCases: getIntelligenceUseCases,
         idGenerator: kernel.idGenerator,
