@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import {
+  BriefcaseBusinessIcon,
   LayoutDashboardIcon,
   PanelLeftIcon,
   UsersIcon,
@@ -96,6 +97,21 @@ export const NavSidebar = (props: { children?: ReactNode }) => {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
+                  <SidebarMenuItem>
+                    <Link to="/manager/workspaces">
+                      {({ isActive }) => (
+                        <SidebarMenuButton
+                          isActive={isActive}
+                          render={
+                            <span>
+                              <BriefcaseBusinessIcon />
+                              <span>{t('layout:nav.workspaces')}</span>
+                            </span>
+                          }
+                        />
+                      )}
+                    </Link>
+                  </SidebarMenuItem>
                   <SidebarMenuItem>
                     <Link to="/manager/users">
                       {({ isActive }) => (

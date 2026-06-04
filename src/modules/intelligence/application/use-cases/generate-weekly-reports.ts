@@ -57,115 +57,120 @@ export function createGenerateWeeklyReportsUseCase(
         ...period,
       });
 
-      try {
-        const generated = await deps.reportGenerator.generate({
+      await deps.reportGenerator
+        .generate({
           period,
           reportId,
           sources: sourceRecords,
           workspace,
-        });
-        const now = deps.clock.now();
-        const title = generated.reportData.title;
+        })
+        .then(
+          async (generated) => {
+            const now = deps.clock.now();
+            const title = generated.reportData.title;
 
-        const report = existing
-          ? await deps.repository.updateWeeklyReport(existing.id, {
-              failureReason: null,
-              generatedAt: now,
-              modelMetadata: generated.modelMetadata,
-              publishedAt: now,
-              reportData: generated.reportData,
-              status: 'published',
-              title,
-            })
-          : await deps.repository.insertWeeklyReport({
-              id: reportId,
-              workspaceId: workspace.id,
-              periodStart: period.periodStart,
-              periodEnd: period.periodEnd,
-              timezone: workspace.timezone,
-              status: 'published',
-              generatedAt: now,
-              publishedAt: now,
-              title,
-              reportData: generated.reportData,
-              modelMetadata: generated.modelMetadata,
+            const report = existing
+              ? await deps.repository.updateWeeklyReport(existing.id, {
+                  failureReason: null,
+                  generatedAt: now,
+                  modelMetadata: generated.modelMetadata,
+                  publishedAt: now,
+                  reportData: generated.reportData,
+                  status: 'published',
+                  title,
+                })
+              : await deps.repository.insertWeeklyReport({
+                  id: reportId,
+                  workspaceId: workspace.id,
+                  periodStart: period.periodStart,
+                  periodEnd: period.periodEnd,
+                  timezone: workspace.timezone,
+                  status: 'published',
+                  generatedAt: now,
+                  publishedAt: now,
+                  title,
+                  reportData: generated.reportData,
+                  modelMetadata: generated.modelMetadata,
+                });
+
+            if (!report) {
+              summary.failed += 1;
+              await recordWeeklyReportFailure({
+                deps,
+                existingReportId: existing?.id,
+                message: `Unable to freeze report ${reportId}.`,
+                period,
+                reportId,
+                workspaceId: workspace.id,
+                workspaceName: workspace.name,
+                workspaceTimezone: workspace.timezone,
+              });
+              return;
+            }
+
+            await deps.repository.insertWeeklyReportSources(
+              sourceRecords.map((sourceRecord) => ({
+                id: deps.idGenerator.createId(),
+                workspaceId: workspace.id,
+                reportId,
+                sourceRecordId: sourceRecord.id,
+                relationType: collectCitedSourceIds(generated.reportData).has(
+                  sourceRecord.id
+                )
+                  ? 'cited'
+                  : 'relevant_unused',
+              }))
+            );
+
+            for (const sourceSummary of generated.sourceSummaries) {
+              await deps.repository.insertSourceSummary({
+                id: deps.idGenerator.createId(),
+                workspaceId: workspace.id,
+                sourceRecordId: sourceSummary.sourceRecordId,
+                summaryText: sourceSummary.summaryText,
+                evidenceCandidateText: sourceSummary.evidenceCandidateText,
+                modelName: String(generated.modelMetadata.model ?? ''),
+                modelProvider: 'openai',
+                promptVersion: String(
+                  generated.modelMetadata.promptVersion ?? ''
+                ),
+                inputMetadata: {
+                  reportId,
+                  periodStart: period.periodStart.toISOString(),
+                  periodEnd: period.periodEnd.toISOString(),
+                },
+                outputPayload: {},
+              });
+            }
+
+            summary.generated += 1;
+            return undefined;
+          },
+          async (error) => {
+            summary.failed += 1;
+            const message = error instanceof Error ? error.message : 'unknown';
+            deps.logger?.error({
+              event: 'intelligence.weekly_report_generation_failed',
+              exception: error,
+              details: {
+                reportId,
+                workspaceId: workspace.id,
+              },
             });
 
-        if (!report) {
-          throw new Error(`Unable to freeze report ${reportId}.`);
-        }
-
-        await deps.repository.insertWeeklyReportSources(
-          sourceRecords.map((sourceRecord) => ({
-            id: deps.idGenerator.createId(),
-            workspaceId: workspace.id,
-            reportId,
-            sourceRecordId: sourceRecord.id,
-            relationType: collectCitedSourceIds(generated.reportData).has(
-              sourceRecord.id
-            )
-              ? 'cited'
-              : 'relevant_unused',
-          }))
-        );
-
-        for (const sourceSummary of generated.sourceSummaries) {
-          await deps.repository.insertSourceSummary({
-            id: deps.idGenerator.createId(),
-            workspaceId: workspace.id,
-            sourceRecordId: sourceSummary.sourceRecordId,
-            summaryText: sourceSummary.summaryText,
-            evidenceCandidateText: sourceSummary.evidenceCandidateText,
-            modelName: String(generated.modelMetadata.model ?? ''),
-            modelProvider: 'openai',
-            promptVersion: String(generated.modelMetadata.promptVersion ?? ''),
-            inputMetadata: {
+            await recordWeeklyReportFailure({
+              deps,
+              existingReportId: existing?.id,
+              message,
+              period,
               reportId,
-              periodStart: period.periodStart.toISOString(),
-              periodEnd: period.periodEnd.toISOString(),
-            },
-            outputPayload: {},
-          });
-        }
-
-        summary.generated += 1;
-      } catch (error) {
-        summary.failed += 1;
-        const message = error instanceof Error ? error.message : 'unknown';
-        deps.logger?.error({
-          event: 'intelligence.weekly_report_generation_failed',
-          exception: error,
-          details: {
-            reportId,
-            workspaceId: workspace.id,
-          },
-        });
-
-        if (existing) {
-          await deps.repository.updateWeeklyReport(existing.id, {
-            failureReason: message,
-            status: 'failed',
-          });
-        } else {
-          await deps.repository.insertWeeklyReport({
-            id: reportId,
-            workspaceId: workspace.id,
-            periodStart: period.periodStart,
-            periodEnd: period.periodEnd,
-            timezone: workspace.timezone,
-            status: 'failed',
-            failureReason: message,
-          });
-        }
-
-        await sendSlackFailureAlert({
-          fetch: deps.fetch,
-          message,
-          reportId,
-          slackAlertWebhookUrl: deps.runtimeConfig.slackAlertWebhookUrl,
-          workspaceName: workspace.name,
-        });
-      }
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              workspaceTimezone: workspace.timezone,
+            });
+            return undefined;
+          }
+        );
     }
 
     deps.logger?.info({
@@ -174,6 +179,42 @@ export function createGenerateWeeklyReportsUseCase(
     });
     return summary;
   };
+}
+
+async function recordWeeklyReportFailure(input: {
+  deps: GenerateWeeklyReportsDeps;
+  existingReportId?: string;
+  message: string;
+  period: { periodEnd: Date; periodStart: Date };
+  reportId: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspaceTimezone: string;
+}) {
+  if (input.existingReportId) {
+    await input.deps.repository.updateWeeklyReport(input.existingReportId, {
+      failureReason: input.message,
+      status: 'failed',
+    });
+  } else {
+    await input.deps.repository.insertWeeklyReport({
+      id: input.reportId,
+      workspaceId: input.workspaceId,
+      periodStart: input.period.periodStart,
+      periodEnd: input.period.periodEnd,
+      timezone: input.workspaceTimezone,
+      status: 'failed',
+      failureReason: input.message,
+    });
+  }
+
+  await sendSlackFailureAlert({
+    fetch: input.deps.fetch,
+    message: input.message,
+    reportId: input.reportId,
+    slackAlertWebhookUrl: input.deps.runtimeConfig.slackAlertWebhookUrl,
+    workspaceName: input.workspaceName,
+  });
 }
 
 function collectCitedSourceIds(reportData: ReportData) {

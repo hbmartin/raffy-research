@@ -58,6 +58,10 @@ export type IntelligenceRepository = {
   insertProviderCallbackEvent(
     input: NewProviderCallbackEvent
   ): Promise<ProviderCallbackEvent>;
+  listProviderCallbackEvents(input?: {
+    limit?: number;
+    workspaceId?: string;
+  }): Promise<ProviderCallbackEvent[]>;
   updateProviderCallbackEvent(
     id: string,
     input: Partial<NewProviderCallbackEvent>

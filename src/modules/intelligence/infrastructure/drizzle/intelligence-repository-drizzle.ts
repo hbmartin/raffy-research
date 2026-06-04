@@ -127,6 +127,15 @@ export function createIntelligenceRepository(options: {
         await db.insert(providerCallbackEvent).values(input).returning()
       )!;
     },
+    listProviderCallbackEvents(input = {}): Promise<ProviderCallbackEvent[]> {
+      return db.query.providerCallbackEvent.findMany({
+        limit: input.limit ?? 20,
+        orderBy: [desc(providerCallbackEvent.receivedAt)],
+        where: input.workspaceId
+          ? eq(providerCallbackEvent.workspaceId, input.workspaceId)
+          : undefined,
+      });
+    },
     async updateProviderCallbackEvent(
       id: string,
       input: Partial<NewProviderCallbackEvent>
