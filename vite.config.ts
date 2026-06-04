@@ -7,6 +7,7 @@ import { nitro } from 'nitro/vite';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { workflow as workflowPlugin } from 'workflow/vite';
 
 import { CSP_NONCE_PLACEHOLDER } from './src/platform/http/csp-nonce';
 
@@ -103,6 +104,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
+      workflowPlugin(),
       tanstackStart(),
       nitro(),
       // react's vite plugin must come after start's vite plugin

@@ -20,6 +20,9 @@
         "name": "ts-plugin-sort-import-suggestions",
         "moveUpPatterns": ["@/", "\\.{1,2}/"],
         "moveDownPatterns": ["lucide-react", "@react-email"]
+      },
+      {
+        "name": "workflow"
       }
     ]
   }

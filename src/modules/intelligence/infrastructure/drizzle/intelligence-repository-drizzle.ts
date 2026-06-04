@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, lt } from 'drizzle-orm';
 
 import {
   type FeedbackEvent,
@@ -9,6 +9,7 @@ import {
   type NewProviderCallbackEvent,
   type NewSearchResult,
   type NewSourceRecord,
+  type NewSourceSummary,
   type NewWeeklyReport,
   type NewWeeklyReportSource,
   type NewWorkspace,
@@ -23,6 +24,8 @@ import {
   searchResult,
   type SourceRecord,
   sourceRecord,
+  type SourceSummary,
+  sourceSummary,
   type WeeklyReport,
   weeklyReport,
   weeklyReportSource,
@@ -114,6 +117,9 @@ export function createIntelligenceRepository(options: {
     async insertSearchResult(input: NewSearchResult): Promise<SearchResult> {
       return first(await db.insert(searchResult).values(input).returning())!;
     },
+    async insertSourceSummary(input: NewSourceSummary): Promise<SourceSummary> {
+      return first(await db.insert(sourceSummary).values(input).returning())!;
+    },
     async insertProviderCallbackEvent(
       input: NewProviderCallbackEvent
     ): Promise<ProviderCallbackEvent> {
@@ -153,8 +159,36 @@ export function createIntelligenceRepository(options: {
         })) ?? null
       );
     },
+    listSourceRecordsForPeriod(input: {
+      workspaceId: string;
+      periodStart: Date;
+      periodEnd: Date;
+    }): Promise<SourceRecord[]> {
+      return db.query.sourceRecord.findMany({
+        where: and(
+          eq(sourceRecord.workspaceId, input.workspaceId),
+          gte(sourceRecord.capturedAt, input.periodStart),
+          lt(sourceRecord.capturedAt, input.periodEnd)
+        ),
+        orderBy: [desc(sourceRecord.capturedAt)],
+      });
+    },
     async insertWeeklyReport(input: NewWeeklyReport): Promise<WeeklyReport> {
       return first(await db.insert(weeklyReport).values(input).returning())!;
+    },
+    async updateWeeklyReport(
+      id: string,
+      input: Partial<NewWeeklyReport>
+    ): Promise<WeeklyReport | null> {
+      return (
+        first(
+          await db
+            .update(weeklyReport)
+            .set({ ...input, updatedAt: new Date() })
+            .where(eq(weeklyReport.id, id))
+            .returning()
+        ) ?? null
+      );
     },
     async insertWeeklyReportSources(
       inputs: NewWeeklyReportSource[]

@@ -5,6 +5,7 @@ import type {
   NewProviderCallbackEvent,
   NewSearchResult,
   NewSourceRecord,
+  NewSourceSummary,
   NewWeeklyReport,
   NewWeeklyReportSource,
   NewWorkspace,
@@ -15,6 +16,7 @@ import type {
   ProviderConfig,
   SearchResult,
   SourceRecord,
+  SourceSummary,
   WeeklyReport,
   WeeklyReportSource,
   Workspace,
@@ -52,6 +54,7 @@ export type IntelligenceRepository = {
   listEnabledProviderConfigs(workspaceId: string): Promise<ProviderConfig[]>;
   insertSourceRecord(input: NewSourceRecord): Promise<SourceRecord>;
   insertSearchResult(input: NewSearchResult): Promise<SearchResult>;
+  insertSourceSummary(input: NewSourceSummary): Promise<SourceSummary>;
   insertProviderCallbackEvent(
     input: NewProviderCallbackEvent
   ): Promise<ProviderCallbackEvent>;
@@ -65,7 +68,16 @@ export type IntelligenceRepository = {
     periodStart: Date;
     periodEnd: Date;
   }): Promise<WeeklyReport | null>;
+  listSourceRecordsForPeriod(input: {
+    workspaceId: string;
+    periodStart: Date;
+    periodEnd: Date;
+  }): Promise<SourceRecord[]>;
   insertWeeklyReport(input: NewWeeklyReport): Promise<WeeklyReport>;
+  updateWeeklyReport(
+    id: string,
+    input: Partial<NewWeeklyReport>
+  ): Promise<WeeklyReport | null>;
   insertWeeklyReportSources(inputs: NewWeeklyReportSource[]): Promise<void>;
   getLatestPublishedReport(workspaceId: string): Promise<WeeklyReport | null>;
   getReportWithSources(reportId: string): Promise<ReportWithSources | null>;
