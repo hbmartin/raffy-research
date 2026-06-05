@@ -129,13 +129,7 @@ const zSourceLibraryItem = z.object({
   internal_source_url: z.string().optional(),
 });
 
-export const zReportData = z.object({
-  workspace_id: z.string().min(1),
-  report_id: z.string().min(1),
-  period_start: z.string().min(1),
-  period_end: z.string().min(1),
-  generated_at: z.string().min(1),
-  timezone: z.string().min(1),
+const zReportContentShape = {
   title: z.string().min(1),
   executive_summary: zExecutiveSummary,
   what_looks_most_interesting: z.array(zInterestingItem).default([]),
@@ -147,7 +141,94 @@ export const zReportData = z.object({
   possible_leads: z.array(zPossibleLead).default([]),
   social_product_feedback: z.array(zSocialProductFeedback).default([]),
   source_library: z.array(zSourceLibraryItem).default([]),
-});
+};
+
+const forbiddenReportKeys = new Set([
+  'confidence',
+  'confidence_score',
+  'confidenceScore',
+  'recommendation',
+  'recommendations',
+  'recommended_action',
+  'recommendedAction',
+  'action_items',
+  'actionItems',
+]);
+
+const forbiddenAdvicePhrases = [
+  'you should',
+  'we recommend',
+  'i recommend',
+  'increase spend',
+  'reduce spend',
+  'launch campaign',
+  'prioritize this channel',
+  'email these leads',
+  'build this feature',
+  'change positioning',
+] as const;
+
+function findForbiddenReportContent(value: unknown, path: string[] = []) {
+  const issues: string[] = [];
+
+  if (typeof value === 'string') {
+    const normalized = value.toLowerCase();
+    const phrase = forbiddenAdvicePhrases.find((candidate) =>
+      normalized.includes(candidate)
+    );
+    if (phrase) {
+      issues.push(`Report contains disallowed advice phrase "${phrase}".`);
+    }
+    return issues;
+  }
+
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      issues.push(
+        ...findForbiddenReportContent(item, [...path, String(index)])
+      );
+    }
+    return issues;
+  }
+
+  if (typeof value !== 'object' || value === null) return issues;
+
+  for (const [key, child] of Object.entries(value)) {
+    if (forbiddenReportKeys.has(key)) {
+      issues.push(
+        `Report contains forbidden key "${[...path, key].join('.')}".`
+      );
+    }
+    issues.push(...findForbiddenReportContent(child, [...path, key]));
+  }
+
+  return issues;
+}
+
+function addForbiddenReportContentIssues(value: unknown, ctx: z.RefinementCtx) {
+  for (const issue of findForbiddenReportContent(value)) {
+    ctx.addIssue({
+      code: 'custom',
+      message: issue,
+    });
+  }
+}
+
+export const zGeneratedReportData = z
+  .object(zReportContentShape)
+  .superRefine(addForbiddenReportContentIssues);
+
+export const zReportData = z
+  .object({
+    workspace_id: z.string().min(1),
+    report_id: z.string().min(1),
+    period_start: z.string().min(1),
+    period_end: z.string().min(1),
+    generated_at: z.string().min(1),
+    timezone: z.string().min(1),
+    ...zReportContentShape,
+  })
+  .superRefine(addForbiddenReportContentIssues);
 
 export type NewnessLabelValue = z.infer<typeof zNewnessLabel>;
 export type TrendLabelValue = z.infer<typeof zTrendLabel>;
@@ -161,11 +242,38 @@ export type SocialProductFeedbackItem = z.infer<typeof zSocialProductFeedback>;
 export type SourceLibraryItem = z.infer<typeof zSourceLibraryItem>;
 export type InterestingItem = z.infer<typeof zInterestingItem>;
 export type Contradiction = z.infer<typeof zContradiction>;
+export type GeneratedReportData = z.infer<typeof zGeneratedReportData>;
 export type ReportData = z.infer<typeof zReportData>;
+
+export type GeneratedReportDataValidation =
+  | { type: 'generated_report_data_valid'; data: GeneratedReportData }
+  | { type: 'generated_report_data_invalid'; issues: string[] };
 
 export type ReportDataValidation =
   | { type: 'report_data_valid'; data: ReportData }
   | { type: 'report_data_invalid'; issues: string[] };
+
+const formatZodIssues = (
+  issues: ReadonlyArray<{ path: readonly PropertyKey[]; message: string }>
+) =>
+  issues.map(
+    (issue) =>
+      `${issue.path.map(String).join('.') || '<root>'}: ${issue.message}`
+  );
+
+/** Validate unknown model-authored JSON before system metadata exists. */
+export function validateGeneratedReportData(
+  input: unknown
+): GeneratedReportDataValidation {
+  const result = zGeneratedReportData.safeParse(input);
+  if (result.success) {
+    return { type: 'generated_report_data_valid', data: result.data };
+  }
+  return {
+    type: 'generated_report_data_invalid',
+    issues: formatZodIssues(result.error.issues),
+  };
+}
 
 /** Validate unknown report JSON against the V1 contract. Never throws. */
 export function validateReportData(input: unknown): ReportDataValidation {
@@ -175,9 +283,7 @@ export function validateReportData(input: unknown): ReportDataValidation {
   }
   return {
     type: 'report_data_invalid',
-    issues: result.error.issues.map(
-      (issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`
-    ),
+    issues: formatZodIssues(result.error.issues),
   };
 }
 
@@ -188,16 +294,39 @@ const stripCodeFences = (text: string): string =>
     .replace(/\s*```$/, '')
     .trim();
 
-/** Parse and validate raw model text into report data. Never throws. */
-export function parseReportJson(text: string): ReportDataValidation {
+function parseJsonText(
+  text: string
+):
+  | { type: 'json_valid'; value: unknown }
+  | { type: 'json_invalid'; issues: string[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripCodeFences(text));
   } catch {
     return {
-      type: 'report_data_invalid',
+      type: 'json_invalid',
       issues: ['response was not valid JSON'],
     };
   }
-  return validateReportData(parsed);
+  return { type: 'json_valid', value: parsed };
+}
+
+/** Parse and validate raw model text before system metadata exists. */
+export function parseGeneratedReportJson(
+  text: string
+): GeneratedReportDataValidation {
+  const parsed = parseJsonText(text);
+  if (parsed.type === 'json_invalid') {
+    return { type: 'generated_report_data_invalid', issues: parsed.issues };
+  }
+  return validateGeneratedReportData(parsed.value);
+}
+
+/** Parse and validate raw stored report JSON. Never throws. */
+export function parseReportJson(text: string): ReportDataValidation {
+  const parsed = parseJsonText(text);
+  if (parsed.type === 'json_invalid') {
+    return { type: 'report_data_invalid', issues: parsed.issues };
+  }
+  return validateReportData(parsed.value);
 }

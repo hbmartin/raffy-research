@@ -4,6 +4,7 @@ import type {
   SocialAccountId,
   WorkspaceId,
 } from '@/modules/kernel/domain/ids';
+import type { JsonObject } from '@/modules/kernel/domain/json';
 
 export const DEFAULT_WORKSPACE_TIMEZONE = 'America/Los_Angeles';
 
@@ -70,7 +71,10 @@ export type Competitor = {
 
 export function normalizeWorkspaceWriteInput(
   input: WorkspaceWriteInput
-): Required<Omit<WorkspaceWriteInput, 'timezone'>> & { timezone: string } {
+): Required<Omit<WorkspaceWriteInput, 'timezone'>> & {
+  timezone: string;
+  metadata: JsonObject;
+} {
   const trimOrNull = (value: string | null | undefined) =>
     value?.trim() ? value.trim() : null;
 
@@ -85,5 +89,6 @@ export function normalizeWorkspaceWriteInput(
     icp: trimOrNull(input.icp),
     marketAssumptions: trimOrNull(input.marketAssumptions),
     gtmFocus: trimOrNull(input.gtmFocus),
+    metadata: {},
   };
 }

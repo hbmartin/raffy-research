@@ -6,7 +6,7 @@ import {
   zWeeklyReportId,
   zWorkspaceId,
 } from '@/modules/kernel/domain/ids';
-import type { JsonObject } from '@/modules/kernel/domain/json';
+import type { JsonValue } from '@/modules/kernel/domain/json';
 import {
   type OutcomeHandlerConfig,
   unwrapApplicationResult,
@@ -17,6 +17,7 @@ import type {
   ReportLatestOutcome,
 } from '../../application/ports/report-repository';
 import type { SourceRecordGetOutcome } from '../../application/ports/source-repository';
+import type { ListProviderCallbacksOutcome } from '../../application/use-cases/ingestion-queries';
 import type { RecordFeedbackOutcome } from '../../application/use-cases/record-feedback';
 import type {
   LatestReportForUserOutcome,
@@ -30,6 +31,7 @@ import type {
 } from '../../application/use-cases/workspace-queries';
 import type { ListWorkspacesOutcome } from '../../application/use-cases/workspace-queries';
 import { FEEDBACK_EVENT_TYPES } from '../../domain/feedback';
+import type { ProviderCallbackEvent } from '../../domain/ingestion';
 import type {
   ReportSourceLink,
   WeeklyReport,
@@ -39,12 +41,25 @@ import type { SourceRecord } from '../../domain/source';
 import type { Workspace } from '../../domain/workspace';
 import type { IntelligenceUseCases } from '../../factory';
 
+const zJsonValue: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(zJsonValue),
+    z.record(z.string(), zJsonValue),
+  ])
+);
+
 export const zReportByIdInput = () => z.object({ reportId: zWeeklyReportId() });
 export const zReportSourcesInput = () =>
   z.object({ reportId: zWeeklyReportId() });
 export const zSourceByIdInput = () => z.object({ sourceId: zSourceRecordId() });
 export const zWorkspaceConfigInput = () =>
   z.object({ workspaceId: zWorkspaceId() });
+export const zListProviderCallbacksInput = () =>
+  z.object({ workspaceId: zWorkspaceId(), limit: z.number().optional() });
 export const zRecordFeedbackInput = () =>
   z.object({
     workspaceId: zWorkspaceId(),
@@ -53,7 +68,7 @@ export const zRecordFeedbackInput = () =>
     targetType: z.string().optional(),
     targetId: z.string().optional(),
     sourceRecordId: zSourceRecordId().optional(),
-    payload: z.record(z.string(), z.unknown()).optional(),
+    payload: z.record(z.string(), zJsonValue).optional(),
   });
 
 type IntelligenceHandlerDeps = {
@@ -121,6 +136,14 @@ const sourceGetConfig = {
 } as const satisfies OutcomeHandlerConfig<
   SourceRecordGetOutcome | ForbiddenOutcome,
   SourceRecord
+>;
+
+const callbacksListedConfig = {
+  forbidden: 'FORBIDDEN',
+  callbacks_listed: (outcome) => outcome.callbacks,
+} as const satisfies OutcomeHandlerConfig<
+  ListProviderCallbacksOutcome,
+  ProviderCallbackEvent[]
 >;
 
 const workspacesListedConfig = {
@@ -226,7 +249,7 @@ export const createIntelligenceHandlers = ({
         targetType: data.targetType,
         targetId: data.targetId,
         sourceRecordId: data.sourceRecordId,
-        payload: (data.payload ?? null) as JsonObject | null,
+        payload: data.payload ?? null,
       }),
       recordFeedbackConfig
     ),
@@ -252,6 +275,18 @@ export const createIntelligenceHandlers = ({
         workspaceId: data.workspaceId,
       }),
       reportsListedConfig
+    ),
+  listProviderCallbacks: (
+    ctx: ProtectedContext,
+    data: z.infer<ReturnType<typeof zListProviderCallbacksInput>>
+  ) =>
+    unwrapApplicationResult(
+      getUseCases(ctx).listProviderCallbacks({
+        currentUserId: ctx.scope.userId,
+        workspaceId: data.workspaceId,
+        limit: data.limit,
+      }),
+      callbacksListedConfig
     ),
 });
 

@@ -8,6 +8,7 @@ import {
   intelligenceGetReportSources,
   intelligenceGetSource,
   intelligenceGetWorkspaceConfig,
+  intelligenceListProviderCallbacks,
   intelligenceListReports,
   intelligenceListWorkspaces,
   intelligenceRecordFeedback,
@@ -21,5 +22,6 @@ export const intelligenceQueries = createIntelligenceQueries({
   intelligenceGetWorkspaceConfig,
   intelligenceListReports,
   intelligenceListWorkspaces,
+  intelligenceListProviderCallbacks,
   intelligenceRecordFeedback,
 } satisfies IntelligenceQueryFacade);

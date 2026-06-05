@@ -6,12 +6,12 @@ import {
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
+  createOpenAiReportGenerator,
+  createProviderRegistry,
+  createSlackAlert,
   getCronSecret,
   getProviderCredential,
-} from '@/modules/intelligence/infrastructure/config/runtime';
-import { createOpenAiReportGenerator } from '@/modules/intelligence/infrastructure/openai/report-generator-openai';
-import { createProviderRegistry } from '@/modules/intelligence/infrastructure/providers/registry';
-import { createSlackAlert } from '@/modules/intelligence/infrastructure/slack/slack-alert';
+} from '@/modules/intelligence/backend';
 import { toWorkspaceId, zWorkspaceId } from '@/modules/kernel';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
@@ -97,6 +97,12 @@ export async function runWeeklyReports(input?: {
   const repositories = getIntelligenceRepositories();
   const workspaces = await repositories.workspaceRepository.list();
   if (workspaces.isError()) {
+    const error = workspaces.getError();
+    getKernel().logger.error({
+      event: 'intelligence.weekly_reports.workspace_list_failed',
+      error: error.message,
+      details: { errorCode: error.code },
+    });
     return { total: 0, generated: 0, failed: 0, skipped: 0 };
   }
 
@@ -150,7 +156,15 @@ export async function runDailyIngest(input?: {
   'use workflow';
   const repositories = getIntelligenceRepositories();
   const workspaces = await repositories.workspaceRepository.list();
-  if (workspaces.isError()) return { workspaces: 0, ingested: 0 };
+  if (workspaces.isError()) {
+    const error = workspaces.getError();
+    getKernel().logger.error({
+      event: 'intelligence.daily_ingest.workspace_list_failed',
+      error: error.message,
+      details: { errorCode: error.code },
+    });
+    return { workspaces: 0, ingested: 0 };
+  }
 
   const list = workspaces.get();
   let ingested = 0;
@@ -169,7 +183,13 @@ const jsonResponse = (body: unknown, status = 200): Response =>
 /** Cron routes require `Authorization: Bearer ${CRON_SECRET}`. */
 function isAuthorizedCronRequest(request: Request): boolean {
   const secret = getCronSecret();
-  if (!secret) return false;
+  if (!secret) {
+    getKernel().logger.warn({
+      event: 'intelligence.cron.secret_not_configured',
+      details: { message: 'CRON_SECRET environment variable is not set' },
+    });
+    return false;
+  }
   return request.headers.get('authorization') === `Bearer ${secret}`;
 }
 
@@ -196,7 +216,19 @@ export async function handleDailyIngestCron(
 async function readJsonBody(request: Request): Promise<JsonValue> {
   try {
     return (await request.json()) as JsonValue;
-  } catch {
+  } catch (error) {
+    const contentLength = request.headers.get('content-length');
+    if (contentLength !== '0') {
+      getKernel().logger.warn({
+        event: 'intelligence.provider_callback.invalid_json_body',
+        error: error instanceof Error ? error.message : String(error),
+        exception: error,
+        details: {
+          contentLength,
+          contentType: request.headers.get('content-type'),
+        },
+      });
+    }
     return null;
   }
 }

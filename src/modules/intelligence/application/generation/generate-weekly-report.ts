@@ -15,11 +15,11 @@ import type { SourceRepository } from '../ports/source-repository';
 import type { WorkspaceRepository } from '../ports/workspace-repository';
 import { computeWeeklyPeriod, formatPeriodDate } from '../../domain/period';
 import type { WeeklyReport } from '../../domain/report';
-import type {
-  ReportData,
-  ReportDataValidation,
+import type { GeneratedReportDataValidation } from '../../domain/report-data';
+import {
+  parseGeneratedReportJson,
+  validateReportData,
 } from '../../domain/report-data';
-import { parseReportJson } from '../../domain/report-data';
 
 export type WeeklyReportGenerationDeps = {
   workspaceRepository: WorkspaceRepository;
@@ -132,9 +132,11 @@ export async function generateWeeklyReport(
   }
 
   let modelName = first.get().modelName;
-  let validation: ReportDataValidation = parseReportJson(first.get().text);
+  let validation: GeneratedReportDataValidation = parseGeneratedReportJson(
+    first.get().text
+  );
 
-  if (validation.type === 'report_data_invalid') {
+  if (validation.type === 'generated_report_data_invalid') {
     const repair = await deps.reportGenerator.generate({
       prompt: buildRepairPrompt({
         originalPrompt: prompt,
@@ -151,10 +153,10 @@ export async function generateWeeklyReport(
       });
     }
     modelName = repair.get().modelName;
-    validation = parseReportJson(repair.get().text);
+    validation = parseGeneratedReportJson(repair.get().text);
   }
 
-  if (validation.type === 'report_data_invalid') {
+  if (validation.type === 'generated_report_data_invalid') {
     return recordFailure(deps, {
       workspace,
       period,
@@ -163,7 +165,7 @@ export async function generateWeeklyReport(
     });
   }
 
-  const validData = validation.data;
+  const generatedData = validation.data;
   const modelMetadata = {
     modelProvider: MODEL_PROVIDER,
     modelName,
@@ -187,15 +189,24 @@ export async function generateWeeklyReport(
     reportId = created.get().id;
   }
 
-  const reportData: ReportData = {
-    ...validData,
+  const reportDataValidation = validateReportData({
+    ...generatedData,
     workspace_id: workspace.id,
     report_id: reportId,
     period_start: periodStartLabel,
     period_end: periodEndLabel,
     generated_at: now.toISOString(),
     timezone: workspace.timezone,
-  };
+  });
+  if (reportDataValidation.type === 'report_data_invalid') {
+    return recordFailure(deps, {
+      workspace,
+      period,
+      existingFailedId,
+      reason: `schema validation failed: ${reportDataValidation.issues.join('; ')}`,
+    });
+  }
+  const reportData = reportDataValidation.data;
 
   const frozen = await deps.reportRepository.replaceContent(reportId, {
     status: 'published',
@@ -218,7 +229,7 @@ export async function generateWeeklyReport(
   const sourceById = new Map(
     sources.get().map((source) => [source.id as string, source.id])
   );
-  const links = validData.source_library
+  const links = reportData.source_library
     .map((item) => {
       const sourceRecordId = sourceById.get(item.source_id);
       return sourceRecordId
@@ -280,10 +291,21 @@ async function recordFailure(
     if (created.isError()) return Result.Error(created.getError());
   }
 
-  await deps.alert.sendAlert({
+  const alert = await deps.alert.sendAlert({
     title: 'Weekly report generation failed',
     message: `Workspace ${input.workspace.id}: ${input.reason}`,
   });
+  if (alert.isError()) {
+    const error = alert.getError();
+    deps.logger.warn({
+      event: 'intelligence.report.failure_alert_failed',
+      error: error.message,
+      details: {
+        errorCode: error.code,
+        workspaceId: input.workspace.id,
+      },
+    });
+  }
 
   return Result.Ok({ type: 'report_failed', reason: input.reason });
 }

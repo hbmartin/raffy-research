@@ -70,7 +70,9 @@ export interface ProviderAdapter {
   /** Normalize an inbound webhook/callback payload into source records. */
   normalizeCallback?(
     ctx: ProviderCallbackContext
-  ): CallbackNormalization | Promise<CallbackNormalization>;
+  ):
+    | ApplicationResult<CallbackNormalization>
+    | Promise<ApplicationResult<CallbackNormalization>>;
 }
 
 export interface ProviderRegistry {

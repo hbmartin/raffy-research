@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { PROVIDER_NAMES } from '@/modules/intelligence';
 import { createProviderRegistry } from '@/modules/intelligence/testing';
+import { toProviderConfigId, toWorkspaceId } from '@/modules/kernel';
 
 describe('provider registry', () => {
   const registry = createProviderRegistry();
@@ -30,5 +31,20 @@ describe('provider registry', () => {
     expect(
       visualping?.isConfigured({ config: null, credential: undefined })
     ).toBe(false);
+    expect(
+      visualping?.isConfigured({
+        config: {
+          id: toProviderConfigId('visualping-config'),
+          workspaceId: toWorkspaceId('workspace-1'),
+          providerName: 'visualping',
+          enabled: true,
+          credentialsRef: null,
+          config: null,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+        credential: undefined,
+      })
+    ).toBe(true);
   });
 });

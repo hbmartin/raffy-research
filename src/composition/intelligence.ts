@@ -1,17 +1,19 @@
 import {
   createIntelligenceUseCases,
+  type FeedbackRepository,
+  type IngestionRepository,
   type IntelligenceUseCases,
+  type ReportRepository,
+  type SourceRepository,
+  type WorkspaceRepository,
 } from '@/modules/intelligence';
-import type { FeedbackRepository } from '@/modules/intelligence/application/ports/feedback-repository';
-import type { IngestionRepository } from '@/modules/intelligence/application/ports/ingestion-repository';
-import type { ReportRepository } from '@/modules/intelligence/application/ports/report-repository';
-import type { SourceRepository } from '@/modules/intelligence/application/ports/source-repository';
-import type { WorkspaceRepository } from '@/modules/intelligence/application/ports/workspace-repository';
-import { createFeedbackRepository } from '@/modules/intelligence/infrastructure/drizzle/feedback-repository-drizzle';
-import { createIngestionRepository } from '@/modules/intelligence/infrastructure/drizzle/ingestion-repository-drizzle';
-import { createReportRepository } from '@/modules/intelligence/infrastructure/drizzle/report-repository-drizzle';
-import { createSourceRepository } from '@/modules/intelligence/infrastructure/drizzle/source-repository-drizzle';
-import { createWorkspaceRepository } from '@/modules/intelligence/infrastructure/drizzle/workspace-repository-drizzle';
+import {
+  createFeedbackRepository,
+  createIngestionRepository,
+  createReportRepository,
+  createSourceRepository,
+  createWorkspaceRepository,
+} from '@/modules/intelligence/backend';
 import type { DbLike } from '@/modules/kernel/infrastructure/db/types';
 
 import { getKernel, type Kernel } from './kernel';

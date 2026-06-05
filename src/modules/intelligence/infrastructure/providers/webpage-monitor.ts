@@ -1,3 +1,5 @@
+import { Result } from '@swan-io/boxed';
+
 import { asObject, asString, pick } from './json-access';
 import type {
   CallbackNormalization,
@@ -59,11 +61,12 @@ function safeHost(url: string): string | null {
 export const visualpingAdapter: ProviderAdapter = {
   name: 'visualping',
   isConfigured: ({ config }) => Boolean(config?.enabled),
-  normalizeCallback: (ctx) => normalizeWebpageChange('visualping', ctx),
+  normalizeCallback: (ctx) =>
+    Result.Ok(normalizeWebpageChange('visualping', ctx)),
 };
 
 export const distillAdapter: ProviderAdapter = {
   name: 'distill',
   isConfigured: ({ config }) => Boolean(config?.enabled),
-  normalizeCallback: (ctx) => normalizeWebpageChange('distill', ctx),
+  normalizeCallback: (ctx) => Result.Ok(normalizeWebpageChange('distill', ctx)),
 };

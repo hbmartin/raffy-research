@@ -17,6 +17,26 @@ rules:
         - src/**/*.ts
         - src/**/*.tsx
 
+  - id: intelligence-generation-uses-generated-report-parser
+    message: Use parseGeneratedReportJson in report generation; full ReportData validation must run after system metadata is added.
+    severity: ERROR
+    languages:
+      - typescript
+    pattern: parseReportJson(...)
+    paths:
+      include:
+        - src/modules/intelligence/application/generation/**/*.ts
+
+  - id: no-ignored-intelligence-ingestion-status-result
+    message: Check ingestion status update Results; ignored finishRun/updateCallbackNormalization errors can create false success.
+    severity: ERROR
+    languages:
+      - typescript
+    pattern-regex: '^\s*await\s+deps\.ingestionRepository\.(?:finishRun|updateCallbackNormalization)\('
+    paths:
+      include:
+        - src/modules/intelligence/application/use-cases/ingestion/**/*.ts
+
   - id: no-unnormalized-glob-star-regexp
     message: Collapse consecutive '*' before converting glob strings to RegExp; raw split('*').join('.*') can create adjacent wildcards and backtracking risk.
     severity: ERROR

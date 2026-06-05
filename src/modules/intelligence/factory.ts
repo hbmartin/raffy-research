@@ -1,3 +1,4 @@
+import { listProviderCallbacks } from './application/use-cases/ingestion-queries';
 import { recordFeedback } from './application/use-cases/record-feedback';
 import {
   getLatestReport,
@@ -42,6 +43,9 @@ export function createIntelligenceUseCases(deps: IntelligenceUseCaseDeps) {
       updateWorkspace(deps, input),
     recordFeedback: (input: Parameters<typeof recordFeedback>[1]) =>
       recordFeedback(deps, input),
+    listProviderCallbacks: (
+      input: Parameters<typeof listProviderCallbacks>[1]
+    ) => listProviderCallbacks(deps, input),
   };
 }
 

@@ -1,9 +1,8 @@
+import { Result } from '@swan-io/boxed';
+
 import { fetchJson } from './http';
 import { asArray, asObject, asString, pick, toDate } from './json-access';
-import type {
-  CallbackNormalization,
-  ProviderAdapter,
-} from '../../application/ports/provider-adapter';
+import type { ProviderAdapter } from '../../application/ports/provider-adapter';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
 /**
@@ -13,20 +12,23 @@ import type { SourceRecordWriteInput } from '../../domain/source';
 export const apifyAdapter: ProviderAdapter = {
   name: 'apify',
   isConfigured: ({ credential }) => Boolean(credential),
-  async normalizeCallback(ctx): Promise<CallbackNormalization> {
+  async normalizeCallback(ctx) {
     if (!ctx.credential) {
-      return { type: 'invalid', reason: 'APIFY_TOKEN is not configured' };
+      return Result.Ok({
+        type: 'invalid',
+        reason: 'APIFY_TOKEN is not configured',
+      });
     }
     const resource = asObject(pick(ctx.payload, 'resource'));
     const datasetId = asString(resource.defaultDatasetId);
-    if (!datasetId) return { type: 'unsupported' };
+    if (!datasetId) return Result.Ok({ type: 'unsupported' });
 
     const items = await fetchJson(
       'apify',
       `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&token=${ctx.credential}`
     );
     if (items.isError()) {
-      return { type: 'invalid', reason: items.getError().message };
+      return Result.Ok({ type: 'invalid', reason: items.getError().message });
     }
 
     const sourceRecords: SourceRecordWriteInput[] = asArray(items.get()).map(
@@ -50,6 +52,6 @@ export const apifyAdapter: ProviderAdapter = {
       }
     );
 
-    return { type: 'normalized', sourceRecords };
+    return Result.Ok({ type: 'normalized', sourceRecords });
   },
 };

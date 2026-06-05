@@ -11,9 +11,7 @@ export const PageDashboard = () => {
       <PageLayoutTopBar>
         <PageLayoutTopBarTitle>Dashboard</PageLayoutTopBarTitle>
       </PageLayoutTopBar>
-      <PageLayoutContent containerClassName="max-w-4xl">
-        <div className="flex flex-col gap-4" />
-      </PageLayoutContent>
+      <PageLayoutContent containerClassName="max-w-4xl" />
     </PageLayout>
   );
 };

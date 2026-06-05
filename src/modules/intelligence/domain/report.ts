@@ -45,17 +45,6 @@ export type ReportSourceLink = {
   createdAt: Date;
 };
 
-/**
- * A successfully published report is frozen and cannot be regenerated.
- * Only a report whose generation failed is eligible for regeneration.
- */
-export function isReportRegenerationAllowed(
-  report: Pick<WeeklyReport, 'status'> | null
-): boolean {
-  if (!report) return true;
-  return report.status === 'failed';
-}
-
 export function isReportPublished(
   report: Pick<WeeklyReport, 'status'>
 ): boolean {

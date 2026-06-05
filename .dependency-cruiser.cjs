@@ -243,10 +243,10 @@ module.exports = {
       name: 'only-composition-imports-feature-infrastructure',
       severity: 'error',
       comment:
-        'Routes, transport, and other features must not import infrastructure adapters directly. Go through composition.',
+        'Routes, transport, and other features must not import infrastructure adapters directly. Go through composition or module backend gates.',
       from: {
         pathNot:
-          '^src/(composition|modules/[^/]+/infrastructure|modules/[^/]+/server\\.ts$|modules/[^/]+/testing\\.ts$|modules/kernel)',
+          '^src/(composition|modules/[^/]+/infrastructure|modules/[^/]+/server\\.ts$|modules/[^/]+/backend\\.ts$|modules/[^/]+/testing\\.ts$|modules/kernel)',
       },
       to: {
         path: '^src/modules/(?!kernel/)[^/]+/infrastructure',

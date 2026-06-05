@@ -1,5 +1,7 @@
-/* oxlint-disable no-process-env -- Intelligence runtime secrets are read from the process environment at call time. */
+/* oxlint-disable no-process-env */
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
+
+import type { IntelligenceRuntimeConfig } from '../../application/ports/runtime-config';
 
 const readEnv = (key: string): string | undefined => {
   const value = process.env[key];
@@ -39,4 +41,14 @@ export function getSlackAlertWebhookUrl(): string | undefined {
 export function getProviderCredential(ref: string | null): string | undefined {
   if (!ref) return undefined;
   return readEnv(ref);
+}
+
+export function createIntelligenceRuntimeConfig(): IntelligenceRuntimeConfig {
+  return {
+    cronSecret: getCronSecret(),
+    openAiApiKey: readEnv('OPENAI_API_KEY'),
+    openAiModel: readEnv('OPENAI_MODEL') ?? 'gpt-4.1',
+    slackAlertWebhookUrl: getSlackAlertWebhookUrl(),
+    getProviderCredential,
+  };
 }
