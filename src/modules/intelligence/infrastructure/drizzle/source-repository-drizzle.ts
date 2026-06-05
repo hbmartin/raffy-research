@@ -29,6 +29,7 @@ import type {
   SourceRecordWriteInput,
   SourceSummary,
 } from '../../domain/source';
+import { normalizeHttpUrl } from '../../domain/url';
 
 type SourceRow = typeof sourceRecordTable.$inferSelect;
 type SearchRow = typeof searchResultTable.$inferSelect;
@@ -144,8 +145,8 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           sourceType: input.sourceType,
           sourceSubtype: input.sourceSubtype ?? null,
           sourceName: input.sourceName ?? null,
-          sourceUrl: input.sourceUrl ?? null,
-          externalUrl: input.externalUrl ?? null,
+          sourceUrl: normalizeHttpUrl(input.sourceUrl),
+          externalUrl: normalizeHttpUrl(input.externalUrl),
           title: input.title ?? null,
           authorOrAccount: input.authorOrAccount ?? null,
           domain: input.domain ?? null,
@@ -210,7 +211,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           resultRank: input.resultRank ?? null,
           title: input.title ?? null,
           snippet: input.snippet ?? null,
-          url: input.url ?? null,
+          url: normalizeHttpUrl(input.url),
           returnedAt: input.returnedAt ?? undefined,
           sourceRecordId: input.sourceRecordId ?? null,
           rawPayload: input.rawPayload ?? {},

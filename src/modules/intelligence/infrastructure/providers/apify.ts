@@ -5,6 +5,8 @@ import { asArray, asObject, asString, pick, toDate } from './json-access';
 import type { ProviderAdapter } from '../../application/ports/provider-adapter';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
+const APIFY_DATASET_ID_PATTERN = /^[A-Za-z0-9]+$/;
+
 /**
  * Apify: LinkedIn / custom scraping. Actor-run-completed webhooks reference a
  * dataset whose items are normalized into source records.
@@ -22,10 +24,17 @@ export const apifyAdapter: ProviderAdapter = {
     const resource = asObject(pick(ctx.payload, 'resource'));
     const datasetId = asString(resource.defaultDatasetId);
     if (!datasetId) return Result.Ok({ type: 'unsupported' });
+    if (!APIFY_DATASET_ID_PATTERN.test(datasetId)) {
+      return Result.Ok({
+        type: 'invalid',
+        reason: 'Apify callback referenced an invalid dataset id',
+      });
+    }
 
     const items = await fetchJson(
       'apify',
-      `https://api.apify.com/v2/datasets/${datasetId}/items?clean=true&format=json&token=${ctx.credential}`
+      `https://api.apify.com/v2/datasets/${encodeURIComponent(datasetId)}/items?clean=true&format=json`,
+      { headers: { Authorization: `Bearer ${ctx.credential}` } }
     );
     if (items.isError()) {
       return Result.Ok({ type: 'invalid', reason: items.getError().message });

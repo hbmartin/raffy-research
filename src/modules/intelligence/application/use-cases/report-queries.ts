@@ -57,7 +57,19 @@ export async function getLatestReportForUser(
   const workspaces = await deps.workspaceRepository.list();
   if (workspaces.isError()) return Result.Error(workspaces.getError());
 
-  const workspace = workspaces.get()[0];
+  const workspaceList = workspaces.get();
+  if (workspaceList.length > 1) {
+    deps.logger.warn({
+      event: 'intelligence.report.default_workspace_ambiguous',
+      details: {
+        userId: input.currentUserId,
+        workspaceCount: workspaceList.length,
+      },
+    });
+    return Result.Ok({ type: 'no_report', workspaceId: null });
+  }
+
+  const workspace = workspaceList[0];
   if (!workspace) return Result.Ok({ type: 'no_report', workspaceId: null });
 
   const latest = await deps.reportRepository.getLatestPublished(workspace.id);

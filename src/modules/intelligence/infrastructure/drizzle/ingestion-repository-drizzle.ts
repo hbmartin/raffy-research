@@ -111,15 +111,19 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
     }
   ) {
     try {
+      const values: Partial<typeof ingestionRunTable.$inferInsert> = {
+        status: input.status,
+        finishedAt: input.finishedAt ?? new Date(),
+      };
+      if ('itemsIngested' in input) values.itemsIngested = input.itemsIngested;
+      if ('failureReason' in input) {
+        values.failureReason = input.failureReason ?? null;
+      }
+      if ('metadata' in input) values.metadata = input.metadata ?? null;
+
       const [updated] = await this.db
         .update(ingestionRunTable)
-        .set({
-          status: input.status,
-          itemsIngested: input.itemsIngested,
-          failureReason: input.failureReason ?? null,
-          finishedAt: input.finishedAt ?? new Date(),
-          metadata: input.metadata ?? {},
-        })
+        .set(values)
         .where(eq(ingestionRunTable.id, id))
         .returning({ id: ingestionRunTable.id });
       return Result.Ok(

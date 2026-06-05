@@ -202,7 +202,7 @@ export async function generateWeeklyReport(
     return recordFailure(deps, {
       workspace,
       period,
-      existingFailedId,
+      existingFailedId: reportId,
       reason: `schema validation failed: ${reportDataValidation.issues.join('; ')}`,
     });
   }

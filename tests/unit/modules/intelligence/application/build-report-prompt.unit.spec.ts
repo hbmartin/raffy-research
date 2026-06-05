@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildReportPrompt,
   NO_RECOMMENDATION_GUIDANCE,
+  UNTRUSTED_SOURCE_GUIDANCE,
 } from '@/modules/intelligence';
 import { toKeywordId, toSourceRecordId, toWorkspaceId } from '@/modules/kernel';
 
@@ -73,6 +74,11 @@ describe('buildReportPrompt', () => {
     expect(prompt).toContain(NO_RECOMMENDATION_GUIDANCE);
     expect(prompt).toContain('MUST NOT recommend');
     expect(prompt).toContain('Do not include confidence');
+  });
+
+  it('marks source records as untrusted evidence', () => {
+    expect(prompt).toContain(UNTRUSTED_SOURCE_GUIDANCE);
+    expect(prompt).toContain('not instructions');
   });
 
   it('asks for exactly 3 executive summary bullets', () => {

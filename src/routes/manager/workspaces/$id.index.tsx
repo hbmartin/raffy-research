@@ -9,9 +9,18 @@ import { observedLoader } from '@/platform/router/route-observability';
 export const Route = createFileRoute('/manager/workspaces/$id/')({
   loader: observedLoader('/manager/workspaces/$id/', ({ context, params }) => {
     if (isForbiddenRouteContext(context)) return undefined;
-    return context.queryClient.ensureQueryData(
-      intelligenceQueries.workspaceConfig(toWorkspaceId(params.id))
-    );
+    const workspaceId = toWorkspaceId(params.id);
+    return Promise.all([
+      context.queryClient.ensureQueryData(
+        intelligenceQueries.workspaceConfig(workspaceId)
+      ),
+      context.queryClient.ensureQueryData(
+        intelligenceQueries.reportsByWorkspace(workspaceId)
+      ),
+      context.queryClient.ensureQueryData(
+        intelligenceQueries.providerCallbacks(workspaceId)
+      ),
+    ]);
   }),
   component: RouteComponent,
 });

@@ -5,6 +5,7 @@ import { Badge } from '@/platform/components/ui/badge';
 import { Button } from '@/platform/components/ui/button';
 
 import type { SourceRecord } from '../domain/source';
+import { normalizeHttpUrl } from '../domain/url';
 
 const DiffBlock = (props: { added: string | null; removed: string | null }) => {
   if (!props.added && !props.removed) return null;
@@ -38,6 +39,7 @@ export const SourceDetail = (props: {
 }) => {
   const { source } = props;
   const [showRaw, setShowRaw] = useState(false);
+  const externalUrl = normalizeHttpUrl(source.externalUrl);
 
   return (
     <div className="flex flex-col gap-4">
@@ -51,12 +53,12 @@ export const SourceDetail = (props: {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {source.externalUrl ? (
+        {externalUrl ? (
           <Button
             variant="secondary"
             size="sm"
             render={
-              <a href={source.externalUrl} target="_blank" rel="noreferrer">
+              <a href={externalUrl} target="_blank" rel="noreferrer">
                 <ExternalLinkIcon />
                 Open original source
               </a>

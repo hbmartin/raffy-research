@@ -1,6 +1,7 @@
 export {
   getCronSecret,
   getProviderCredential,
+  getProviderWebhookSecret,
 } from './infrastructure/config/runtime';
 export { createFeedbackRepository } from './infrastructure/drizzle/feedback-repository-drizzle';
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';

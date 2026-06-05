@@ -34,6 +34,34 @@ export type RecordFeedbackOutcome =
     }
   | { type: 'competitor_not_found'; event: FeedbackEvent };
 
+async function reportBelongsToWorkspace(
+  deps: Pick<IntelligenceUseCaseDeps, 'reportRepository'>,
+  reportId: WeeklyReportId,
+  workspaceId: WorkspaceId
+): Promise<ApplicationResult<boolean>> {
+  const report = await deps.reportRepository.getById(reportId);
+  if (report.isError()) return Result.Error(report.getError());
+  const reportOutcome = report.get();
+  return Result.Ok(
+    reportOutcome.type === 'report_found' &&
+      reportOutcome.report.workspaceId === workspaceId
+  );
+}
+
+async function sourceBelongsToWorkspace(
+  deps: Pick<IntelligenceUseCaseDeps, 'sourceRepository'>,
+  sourceRecordId: SourceRecordId,
+  workspaceId: WorkspaceId
+): Promise<ApplicationResult<boolean>> {
+  const source = await deps.sourceRepository.getById(sourceRecordId);
+  if (source.isError()) return Result.Error(source.getError());
+  const sourceOutcome = source.get();
+  return Result.Ok(
+    sourceOutcome.type === 'source_record_found' &&
+      sourceOutcome.sourceRecord.workspaceId === workspaceId
+  );
+}
+
 /**
  * Append-only feedback. The only side effect is `add_competitor_to_watchlist`,
  * which transitions the targeted suggested competitor to `accepted`.
@@ -47,6 +75,28 @@ export async function recordFeedback(
   });
   if (allowed.isError()) return Result.Error(allowed.getError());
   if (!allowed.get()) return Result.Ok({ type: 'forbidden' });
+
+  if (input.reportId) {
+    const matchesWorkspace = await reportBelongsToWorkspace(
+      deps,
+      input.reportId,
+      input.workspaceId
+    );
+    if (matchesWorkspace.isError())
+      return Result.Error(matchesWorkspace.getError());
+    if (!matchesWorkspace.get()) return Result.Ok({ type: 'forbidden' });
+  }
+
+  if (input.sourceRecordId) {
+    const matchesWorkspace = await sourceBelongsToWorkspace(
+      deps,
+      input.sourceRecordId,
+      input.workspaceId
+    );
+    if (matchesWorkspace.isError())
+      return Result.Error(matchesWorkspace.getError());
+    if (!matchesWorkspace.get()) return Result.Ok({ type: 'forbidden' });
+  }
 
   const created = await deps.feedbackRepository.create({
     workspaceId: input.workspaceId,

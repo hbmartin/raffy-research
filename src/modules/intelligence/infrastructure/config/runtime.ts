@@ -32,6 +32,11 @@ export function getCronSecret(): string | undefined {
   return readEnv('CRON_SECRET');
 }
 
+/** Shared secret provider callback routes require before storing payloads. */
+export function getProviderWebhookSecret(): string | undefined {
+  return readEnv('PROVIDER_WEBHOOK_SECRET');
+}
+
 /** Optional Slack incoming-webhook URL for internal failure alerts. */
 export function getSlackAlertWebhookUrl(): string | undefined {
   return readEnv('SLACK_ALERT_WEBHOOK_URL');

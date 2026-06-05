@@ -1,5 +1,5 @@
 import { Result } from '@swan-io/boxed';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, ne } from 'drizzle-orm';
 
 import type { WeeklyReportId, WorkspaceId } from '@/modules/kernel/domain/ids';
 import {
@@ -53,12 +53,21 @@ const toReport = (row: ReportRow): WeeklyReport => ({
 });
 
 const toReportSummary = (row: ReportRow): WeeklyReportSummary => {
-  const {
-    reportData: _reportData,
-    modelMetadata: _modelMetadata,
-    ...rest
-  } = toReport(row);
-  return rest;
+  const report = toReport(row);
+  return {
+    id: report.id,
+    workspaceId: report.workspaceId,
+    periodStart: report.periodStart,
+    periodEnd: report.periodEnd,
+    timezone: report.timezone,
+    status: report.status,
+    generatedAt: report.generatedAt,
+    publishedAt: report.publishedAt,
+    title: report.title,
+    failureReason: report.failureReason,
+    createdAt: report.createdAt,
+    updatedAt: report.updatedAt,
+  };
 };
 
 const toReportSourceLink = (row: ReportSourceRow): ReportSourceLink => ({
@@ -179,8 +188,8 @@ export class ReportRepositoryDrizzle implements ReportRepository {
           timezone: input.timezone,
           status: input.status,
           title: input.title ?? null,
-          reportData: (input.reportData ?? {}) as any,
-          modelMetadata: input.modelMetadata ?? {},
+          reportData: input.reportData ?? null,
+          modelMetadata: input.modelMetadata ?? null,
           failureReason: input.failureReason ?? null,
           generatedAt: input.generatedAt ?? null,
           publishedAt: input.publishedAt ?? null,
@@ -213,18 +222,31 @@ export class ReportRepositoryDrizzle implements ReportRepository {
     }
   ) {
     try {
+      const values: Partial<typeof weeklyReportTable.$inferInsert> = {
+        status: input.status,
+      };
+      if ('title' in input) values.title = input.title ?? null;
+      if ('reportData' in input) values.reportData = input.reportData ?? null;
+      if ('modelMetadata' in input) {
+        values.modelMetadata = input.modelMetadata ?? null;
+      }
+      if ('failureReason' in input) {
+        values.failureReason = input.failureReason ?? null;
+      }
+      if ('generatedAt' in input)
+        values.generatedAt = input.generatedAt ?? null;
+      if ('publishedAt' in input)
+        values.publishedAt = input.publishedAt ?? null;
+
       const [updated] = await this.db
         .update(weeklyReportTable)
-        .set({
-          status: input.status,
-          title: input.title ?? null,
-          reportData: (input.reportData ?? {}) as any,
-          modelMetadata: input.modelMetadata ?? {},
-          failureReason: input.failureReason ?? null,
-          generatedAt: input.generatedAt ?? null,
-          publishedAt: input.publishedAt ?? null,
-        })
-        .where(eq(weeklyReportTable.id, id))
+        .set(values)
+        .where(
+          and(
+            eq(weeklyReportTable.id, id),
+            ne(weeklyReportTable.status, 'published')
+          )
+        )
         .returning();
       return Result.Ok(
         updated

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { isSafeHttpUrl, normalizeHttpUrl } from './url';
+
 /**
  * The frozen weekly report JSON shape stored in `weeklyReport.reportData` and
  * rendered as the interactive CEO report page.
@@ -17,6 +19,14 @@ import { z } from 'zod';
 export const zNewnessLabel = z.enum(['new_this_week', 'existing']);
 export const zTrendLabel = z.enum(['rising', 'stable', 'declining', 'unknown']);
 
+const zOptionalHttpUrl = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(isSafeHttpUrl, { message: 'Must be an http(s) URL' })
+  .transform((value) => normalizeHttpUrl(value) ?? value)
+  .optional();
+
 export const zEvidenceItem = z.object({
   id: z.string().min(1),
   source_ids: z.array(z.string().min(1)).min(1),
@@ -24,8 +34,8 @@ export const zEvidenceItem = z.object({
   source_title: z.string().optional(),
   source_type: z.string().optional(),
   provider_name: z.string().optional(),
-  external_url: z.string().optional(),
-  internal_source_url: z.string().optional(),
+  external_url: zOptionalHttpUrl,
+  internal_source_url: zOptionalHttpUrl,
   notes: z.string().optional(),
 });
 
@@ -125,8 +135,8 @@ const zSourceLibraryItem = z.object({
   source_title: z.string().optional(),
   source_type: z.string().optional(),
   provider_name: z.string().optional(),
-  external_url: z.string().optional(),
-  internal_source_url: z.string().optional(),
+  external_url: zOptionalHttpUrl,
+  internal_source_url: zOptionalHttpUrl,
 });
 
 const zReportContentShape = {
@@ -287,12 +297,17 @@ export function validateReportData(input: unknown): ReportDataValidation {
   };
 }
 
-const stripCodeFences = (text: string): string =>
-  text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+const stripCodeFences = (text: string): string => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('```')) return trimmed;
+
+  const openingFenceEnd = trimmed.indexOf('\n');
+  if (openingFenceEnd < 0) return trimmed;
+
+  const body = trimmed.slice(openingFenceEnd + 1).trim();
+  if (!body.endsWith('```')) return body;
+  return body.slice(0, -3).trim();
+};
 
 function parseJsonText(
   text: string

@@ -1,12 +1,24 @@
 import { Result } from '@swan-io/boxed';
 
-import { asArray, asObject, asString, pick, toDate } from './json-access';
+import type { JsonValue } from '@/modules/kernel/domain/json';
+
+import { asArray, asObject, asString, toDate } from './json-access';
 import type {
   CallbackNormalization,
   ProviderAdapter,
   ProviderCallbackContext,
 } from '../../application/ports/provider-adapter';
 import type { SourceRecordWriteInput } from '../../domain/source';
+
+const getMentionItems = (
+  normalizedItems: JsonValue[],
+  hasKnownKeys: boolean,
+  payload: JsonValue
+): JsonValue[] => {
+  if (normalizedItems.length > 0) return normalizedItems;
+  if (hasKnownKeys) return [];
+  return [payload];
+};
 
 /**
  * Mention/lead-signal providers (Awario, Trigify, ForumScout) deliver one or
@@ -27,12 +39,7 @@ function normalizeMentions(
   const normalizedItems = asArray(
     root.mentions ?? root.results ?? root.items ?? root.data
   );
-  const items =
-    normalizedItems.length > 0
-      ? normalizedItems
-      : hasKnownKeys
-        ? []
-        : [ctx.payload];
+  const items = getMentionItems(normalizedItems, hasKnownKeys, ctx.payload);
 
   const sourceRecords: SourceRecordWriteInput[] = items
     .map((raw) => {
@@ -98,6 +105,3 @@ export const forumscoutAdapter: ProviderAdapter = {
   normalizeCallback: (ctx) =>
     Result.Ok(normalizeMentions('forumscout', 'forum_post', ctx)),
 };
-
-// re-exported helper for potential reuse/testing
-export { pick };

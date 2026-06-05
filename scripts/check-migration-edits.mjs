@@ -8,6 +8,7 @@ const SCHEMA_PATHS = [
   'src/modules/book/infrastructure/drizzle/schema.ts',
   'src/modules/email/infrastructure/drizzle/schema.ts',
   'src/modules/genre/infrastructure/drizzle/schema.ts',
+  'src/modules/intelligence/infrastructure/drizzle/schema.ts',
 ];
 const SQL_MIGRATION_PATTERN = /^drizzle\/migrations\/.*\.sql$/;
 

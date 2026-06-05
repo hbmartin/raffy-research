@@ -170,4 +170,70 @@ describe('provider adapters', () => {
       sourceRecords: [],
     });
   });
+
+  it('rejects Apify callback dataset ids with path or query characters', async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const context: ProviderCallbackContext = {
+      workspaceId,
+      credential: 'token',
+      payload: { resource: { defaultDatasetId: 'abc?token=other' } },
+      logger,
+    };
+
+    const adapter = createProviderRegistry().get('apify');
+    const normalizationResult = await adapter?.normalizeCallback?.(context);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(normalizationResult?.getOr({ type: 'unsupported' })).toEqual({
+      type: 'invalid',
+      reason: 'Apify callback referenced an invalid dataset id',
+    });
+  });
+
+  it('fetches Apify callback datasets with an encoded path and bearer token', async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
+      expect(_url).toBe(
+        'https://api.apify.com/v2/datasets/abc123/items?clean=true&format=json'
+      );
+      expect(_init?.headers).toEqual({ Authorization: 'Bearer token' });
+      expect(_init?.signal).toBeInstanceOf(AbortSignal);
+      return new Response(
+        JSON.stringify([
+          {
+            id: 'item-1',
+            url: 'https://example.com/post',
+            text: 'Useful market signal',
+          },
+        ]),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const context: ProviderCallbackContext = {
+      workspaceId,
+      credential: 'token',
+      payload: { resource: { defaultDatasetId: 'abc123' } },
+      logger,
+    };
+
+    const adapter = createProviderRegistry().get('apify');
+    const normalizationResult = await adapter?.normalizeCallback?.(context);
+    const value = normalizationResult?.getOr({ type: 'unsupported' });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(value).toMatchObject({
+      type: 'normalized',
+      sourceRecords: [
+        {
+          workspaceId,
+          providerName: 'apify',
+          providerSourceId: 'item-1',
+          externalUrl: 'https://example.com/post',
+        },
+      ],
+    });
+  });
 });

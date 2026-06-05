@@ -3,6 +3,7 @@ export {
   buildReportPrompt,
   NO_RECOMMENDATION_GUIDANCE,
   REPORT_PROMPT_VERSION,
+  UNTRUSTED_SOURCE_GUIDANCE,
 } from './application/generation/build-report-prompt';
 export {
   generateWeeklyReport,
@@ -37,6 +38,7 @@ export * from './domain/provider';
 export * from './domain/report';
 export * from './domain/report-data';
 export type * from './domain/source';
+export { isSafeHttpUrl, normalizeHttpUrl } from './domain/url';
 export * from './domain/workspace';
 export {
   createIntelligenceUseCases,
