@@ -1,5 +1,5 @@
 import { Result } from '@swan-io/boxed';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 
 import type {
   IngestionRunId,
@@ -81,7 +81,7 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
           finishedAt: input.finishedAt ?? null,
           itemsIngested: input.itemsIngested ?? 0,
           failureReason: input.failureReason ?? null,
-          metadata: input.metadata ?? null,
+          metadata: input.metadata ?? {},
         })
         .returning();
       if (!created) {
@@ -118,7 +118,7 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
           itemsIngested: input.itemsIngested,
           failureReason: input.failureReason ?? null,
           finishedAt: input.finishedAt ?? new Date(),
-          metadata: input.metadata ?? null,
+          metadata: input.metadata ?? {},
         })
         .where(eq(ingestionRunTable.id, id))
         .returning({ id: ingestionRunTable.id });
@@ -141,7 +141,7 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
         .values({
           workspaceId: input.workspaceId ?? null,
           providerName: input.providerName,
-          rawPayload: input.rawPayload ?? null,
+          rawPayload: input.rawPayload ?? {},
           normalizationStatus: 'pending',
         })
         .returning();
@@ -188,6 +188,20 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
       return Result.Error(
         mapIntelligenceDbError(error, 'CALLBACK_UPDATE_ERROR')
       );
+    }
+  }
+
+  async listCallbackEvents(input: { workspaceId: string; limit?: number }) {
+    try {
+      const rows = await this.db
+        .select()
+        .from(providerCallbackEventTable)
+        .where(eq(providerCallbackEventTable.workspaceId, input.workspaceId))
+        .orderBy(desc(providerCallbackEventTable.receivedAt))
+        .limit(input.limit ?? 50);
+      return Result.Ok(rows.map(toCallbackEvent));
+    } catch (error) {
+      return Result.Error(mapIntelligenceDbError(error, 'CALLBACK_LIST_ERROR'));
     }
   }
 }

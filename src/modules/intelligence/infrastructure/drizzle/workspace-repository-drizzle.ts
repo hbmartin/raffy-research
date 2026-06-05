@@ -237,6 +237,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           workspaceId: input.workspaceId,
           keywordString: input.keywordString.trim(),
           active: input.active ?? true,
+          metadata: {},
         })
         .returning();
       if (!created) {
@@ -310,6 +311,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           platform: input.platform ?? null,
           username: input.username ?? null,
           profileUrl: input.profileUrl ?? null,
+          metadata: {},
         })
         .returning();
       if (!created) {
@@ -365,6 +367,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           name: input.name.trim(),
           domain: input.domain ?? null,
           state: input.state ?? 'accepted',
+          metadata: {},
         })
         .returning();
       if (!created) {
@@ -444,7 +447,14 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           )
         )
         .limit(1);
-      return Result.Ok(row ? toProviderConfig(row) : null);
+      return Result.Ok(
+        row
+          ? ({
+              type: 'provider_config_found',
+              config: toProviderConfig(row),
+            } as const)
+          : ({ type: 'provider_config_not_found' } as const)
+      );
     } catch (error) {
       return Result.Error(
         mapIntelligenceDbError(error, 'PROVIDER_CONFIG_GET_ERROR')
@@ -461,7 +471,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           providerName: input.providerName,
           enabled: input.enabled,
           credentialsRef: input.credentialsRef ?? null,
-          config: input.config ?? null,
+          config: input.config ?? {},
         })
         .onConflictDoUpdate({
           target: [
@@ -471,7 +481,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           set: {
             enabled: input.enabled,
             credentialsRef: input.credentialsRef ?? null,
-            config: input.config ?? null,
+            config: input.config ?? {},
           },
         })
         .returning();
@@ -552,6 +562,7 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
           sourceSystem: input.sourceSystem,
           sourceRef: input.sourceRef.trim(),
           enabled: input.enabled ?? true,
+          metadata: {},
         })
         .returning();
       if (!created) {

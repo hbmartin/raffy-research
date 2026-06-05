@@ -43,4 +43,9 @@ export interface IngestionRepository {
   ): Promise<
     ApplicationResult<{ type: 'callback_updated' | 'callback_not_found' }>
   >;
+
+  listCallbackEvents(input: {
+    workspaceId: string;
+    limit?: number;
+  }): Promise<ApplicationResult<ProviderCallbackEvent[]>>;
 }

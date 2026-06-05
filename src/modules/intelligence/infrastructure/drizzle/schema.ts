@@ -35,7 +35,7 @@ export const workspace = pgTable('workspace', {
   icp: text('icp'),
   marketAssumptions: text('marketAssumptions'),
   gtmFocus: text('gtmFocus'),
-  metadata: jsonb('metadata').$type<JsonMetadata>(),
+  metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
 });
 
 /** Plain configured keyword strings (V1 keeps keywords intentionally simple). */
@@ -50,7 +50,7 @@ export const workspaceKeyword = pgTable(
       .references(() => workspace.id, { onDelete: 'cascade' }),
     keywordString: text('keywordString').notNull(),
     active: boolean('active').notNull().default(true),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [index('workspaceKeyword_workspaceId_idx').on(table.workspaceId)]
 );
@@ -69,7 +69,7 @@ export const workspaceSocialAccount = pgTable(
     username: text('username'),
     profileUrl: text('profileUrl'),
     active: boolean('active').notNull().default(true),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [
     index('workspaceSocialAccount_workspaceId_idx').on(table.workspaceId),
@@ -92,7 +92,7 @@ export const workspaceCompetitor = pgTable(
       .$type<'accepted' | 'suggested' | 'ignored'>()
       .notNull()
       .default('accepted'),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [
     index('workspaceCompetitor_workspaceId_idx').on(table.workspaceId),
@@ -112,7 +112,7 @@ export const providerConfig = pgTable(
     providerName: text('providerName').notNull(),
     enabled: boolean('enabled').notNull().default(false),
     credentialsRef: text('credentialsRef'),
-    config: jsonb('config').$type<JsonMetadata>(),
+    config: jsonb('config').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [
     uniqueIndex('providerConfig_workspace_provider_key').on(
@@ -135,7 +135,7 @@ export const internalNoteConfig = pgTable(
     sourceSystem: text('sourceSystem').$type<'slack' | 'notion'>().notNull(),
     sourceRef: text('sourceRef').notNull(),
     enabled: boolean('enabled').notNull().default(true),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [index('internalNoteConfig_workspaceId_idx').on(table.workspaceId)]
 );
@@ -167,8 +167,8 @@ export const sourceRecord = pgTable(
     contentText: text('contentText'),
     diffAddedText: text('diffAddedText'),
     diffRemovedText: text('diffRemovedText'),
-    rawPayload: jsonb('rawPayload').$type<JsonValue>(),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [
     index('sourceRecord_workspaceId_idx').on(table.workspaceId),
@@ -200,8 +200,8 @@ export const searchResult = pgTable(
     sourceRecordId: text('sourceRecordId').references(() => sourceRecord.id, {
       onDelete: 'set null',
     }),
-    rawPayload: jsonb('rawPayload').$type<JsonValue>(),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [index('searchResult_workspaceId_idx').on(table.workspaceId)]
 );
@@ -223,8 +223,14 @@ export const sourceSummary = pgTable(
     modelName: text('modelName'),
     modelProvider: text('modelProvider'),
     promptVersion: text('promptVersion'),
-    inputMetadata: jsonb('inputMetadata').$type<JsonMetadata>(),
-    outputPayload: jsonb('outputPayload').$type<JsonValue>(),
+    inputMetadata: jsonb('inputMetadata')
+      .$type<JsonMetadata>()
+      .notNull()
+      .default({}),
+    outputPayload: jsonb('outputPayload')
+      .$type<JsonValue>()
+      .notNull()
+      .default({}),
   },
   (table) => [
     index('sourceSummary_sourceRecordId_idx').on(table.sourceRecordId),
@@ -253,8 +259,14 @@ export const weeklyReport = pgTable(
     generatedAt: timestamp('generatedAt', { precision: 3, mode: 'date' }),
     publishedAt: timestamp('publishedAt', { precision: 3, mode: 'date' }),
     title: text('title'),
-    reportData: jsonb('reportData').$type<ReportData | null>(),
-    modelMetadata: jsonb('modelMetadata').$type<JsonMetadata>(),
+    reportData: jsonb('reportData')
+      .$type<ReportData | null>()
+      .notNull()
+      .default({} as any),
+    modelMetadata: jsonb('modelMetadata')
+      .$type<JsonMetadata>()
+      .notNull()
+      .default({}),
     failureReason: text('failureReason'),
   },
   (table) => [
@@ -286,7 +298,7 @@ export const weeklyReportSource = pgTable(
       .notNull(),
     topicClusterId: text('topicClusterId'),
     sectionKey: text('sectionKey'),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [
     index('weeklyReportSource_reportId_idx').on(table.reportId),
@@ -313,7 +325,7 @@ export const feedbackEvent = pgTable(
     sourceRecordId: text('sourceRecordId').references(() => sourceRecord.id, {
       onDelete: 'set null',
     }),
-    payload: jsonb('payload').$type<JsonMetadata>(),
+    payload: jsonb('payload').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [index('feedbackEvent_workspaceId_idx').on(table.workspaceId)]
 );
@@ -340,7 +352,7 @@ export const ingestionRun = pgTable(
     finishedAt: timestamp('finishedAt', { precision: 3, mode: 'date' }),
     itemsIngested: integer('itemsIngested').notNull().default(0),
     failureReason: text('failureReason'),
-    metadata: jsonb('metadata').$type<JsonMetadata>(),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
   (table) => [index('ingestionRun_workspaceId_idx').on(table.workspaceId)]
 );
@@ -355,7 +367,7 @@ export const providerCallbackEvent = pgTable(
       onDelete: 'cascade',
     }),
     providerName: text('providerName').notNull(),
-    rawPayload: jsonb('rawPayload').$type<JsonValue>(),
+    rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
     normalizationStatus: text('normalizationStatus')
       .$type<'pending' | 'normalized' | 'failed' | 'skipped'>()
       .notNull()

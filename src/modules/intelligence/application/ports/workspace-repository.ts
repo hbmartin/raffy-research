@@ -35,6 +35,10 @@ export type CompetitorSetStateOutcome =
   | { type: 'competitor_updated'; competitor: Competitor }
   | { type: 'competitor_not_found' };
 
+export type ProviderConfigGetOutcome =
+  | { type: 'provider_config_found'; config: ProviderConfig }
+  | { type: 'provider_config_not_found' };
+
 export interface WorkspaceRepository {
   list(): Promise<ApplicationResult<Workspace[]>>;
   getById(id: WorkspaceId): Promise<ApplicationResult<WorkspaceGetOutcome>>;
@@ -93,7 +97,7 @@ export interface WorkspaceRepository {
   getProviderConfig(
     workspaceId: WorkspaceId,
     providerName: ProviderName
-  ): Promise<ApplicationResult<ProviderConfig | null>>;
+  ): Promise<ApplicationResult<ProviderConfigGetOutcome>>;
   upsertProviderConfig(
     input: ProviderConfigWriteInput
   ): Promise<ApplicationResult<ProviderConfig>>;

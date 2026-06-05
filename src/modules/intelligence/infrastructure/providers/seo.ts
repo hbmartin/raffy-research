@@ -82,6 +82,14 @@ export const semrushAdapter: ProviderAdapter = {
         });
         continue;
       }
+      const text = response.get();
+      if (text.trimStart().startsWith('ERROR:')) {
+        ctx.logger.warn({
+          event: 'intelligence.ingest.provider_error',
+          details: { provider: 'semrush', domain, error: text },
+        });
+        continue;
+      }
       sourceRecords.push({
         workspaceId: ctx.workspace.id,
         providerName: 'semrush',
@@ -91,8 +99,8 @@ export const semrushAdapter: ProviderAdapter = {
         domain,
         externalUrl: `https://${domain}`,
         title: `SEMrush domain ranks for ${domain}`,
-        contentText: response.get(),
-        rawPayload: response.get(),
+        contentText: text,
+        rawPayload: text,
         metadata: { domain },
       });
     }

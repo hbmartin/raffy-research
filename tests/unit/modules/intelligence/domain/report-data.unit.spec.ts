@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseReportJson, validateReportData } from '@/modules/intelligence';
+import {
+  parseGeneratedReportJson,
+  parseReportJson,
+  validateReportData,
+} from '@/modules/intelligence';
 
 const validReport = {
   workspace_id: 'ws-1',
@@ -23,6 +27,12 @@ const validReport = {
       ],
     },
   ],
+};
+
+const validGeneratedReport = {
+  title: validReport.title,
+  executive_summary: validReport.executive_summary,
+  topic_clusters: validReport.topic_clusters,
 };
 
 describe('report data validation', () => {
@@ -74,5 +84,14 @@ describe('report data validation', () => {
     const fenced = '```json\n' + JSON.stringify(validReport) + '\n```';
     expect(parseReportJson(fenced).type).toBe('report_data_valid');
     expect(parseReportJson('not json').type).toBe('report_data_invalid');
+  });
+
+  it('parses generated report JSON before system metadata exists', () => {
+    const fenced = '```json\n' + JSON.stringify(validGeneratedReport) + '\n```';
+
+    expect(parseGeneratedReportJson(fenced).type).toBe(
+      'generated_report_data_valid'
+    );
+    expect(parseReportJson(fenced).type).toBe('report_data_invalid');
   });
 });

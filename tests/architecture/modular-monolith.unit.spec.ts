@@ -368,6 +368,19 @@ describe('strict modular monolith layout', () => {
     ).toEqual([]);
   });
 
+  it('keeps intelligence composition on intelligence public APIs', () => {
+    const files = listSourceFiles(path.join(root, 'src', 'composition')).filter(
+      (file) => path.basename(file).startsWith('intelligence')
+    );
+
+    expect(
+      findImportViolations(
+        files,
+        /from\s+['"]@\/modules\/intelligence\/(?!(?:index|presentation|server|backend|client|testing)(?:\.[^/'"]+)?(?:['"]|$))[^'"]+['"]/g
+      )
+    ).toEqual([]);
+  });
+
   it('keeps router SSR query integration request scoped', () => {
     const source = readSource(path.join(root, 'src', 'router.tsx'));
     const getRouterIndex = source.indexOf('export function getRouter()');

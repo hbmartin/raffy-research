@@ -22,6 +22,7 @@ export type IntelligenceQueryFacade = ServerFunctionFacade<
     | 'intelligenceGetWorkspaceConfig'
     | 'intelligenceListReports'
     | 'intelligenceListWorkspaces'
+    | 'intelligenceListProviderCallbacks'
     | 'intelligenceRecordFeedback'
   >
 >;
@@ -84,6 +85,20 @@ export const createIntelligenceQueries = <
         workspaceId,
       ],
       queryFn: () => facade.intelligenceListReports({ data: { workspaceId } }),
+    }),
+  providerCallbacks: (workspaceId: WorkspaceId, limit?: number) =>
+    queryOptions({
+      queryKey: [
+        'intelligence',
+        intelligenceQueryVersion,
+        'providerCallbacks',
+        workspaceId,
+        limit,
+      ],
+      queryFn: () =>
+        facade.intelligenceListProviderCallbacks({
+          data: { workspaceId, limit },
+        }),
     }),
   recordFeedback: () =>
     serverMutationOptions({

@@ -139,6 +139,7 @@ const SuggestedCompetitorCard = (props: {
   onAdd: (competitorId: string) => void;
 }) => {
   const { competitor } = props;
+  const competitorId = competitor.competitor_id;
   return (
     <Card>
       <CardHeader>
@@ -151,11 +152,8 @@ const SuggestedCompetitorCard = (props: {
               </span>
             ) : null}
           </CardTitle>
-          {competitor.competitor_id ? (
-            <Button
-              size="sm"
-              onClick={() => props.onAdd(competitor.competitor_id ?? '')}
-            >
+          {competitorId ? (
+            <Button size="sm" onClick={() => props.onAdd(competitorId)}>
               <PlusIcon />
               Add to watchlist
             </Button>

@@ -1,6 +1,7 @@
 import { Result } from '@swan-io/boxed';
 
 import type { ApplicationResult } from '@/modules/kernel/application/result';
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 
 import type { IngestionDeps } from './types';
@@ -70,14 +71,15 @@ export async function runWorkspaceIngest(
 
     const credential = deps.credentialResolver.resolve(config.credentialsRef);
     if (!adapter.isConfigured({ config, credential })) {
-      providersSkipped += 1;
-      await deps.ingestionRepository.startRun({
+      const skipped = await deps.ingestionRepository.startRun({
         workspaceId: workspace.id,
         providerName: config.providerName,
         runType: 'daily',
         status: 'skipped',
         finishedAt: now,
       });
+      if (skipped.isError()) return Result.Error(skipped.getError());
+      providersSkipped += 1;
       continue;
     }
 
@@ -106,11 +108,12 @@ export async function runWorkspaceIngest(
 
     const ingest = await adapter.runDailyIngest(context);
     if (ingest.isError()) {
-      await deps.ingestionRepository.finishRun(runId, {
+      const finished = await finishRun(deps, runId, {
         status: 'failed',
         failureReason: ingest.getError().message,
         finishedAt: deps.clock.now(),
       });
+      if (finished.isError()) return Result.Error(finished.getError());
       continue;
     }
 
@@ -118,25 +121,40 @@ export async function runWorkspaceIngest(
     let ingested = 0;
     for (const record of sourceRecords) {
       const created = await deps.sourceRepository.createSourceRecord(record);
-      if (created.isOk()) {
-        sourceRecordCount += 1;
-        ingested += 1;
+      if (created.isError()) {
+        const finished = await finishRun(deps, runId, {
+          status: 'failed',
+          failureReason: created.getError().message,
+          finishedAt: deps.clock.now(),
+        });
+        if (finished.isError()) return Result.Error(finished.getError());
+        return Result.Error(created.getError());
       }
+      sourceRecordCount += 1;
+      ingested += 1;
     }
     for (const searchResult of searchResults) {
       const created =
         await deps.sourceRepository.createSearchResult(searchResult);
-      if (created.isOk()) {
-        searchResultCount += 1;
-        ingested += 1;
+      if (created.isError()) {
+        const finished = await finishRun(deps, runId, {
+          status: 'failed',
+          failureReason: created.getError().message,
+          finishedAt: deps.clock.now(),
+        });
+        if (finished.isError()) return Result.Error(finished.getError());
+        return Result.Error(created.getError());
       }
+      searchResultCount += 1;
+      ingested += 1;
     }
 
-    await deps.ingestionRepository.finishRun(runId, {
+    const finished = await finishRun(deps, runId, {
       status: 'succeeded',
       itemsIngested: ingested,
       finishedAt: deps.clock.now(),
     });
+    if (finished.isError()) return Result.Error(finished.getError());
     providersRun += 1;
   }
 
@@ -147,4 +165,29 @@ export async function runWorkspaceIngest(
     sourceRecords: sourceRecordCount,
     searchResults: searchResultCount,
   });
+}
+
+type FinishRunInput = Parameters<
+  IngestionDeps['ingestionRepository']['finishRun']
+>[1];
+
+async function finishRun(
+  deps: IngestionDeps,
+  runId: Parameters<IngestionDeps['ingestionRepository']['finishRun']>[0],
+  input: FinishRunInput
+): Promise<ApplicationResult<undefined>> {
+  const finished = await deps.ingestionRepository.finishRun(runId, input);
+  if (finished.isError()) return Result.Error(finished.getError());
+  if (finished.get().type === 'run_not_found') {
+    return Result.Error(
+      new AppError({
+        code: 'INTELLIGENCE_INGESTION_RUN_MISSING',
+        category: 'system',
+        status: 500,
+        message: 'Ingestion run vanished before finalization',
+        details: { runId },
+      })
+    );
+  }
+  return Result.Ok(undefined);
 }

@@ -31,6 +31,7 @@ export type { IngestionDeps } from './application/use-cases/ingestion/types';
 export type { IntelligenceUseCaseDeps } from './application/use-cases/types';
 export type { WorkspaceConfig } from './application/use-cases/workspace-queries';
 export * from './domain/feedback';
+export * from './domain/ingestion';
 export * from './domain/period';
 export * from './domain/provider';
 export * from './domain/report';

@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from '@/platform/components/ui/card';
 
+import type { ProviderCallbackEvent } from '@/modules/intelligence/domain/ingestion';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 
 import { intelligenceQueries } from '../wired-queries';
@@ -41,6 +42,9 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
   );
   const { data: reports } = useSuspenseQuery(
     intelligenceQueries.reportsByWorkspace(props.workspaceId)
+  );
+  const { data: callbacks } = useSuspenseQuery(
+    intelligenceQueries.providerCallbacks(props.workspaceId)
   );
 
   if (!config) {
@@ -199,6 +203,31 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
                   </li>
                 ))}
               </ul>
+            )}
+          </Section>
+
+          <Section title={`Provider callbacks (${callbacks.length})`}>
+            {callbacks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No provider callbacks received yet.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {callbacks.map((callback: ProviderCallbackEvent) => (
+                  <details
+                    key={callback.id}
+                    className="rounded-md border bg-muted/20 p-2 text-xs"
+                  >
+                    <summary className="cursor-pointer font-medium hover:underline">
+                      {callback.providerName} · {callback.normalizationStatus} ·{' '}
+                      {callback.receivedAt.toLocaleString()}
+                    </summary>
+                    <pre className="mt-2 max-h-60 overflow-auto rounded bg-muted p-2 text-[10px]">
+                      {JSON.stringify(callback.rawPayload, null, 2)}
+                    </pre>
+                  </details>
+                ))}
+              </div>
             )}
           </Section>
         </div>

@@ -54,7 +54,7 @@ export class FeedbackRepositoryDrizzle implements FeedbackRepository {
           targetType: input.targetType ?? null,
           targetId: input.targetId ?? null,
           sourceRecordId: input.sourceRecordId ?? null,
-          payload: input.payload ?? null,
+          payload: input.payload ?? {},
         })
         .returning();
       if (!created) {

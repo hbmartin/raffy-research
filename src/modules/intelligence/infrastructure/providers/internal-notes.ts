@@ -10,6 +10,8 @@ import type {
 } from '../../application/ports/provider-adapter';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
+const NOTION_API_VERSION = '2022-06-28';
+
 const notesFor = (ctx: ProviderDailyContext, system: 'slack' | 'notion') =>
   ctx.internalNoteConfigs.filter(
     (note) => note.enabled && note.sourceSystem === system
@@ -31,7 +33,18 @@ export const slackAdapter: ProviderAdapter = {
         { headers: { Authorization: `Bearer ${ctx.credential}` } }
       );
       if (response.isError()) continue;
-      const messages = asArray(pick(response.get(), 'messages'));
+      const body = asObject(response.get());
+      if (body.ok === false) {
+        ctx.logger.warn({
+          event: 'intelligence.ingest.provider_error',
+          details: {
+            provider: 'slack',
+            error: asString(body.error) ?? 'unknown',
+          },
+        });
+        continue;
+      }
+      const messages = asArray(body.messages);
       for (const rawMessage of messages) {
         const message = asObject(rawMessage);
         const text = asString(message.text);
@@ -83,7 +96,7 @@ export const notionAdapter: ProviderAdapter = {
         {
           headers: {
             Authorization: `Bearer ${ctx.credential}`,
-            'Notion-Version': '2022-06-28',
+            'Notion-Version': NOTION_API_VERSION,
           },
         }
       );

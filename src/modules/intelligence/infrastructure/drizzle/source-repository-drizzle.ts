@@ -154,8 +154,8 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           contentText: input.contentText ?? null,
           diffAddedText: input.diffAddedText ?? null,
           diffRemovedText: input.diffRemovedText ?? null,
-          rawPayload: input.rawPayload ?? null,
-          metadata: input.metadata ?? null,
+          rawPayload: input.rawPayload ?? {},
+          metadata: input.metadata ?? {},
         })
         .returning();
       if (!created) {
@@ -213,8 +213,8 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           url: input.url ?? null,
           returnedAt: input.returnedAt ?? undefined,
           sourceRecordId: input.sourceRecordId ?? null,
-          rawPayload: input.rawPayload ?? null,
-          metadata: input.metadata ?? null,
+          rawPayload: input.rawPayload ?? {},
+          metadata: input.metadata ?? {},
         })
         .returning();
       if (!created) {
@@ -255,8 +255,8 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           modelName: input.modelName ?? null,
           modelProvider: input.modelProvider ?? null,
           promptVersion: input.promptVersion ?? null,
-          inputMetadata: input.inputMetadata ?? null,
-          outputPayload: input.outputPayload ?? null,
+          inputMetadata: input.inputMetadata ?? {},
+          outputPayload: input.outputPayload ?? {},
         })
         .returning();
       if (!created) {

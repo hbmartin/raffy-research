@@ -10,6 +10,7 @@ import type { ProtectedContext } from '@/modules/auth/backend';
 import {
   createIntelligenceHandlers,
   type IntelligenceHandlers,
+  zListProviderCallbacksInput,
   zRecordFeedbackInput,
   zReportByIdInput,
   zReportSourcesInput,
@@ -123,6 +124,17 @@ export const intelligenceListReports = createServerFn({ method: 'GET' })
     )
   );
 
+export const intelligenceListProviderCallbacks = createServerFn({
+  method: 'GET',
+})
+  .inputValidator(zListProviderCallbacksInput())
+  .handler(async ({ data }) =>
+    runProtected.withOperation('intelligence.listProviderCallbacks')(
+      data,
+      ({ handlers }, ctx, input) => handlers.listProviderCallbacks(ctx, input)
+    )
+  );
+
 export const intelligenceRecordFeedback = createServerFn({ method: 'POST' })
   .inputValidator(zRecordFeedbackInput())
   .handler(async ({ data }) =>
@@ -140,5 +152,6 @@ export type IntelligenceServerFunctions = {
   intelligenceListWorkspaces: typeof intelligenceListWorkspaces;
   intelligenceGetWorkspaceConfig: typeof intelligenceGetWorkspaceConfig;
   intelligenceListReports: typeof intelligenceListReports;
+  intelligenceListProviderCallbacks: typeof intelligenceListProviderCallbacks;
   intelligenceRecordFeedback: typeof intelligenceRecordFeedback;
 };

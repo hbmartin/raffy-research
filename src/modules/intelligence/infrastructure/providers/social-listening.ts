@@ -1,3 +1,5 @@
+import { Result } from '@swan-io/boxed';
+
 import { asArray, asObject, asString, pick, toDate } from './json-access';
 import type {
   CallbackNormalization,
@@ -17,10 +19,20 @@ function normalizeMentions(
   ctx: ProviderCallbackContext
 ): CallbackNormalization {
   const root = asObject(ctx.payload);
+  const hasKnownKeys =
+    Object.hasOwn(root, 'mentions') ||
+    Object.hasOwn(root, 'results') ||
+    Object.hasOwn(root, 'items') ||
+    Object.hasOwn(root, 'data');
+  const normalizedItems = asArray(
+    root.mentions ?? root.results ?? root.items ?? root.data
+  );
   const items =
-    asArray(root.mentions ?? root.results ?? root.items ?? root.data).length > 0
-      ? asArray(root.mentions ?? root.results ?? root.items ?? root.data)
-      : [ctx.payload];
+    normalizedItems.length > 0
+      ? normalizedItems
+      : hasKnownKeys
+        ? []
+        : [ctx.payload];
 
   const sourceRecords: SourceRecordWriteInput[] = items
     .map((raw) => {
@@ -58,7 +70,11 @@ function normalizeMentions(
     })
     .filter((record): record is SourceRecordWriteInput => record !== null);
 
-  if (sourceRecords.length === 0) return { type: 'unsupported' };
+  if (sourceRecords.length === 0) {
+    return hasKnownKeys
+      ? { type: 'normalized', sourceRecords: [] }
+      : { type: 'unsupported' };
+  }
   return { type: 'normalized', sourceRecords };
 }
 
@@ -66,20 +82,21 @@ export const awarioAdapter: ProviderAdapter = {
   name: 'awario',
   isConfigured: ({ config }) => Boolean(config?.enabled),
   normalizeCallback: (ctx) =>
-    normalizeMentions('awario', 'social_mention', ctx),
+    Result.Ok(normalizeMentions('awario', 'social_mention', ctx)),
 };
 
 export const trigifyAdapter: ProviderAdapter = {
   name: 'trigify',
   isConfigured: ({ config }) => Boolean(config?.enabled),
-  normalizeCallback: (ctx) => normalizeMentions('trigify', 'lead_signal', ctx),
+  normalizeCallback: (ctx) =>
+    Result.Ok(normalizeMentions('trigify', 'lead_signal', ctx)),
 };
 
 export const forumscoutAdapter: ProviderAdapter = {
   name: 'forumscout',
   isConfigured: ({ config }) => Boolean(config?.enabled),
   normalizeCallback: (ctx) =>
-    normalizeMentions('forumscout', 'forum_post', ctx),
+    Result.Ok(normalizeMentions('forumscout', 'forum_post', ctx)),
 };
 
 // re-exported helper for potential reuse/testing
