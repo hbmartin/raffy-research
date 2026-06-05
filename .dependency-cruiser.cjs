@@ -57,8 +57,8 @@ module.exports = {
     {
       name: 'domain-no-presentation',
       severity: 'error',
-      from: { path: '^src/modules/(book|user|genre|account)/domain' },
-      to: { path: '^src/modules/(book|user|genre|account)/presentation' },
+      from: { path: '^src/modules/(user|account|intelligence)/domain' },
+      to: { path: '^src/modules/(user|account|intelligence)/presentation' },
     },
     {
       name: 'application-no-infrastructure',
@@ -75,8 +75,8 @@ module.exports = {
     {
       name: 'application-no-presentation',
       severity: 'error',
-      from: { path: '^src/modules/(book|user|genre|account)/application' },
-      to: { path: '^src/modules/(book|user|genre|account)/presentation' },
+      from: { path: '^src/modules/(user|account|intelligence)/application' },
+      to: { path: '^src/modules/(user|account|intelligence)/presentation' },
     },
     {
       name: 'application-no-react-or-router',
@@ -159,8 +159,8 @@ module.exports = {
     {
       name: 'infrastructure-no-presentation',
       severity: 'error',
-      from: { path: '^src/modules/(book|user|genre|account)/infrastructure' },
-      to: { path: '^src/modules/(book|user|genre|account)/presentation' },
+      from: { path: '^src/modules/(user|account|intelligence)/infrastructure' },
+      to: { path: '^src/modules/(user|account|intelligence)/presentation' },
     },
     {
       name: 'infrastructure-no-feature-presentation-or-transport',

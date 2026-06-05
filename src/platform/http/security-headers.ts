@@ -6,23 +6,12 @@ type ContentSecurityPolicyOptions = {
   baseUrl?: string;
   cspNonce?: string;
   isProduction?: boolean;
-  s3BucketPublicUrl?: string;
 };
 
 const PLAYWRIGHT_SCREENSHOT_STYLE_HASH_SOURCES = [
   "'sha256-7kYjkz6pduUs3kVL/X05CBZQltL/7ngRDDedeYMKnCY='", // pragma: allowlist secret
   "'sha256-usAZqtYVSsNUHiWQ9dUUoz3b/VIjZb4D3aBYhD6zD5o='", // pragma: allowlist secret
 ] as const;
-
-const sourceOriginFromUrl = (value: string | undefined) => {
-  if (!value) return undefined;
-
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-};
 
 const uniqueSources = (sources: Array<string | undefined>) =>
   pipe(sources, filter(isTruthy), unique());
@@ -43,7 +32,6 @@ const formatDirective = (name: string, sources: string[]) =>
 export function buildContentSecurityPolicy(
   options: ContentSecurityPolicyOptions = {}
 ) {
-  const s3PublicOrigin = sourceOriginFromUrl(options.s3BucketPublicUrl);
   const nonceSource = options.cspNonce
     ? `'nonce-${options.cspNonce}'`
     : undefined;
@@ -70,10 +58,9 @@ export function buildContentSecurityPolicy(
     "'self'",
     'data:',
     'blob:',
-    s3PublicOrigin,
     'https://raw.githubusercontent.com',
   ]);
-  const connectSources = uniqueSources(["'self'", s3PublicOrigin]);
+  const connectSources = uniqueSources(["'self'"]);
   const directives = [
     formatDirective('default-src', ["'self'"]),
     formatDirective('base-uri', ["'self'"]),

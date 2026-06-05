@@ -11,3 +11,4 @@ export * from './domain/errors/configuration-error';
 export * from './domain/errors/domain-error';
 export * from './domain/errors/id-validation-error';
 export * from './domain/ids';
+export type * from './domain/json';

@@ -1,9 +1,11 @@
 {
   "nav": {
     "home": "Home",
+    "report": "Report",
     "application": "Application",
     "dashboard": "Dashboard",
-    "books": "Books",
+    "reports": "Reports",
+    "workspaces": "Workspaces",
     "configuration": "Configuration",
     "users": "Users",
     "account": "Account",

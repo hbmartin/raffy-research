@@ -3,8 +3,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { makeTestKernel } from '@tests/unit/composition/helpers';
 import {
   __resetAccountComposition,
-  __resetBookComposition,
-  __resetGenreComposition,
   __resetKernelComposition,
   __resetUserComposition,
   getKernel,
@@ -15,9 +13,7 @@ import { toCacheKey } from '@/modules/kernel/domain/ids';
 
 const resetComposition = () => {
   __resetKernelComposition();
-  __resetBookComposition();
   __resetUserComposition();
-  __resetGenreComposition();
   __resetAccountComposition();
 };
 
@@ -97,15 +93,11 @@ describe('composition override contract', () => {
     const overridden = getServices({});
 
     expect(second.kernel).toBe(first.kernel);
-    expect(second.book).toBe(first.book);
     expect(second.user).toBe(first.user);
-    expect(second.genre).toBe(first.genre);
     expect(second.account).toBe(first.account);
 
     expect(overridden.kernel).not.toBe(first.kernel);
-    expect(overridden.book).not.toBe(first.book);
     expect(overridden.user).not.toBe(first.user);
-    expect(overridden.genre).not.toBe(first.genre);
     expect(overridden.account).not.toBe(first.account);
   });
 });

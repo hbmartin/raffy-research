@@ -6,19 +6,19 @@ import {
   escapedLikePattern,
   takeCursorPage,
 } from '@/modules/kernel/infrastructure/db/query-helpers';
-import { genre as genreTable } from '@/modules/kernel/infrastructure/db/schema';
+import { user as userTable } from '@/modules/kernel/infrastructure/db/schema';
 
 describe('db query helpers', () => {
   it('builds escaped LIKE patterns and optional filters', () => {
     expect(escapedLikePattern(' Alpha_ ')).toBe('%Alpha\\_%');
-    expect(escapedIlikeFilter([genreTable.name], '')).toBeUndefined();
+    expect(escapedIlikeFilter([userTable.name], '')).toBeUndefined();
     expect(escapedIlikeFilter([], 'Alpha')).toBeUndefined();
-    expect(escapedIlikeFilter([genreTable.name], 'Alpha')).toBeDefined();
+    expect(escapedIlikeFilter([userTable.name], 'Alpha')).toBeDefined();
     expect(
       ascendingTextCursorFilter({
-        sortColumn: genreTable.name,
-        idColumn: genreTable.id,
-        cursor: { id: 'genre-a', sortValue: 'Alpha' },
+        sortColumn: userTable.name,
+        idColumn: userTable.id,
+        cursor: { id: 'user-a', sortValue: 'Alpha' },
       })
     ).toBeDefined();
   });

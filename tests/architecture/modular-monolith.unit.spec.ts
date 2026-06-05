@@ -8,14 +8,6 @@ const transactionApplicationErrorBoundaryFiles = new Set([
   path.join(
     'src',
     'modules',
-    'book',
-    'application',
-    'use-cases',
-    'update-book.ts'
-  ),
-  path.join(
-    'src',
-    'modules',
     'email',
     'application',
     'use-cases',
@@ -238,13 +230,7 @@ describe('strict modular monolith layout', () => {
     expect(fs.existsSync(path.join(root, 'src/emails'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'src/platform'))).toBe(true);
     expect(fs.existsSync(path.join(root, 'src/app'))).toBe(true);
-    for (const appSupportRoot of [
-      'build-info',
-      'demo',
-      'devtools',
-      'i18n',
-      'shell',
-    ]) {
+    for (const appSupportRoot of ['build-info', 'devtools', 'i18n', 'shell']) {
       expect(fs.existsSync(path.join(root, 'src/app', appSupportRoot))).toBe(
         true
       );
@@ -252,7 +238,7 @@ describe('strict modular monolith layout', () => {
   });
 
   it('requires module public split barrels where modules expose adapters', () => {
-    for (const moduleName of ['account', 'auth', 'book', 'genre', 'user']) {
+    for (const moduleName of ['account', 'auth', 'intelligence', 'user']) {
       const moduleRoot = path.join(root, 'src/modules', moduleName);
       expect(fs.existsSync(path.join(moduleRoot, 'index.ts'))).toBe(true);
       expect(fs.existsSync(path.join(moduleRoot, 'presentation.ts'))).toBe(
@@ -265,7 +251,7 @@ describe('strict modular monolith layout', () => {
   });
 
   it('keeps core business modules in vertical hexagonal slices', () => {
-    for (const moduleName of ['account', 'book', 'genre', 'user']) {
+    for (const moduleName of ['account', 'intelligence', 'user']) {
       const moduleRoot = path.join(root, 'src/modules', moduleName);
 
       for (const expectedPath of [
@@ -280,7 +266,7 @@ describe('strict modular monolith layout', () => {
       }
     }
 
-    for (const moduleName of ['auth', 'book', 'email', 'genre']) {
+    for (const moduleName of ['auth', 'email', 'intelligence']) {
       expect(
         fs.existsSync(
           path.join(

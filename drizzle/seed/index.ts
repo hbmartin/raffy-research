@@ -2,15 +2,15 @@ import { faker } from '@faker-js/faker';
 
 import { getDefaultDbClient } from '@/modules/kernel/infrastructure/db/client';
 
-import { createBooks } from './book';
 import { createUsers } from './user';
+import { createWorkspaces } from './workspace';
 
 const SEED = 0x5eed;
 
 async function main() {
   faker.seed(SEED);
-  await createBooks();
   await createUsers();
+  await createWorkspaces();
 }
 
 main()

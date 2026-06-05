@@ -5,12 +5,6 @@ import {
   PageLayoutTopBarTitle,
 } from '@/platform/components/page-layout/manager';
 
-import {
-  DemoAppSwitch,
-  DemoMarketingBento,
-  DemoWelcome,
-} from '@/app/demo/presentation';
-
 export const PageDashboard = () => {
   return (
     <PageLayout>
@@ -18,11 +12,7 @@ export const PageDashboard = () => {
         <PageLayoutTopBarTitle>Dashboard</PageLayoutTopBarTitle>
       </PageLayoutTopBar>
       <PageLayoutContent containerClassName="max-w-4xl">
-        <div className="flex flex-col gap-4">
-          <DemoWelcome />
-          <DemoAppSwitch />
-          <DemoMarketingBento />
-        </div>
+        <div className="flex flex-col gap-4" />
       </PageLayoutContent>
     </PageLayout>
   );

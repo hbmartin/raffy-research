@@ -9,13 +9,8 @@ import { QueryClientProvider } from '@/platform/lib/tanstack-query/provider';
 
 import { Sonner } from '@/platform/components/ui/sonner';
 
-import {
-  DemoModeDrawer,
-  useIsDemoModeDrawerVisible,
-} from '@/app/demo/presentation';
 import { getTelemetry } from '@/composition/telemetry';
 import { useCurrentSessionQuery } from '@/modules/auth/client';
-import { envClient } from '@/platform/env/client';
 import { readCspNonceFromMeta } from '@/platform/http/csp-nonce';
 
 export const Providers = (props: {
@@ -42,14 +37,11 @@ export const Providers = (props: {
 };
 
 function ProviderContent(props: { children: ReactNode }) {
-  const isDemoModeDrawerVisible = useIsDemoModeDrawerVisible();
-
   return (
     <>
       <TelemetryUserSync />
       {props.children}
-      {!isDemoModeDrawerVisible && <Sonner />}
-      {envClient.VITE_IS_DEMO && <DemoModeDrawer />}
+      <Sonner />
     </>
   );
 }

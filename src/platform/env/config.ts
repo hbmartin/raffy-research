@@ -62,7 +62,6 @@ const clientSchema = () =>
       .string()
       .optional()
       .transform((value) => value ?? (isDev() ? 'gold' : 'plum')),
-    VITE_S3_BUCKET_PUBLIC_URL: z.url(),
     VITE_SENTRY_DSN: z.string().url().optional(),
     VITE_SENTRY_ENVIRONMENT: z.string().optional(),
     VITE_SENTRY_TRACES_SAMPLE_RATE: z.coerce

@@ -18,9 +18,9 @@ import {
   createMigrationDbClient,
   migrateDatabase,
 } from '@/modules/kernel/infrastructure/db/migrate';
-import { genre as genreTable } from '@/modules/kernel/infrastructure/db/schema';
+import { user as userTable } from '@/modules/kernel/infrastructure/db/schema';
 import { POSTGRES_TESTCONTAINER_IMAGE } from '@tests/server/docker-images';
-import { makeGenreRow } from '@tests/server/db-fixtures';
+import { makeUserRow } from '@tests/server/db-fixtures';
 
 import { tryAcquirePostgresAdvisoryLock } from '@/modules/kernel/infrastructure/db/postgres-advisory-lock';
 
@@ -85,16 +85,19 @@ describe('PostgreSQL database integration', () => {
     if (!db) throw new Error('PostgreSQL test database was not initialized.');
 
     await db.transaction(async (tx) => {
-      await tx
-        .insert(genreTable)
-        .values(makeGenreRow({ id: 'genre-commit', name: 'Committed' }));
+      await tx.insert(userTable).values(
+        makeUserRow({
+          id: 'user-commit',
+          email: 'commit@example.com',
+        })
+      );
     });
 
     await expect(
-      db.query.genre.findFirst({
-        where: (genre, { eq }) => eq(genre.id, 'genre-commit'),
+      db.query.user.findFirst({
+        where: (user, { eq }) => eq(user.id, 'user-commit'),
       })
-    ).resolves.toMatchObject({ id: 'genre-commit' });
+    ).resolves.toMatchObject({ id: 'user-commit' });
   });
 
   it('rolls back failed transactions', async () => {
@@ -102,16 +105,19 @@ describe('PostgreSQL database integration', () => {
 
     await expect(
       db.transaction(async (tx) => {
-        await tx
-          .insert(genreTable)
-          .values(makeGenreRow({ id: 'genre-rollback', name: 'Rolled Back' }));
+        await tx.insert(userTable).values(
+          makeUserRow({
+            id: 'user-rollback',
+            email: 'rollback@example.com',
+          })
+        );
         throw new Error('rollback requested');
       })
     ).rejects.toThrow('rollback requested');
 
     await expect(
-      db.query.genre.findFirst({
-        where: (genre, { eq }) => eq(genre.id, 'genre-rollback'),
+      db.query.user.findFirst({
+        where: (user, { eq }) => eq(user.id, 'user-rollback'),
       })
     ).resolves.toBeUndefined();
   });

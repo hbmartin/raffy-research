@@ -54,11 +54,13 @@ describe('browser mutation route coverage', () => {
 
     expect(postRoutes).toEqual([
       '/api/auth/$',
+      '/api/cron/daily-ingest',
+      '/api/cron/weekly-reports',
+      '/api/providers/$provider/callback',
       '/api/telemetry/logs',
       '/api/telemetry/otel/v1/metrics',
       '/api/telemetry/otel/v1/traces',
       '/api/telemetry/sentry-tunnel',
-      '/api/upload',
       '/api/webhooks/resend',
       '/logout',
     ]);
@@ -67,11 +69,15 @@ describe('browser mutation route coverage', () => {
       '/api/telemetry/otel/v1/metrics',
       '/api/telemetry/otel/v1/traces',
       '/api/telemetry/sentry-tunnel',
-      '/api/upload',
       '/logout',
     ]);
+    // Cron routes require a CRON_SECRET bearer; the provider callback is a
+    // signed/server-to-server webhook. None are browser-reachable mutations.
     expect(externallyProtectedRoutes).toEqual([
       '/api/auth/$',
+      '/api/cron/daily-ingest',
+      '/api/cron/weekly-reports',
+      '/api/providers/$provider/callback',
       '/api/webhooks/resend',
     ]);
   });

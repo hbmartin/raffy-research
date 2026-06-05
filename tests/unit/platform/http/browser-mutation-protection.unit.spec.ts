@@ -18,14 +18,14 @@ describe('browser mutation protection', () => {
       shouldProtectBrowserMutation({
         handlerType: 'router',
         method: 'POST',
-        pathname: '/api/upload',
+        pathname: '/logout',
       })
     ).toBe(true);
     expect(
       shouldProtectBrowserMutation({
         handlerType: 'router',
         method: 'GET',
-        pathname: '/api/upload',
+        pathname: '/logout',
       })
     ).toBe(false);
     expect(
