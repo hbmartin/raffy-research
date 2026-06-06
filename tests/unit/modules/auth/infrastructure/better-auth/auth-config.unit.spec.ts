@@ -1,4 +1,3 @@
-import { Result } from '@swan-io/boxed';
 import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -56,19 +55,17 @@ describe('Better Auth security configuration', () => {
       typeof import('@/modules/auth/infrastructure/better-auth/auth')
     >('@/modules/auth/infrastructure/better-auth/auth');
 
-    createAuth({
-      authEmailPort: {
-        sendSignInOtp: vi.fn(async () =>
-          Result.Ok({ type: 'auth_sign_in_otp_sent' as const })
-        ),
-      },
-    });
+    createAuth({});
 
     const options = mocks.betterAuth.mock.calls[0]?.[0] as ExplicitAny;
 
     expect(options.advanced.disableCSRFCheck).toBeUndefined();
     expect(options.advanced.disableOriginCheck).toBeUndefined();
     expect(options.account.encryptOAuthTokens).toBe(true);
+    expect(options.emailAndPassword).toEqual({
+      enabled: true,
+      disableSignUp: true,
+    });
     expect(options.trustedOrigins).toEqual(['https://app.example']);
   });
 });

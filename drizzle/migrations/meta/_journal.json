@@ -50,6 +50,13 @@
       "when": 1780687054407,
       "tag": "0006_normal_crystal",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780761502689,
+      "tag": "0007_striped_scorpion",
+      "breakpoints": true
     }
   ]
 }

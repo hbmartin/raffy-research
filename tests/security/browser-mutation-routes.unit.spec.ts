@@ -56,15 +56,16 @@ describe('browser mutation route coverage', () => {
       '/api/auth/$',
       '/api/cron/daily-ingest',
       '/api/cron/weekly-reports',
+      '/api/dev/intelligence/local-ai/stream',
       '/api/providers/$provider/callback',
       '/api/telemetry/logs',
       '/api/telemetry/otel/v1/metrics',
       '/api/telemetry/otel/v1/traces',
       '/api/telemetry/sentry-tunnel',
-      '/api/webhooks/resend',
       '/logout',
     ]);
     expect(appGuardedRoutes).toEqual([
+      '/api/dev/intelligence/local-ai/stream',
       '/api/telemetry/logs',
       '/api/telemetry/otel/v1/metrics',
       '/api/telemetry/otel/v1/traces',
@@ -78,7 +79,6 @@ describe('browser mutation route coverage', () => {
       '/api/cron/daily-ingest',
       '/api/cron/weekly-reports',
       '/api/providers/$provider/callback',
-      '/api/webhooks/resend',
     ]);
   });
 });

@@ -8,10 +8,7 @@ import { DEFAULT_LANGUAGE_KEY } from '@/platform/lib/i18n/constants';
 import { sanitizeLogFields } from '@/platform/lib/redaction/sanitize-log-fields';
 
 import locales from '@/app/i18n';
-import {
-  AUTH_EMAIL_OTP_MOCKED,
-  AUTH_SIGNUP_ENABLED,
-} from '@/modules/auth/client';
+import { AUTH_SIGNUP_ENABLED } from '@/modules/auth/client';
 import { FileRouteTypes } from '@/routeTree.gen';
 
 import { installConsoleErrorGuard } from './console-error-guard';
@@ -30,7 +27,7 @@ export interface PageUtils {
   /**
    * Utility used to authenticate a user on the app
    */
-  login: (input: { email: string; code?: string }) => Promise<void>;
+  login: (input: { email: string; password?: string }) => Promise<void>;
 
   /**
    * Attach the auth diagnostics collected for the current test.
@@ -273,9 +270,11 @@ export const pageWithUtils: CustomFixture<Page & PageUtils> = async (
   const diagnostics = createAuthDiagnostics(page, testInfo);
   const consoleGuard = installConsoleErrorGuard(page, testInfo);
 
-  page.login = async function login(input: { email: string; code?: string }) {
+  page.login = async function login(input: {
+    email: string;
+    password?: string;
+  }) {
     const routeLogin = '/login' satisfies FileRouteTypes['to'];
-    const routeLoginVerify = '/login/verify' satisfies FileRouteTypes['to'];
 
     await diagnostics.waitForUrl(
       'login.wait_for_login',
@@ -312,33 +311,25 @@ export const pageWithUtils: CustomFixture<Page & PageUtils> = async (
       emailInputMatches: (await emailInput.inputValue()) === input.email,
     });
 
+    const password = input.password ?? 'password';
+    const passwordInput = page.getByPlaceholder(
+      locales[DEFAULT_LANGUAGE_KEY].auth.common.password.label
+    );
+    await passwordInput.fill(password);
+    await expect(passwordInput).toHaveValue(password);
+    diagnostics.log('login.password.filled', {
+      passwordLength: password.length,
+    });
+
     await page
       .getByRole('button', {
+        exact: true,
         name: locales[DEFAULT_LANGUAGE_KEY].auth[
           AUTH_SIGNUP_ENABLED ? 'pageLoginWithSignUp' : 'pageLogin'
         ].loginWithEmail,
       })
       .click();
-    diagnostics.log('login.email.submitted');
-
-    await diagnostics.waitForUrl(
-      'login.wait_for_verify',
-      (url) => url.pathname === routeLoginVerify,
-      {
-        route: routeLoginVerify,
-      }
-    );
-    await expect(page.getByTestId('auth-login-verify-form')).toHaveAttribute(
-      'data-hydrated',
-      'true'
-    );
-    diagnostics.log('login.verify.form.hydrated');
-    await page
-      .getByText(locales[DEFAULT_LANGUAGE_KEY].auth.common.otp.label)
-      .fill(input.code ?? AUTH_EMAIL_OTP_MOCKED);
-    diagnostics.log('login.otp.filled', {
-      codeLength: (input.code ?? AUTH_EMAIL_OTP_MOCKED).length,
-    });
+    diagnostics.log('login.password.submitted');
   };
 
   page.attachAuthDiagnostics = diagnostics.attach;

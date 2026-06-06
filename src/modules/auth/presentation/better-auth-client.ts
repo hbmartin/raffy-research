@@ -1,8 +1,4 @@
-import {
-  adminClient,
-  emailOTPClient,
-  inferAdditionalFields,
-} from 'better-auth/client/plugins';
+import { adminClient, inferAdditionalFields } from 'better-auth/client/plugins';
 import { createAccessControl } from 'better-auth/plugins/access';
 import { adminAc } from 'better-auth/plugins/admin/access';
 import { createAuthClient } from 'better-auth/react';
@@ -38,7 +34,6 @@ const betterAuthClient = createAuthClient({
     adminClient({
       ...betterAuthClientPermissions,
     }),
-    emailOTPClient(),
   ],
 });
 
@@ -49,14 +44,8 @@ export type BetterAuthSocialProvider = Parameters<
 export const authErrorCodes = betterAuthClient.$ERROR_CODES;
 
 export const betterAuthBrowserClient = {
-  sendEmailOtp(input: { email: string }) {
-    return betterAuthClient.emailOtp.sendVerificationOtp({
-      email: input.email,
-      type: 'sign-in',
-    });
-  },
-  signInEmailOtp(input: { email: string; otp: string }) {
-    return betterAuthClient.signIn.emailOtp(input);
+  signInEmail(input: { email: string; password: string }) {
+    return betterAuthClient.signIn.email(input);
   },
   signInSocial(input: {
     provider: BetterAuthSocialProvider;

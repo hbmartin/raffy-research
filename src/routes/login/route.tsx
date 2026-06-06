@@ -1,5 +1,4 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
-import { fallback, zodValidator } from '@tanstack/zod-adapter';
 import { z } from 'zod';
 
 import { PageError } from '@/platform/components/errors/page-error';
@@ -11,14 +10,12 @@ import {
 } from '@/modules/auth/presentation';
 import { observeBeforeLoad } from '@/platform/router/route-observability';
 
+const searchSchema = z.looseObject({
+  redirect: z.string().catch('').optional(),
+});
+
 export const Route = createFileRoute('/login')({
-  validateSearch: zodValidator(
-    z
-      .object({
-        redirect: fallback(z.string(), '').optional(),
-      })
-      .passthrough()
-  ),
+  validateSearch: searchSchema,
   beforeLoad: ({ context, search }) =>
     observeBeforeLoad('/login', () =>
       redirectAuthenticatedRoute({

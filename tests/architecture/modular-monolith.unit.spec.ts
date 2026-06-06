@@ -4,16 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const sourceFileExtensions = new Set(['.ts', '.tsx']);
-const transactionApplicationErrorBoundaryFiles = new Set([
-  path.join(
-    'src',
-    'modules',
-    'email',
-    'application',
-    'use-cases',
-    'process-email-status-event.ts'
-  ),
-]);
+const transactionApplicationErrorBoundaryFiles = new Set<string>();
 const protectedRouteGuardSpecs = [
   {
     file: path.join(root, 'src', 'routes', 'app', 'route.tsx'),
@@ -266,7 +257,7 @@ describe('strict modular monolith layout', () => {
       }
     }
 
-    for (const moduleName of ['auth', 'email', 'intelligence']) {
+    for (const moduleName of ['auth', 'intelligence']) {
       expect(
         fs.existsSync(
           path.join(

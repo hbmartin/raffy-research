@@ -42,6 +42,24 @@ const getValidReportData = (result: ReturnType<typeof validateReportData>) => {
   return result.data;
 };
 
+const getReportDataIssues = (result: ReturnType<typeof validateReportData>) => {
+  if (result.type !== 'report_data_invalid') {
+    throw new Error(`expected report_data_invalid, got ${result.type}`);
+  }
+  return result.issues;
+};
+
+const getGeneratedReportIssues = (
+  result: ReturnType<typeof parseGeneratedReportJson>
+) => {
+  if (result.type !== 'generated_report_data_invalid') {
+    throw new Error(
+      `expected generated_report_data_invalid, got ${result.type}`
+    );
+  }
+  return result.issues;
+};
+
 describe('report data validation', () => {
   it('accepts a minimal valid report and applies array defaults', () => {
     const data = getValidReportData(validateReportData(validReport));
@@ -72,17 +90,29 @@ describe('report data validation', () => {
     expect(result.type).toBe('report_data_invalid');
   });
 
-  it('strips disallowed confidence fields from stored data', () => {
-    const data = getValidReportData(
-      validateReportData({
-        ...validReport,
-        confidence: 0.9,
-        executive_summary: { bullets: ['a', 'b', 'c'], confidence: 'high' },
+  it('rejects forbidden keys before Zod can strip unknown object properties', () => {
+    const result = validateReportData({
+      ...validReport,
+      confidence: 0.9,
+      executive_summary: { bullets: ['a', 'b', 'c'], confidence: 'high' },
+    });
+
+    expect(result.type).toBe('report_data_invalid');
+    expect(getReportDataIssues(result).join('\n')).toContain('confidence');
+  });
+
+  it('rejects forbidden keys in generated report JSON', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        recommendation: 'launch campaign',
       })
     );
 
-    expect('confidence' in data).toBe(false);
-    expect('confidence' in data.executive_summary).toBe(false);
+    expect(result.type).toBe('generated_report_data_invalid');
+    expect(getGeneratedReportIssues(result).join('\n')).toContain(
+      'recommendation'
+    );
   });
 
   it('parses JSON with code fences and rejects malformed JSON', () => {

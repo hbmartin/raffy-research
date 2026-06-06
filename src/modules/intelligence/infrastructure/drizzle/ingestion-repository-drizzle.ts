@@ -1,10 +1,11 @@
 import { Result } from '@swan-io/boxed';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 
 import type {
   IngestionRunId,
   ProviderCallbackEventId,
   SourceRecordId,
+  WorkspaceId,
 } from '@/modules/kernel/domain/ids';
 import {
   toIngestionRunId,
@@ -195,7 +196,10 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
     }
   }
 
-  async listCallbackEvents(input: { workspaceId: string; limit?: number }) {
+  async listCallbackEvents(input: {
+    workspaceId: WorkspaceId;
+    limit?: number;
+  }) {
     try {
       const rows = await this.db
         .select()
@@ -206,6 +210,28 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
       return Result.Ok(rows.map(toCallbackEvent));
     } catch (error) {
       return Result.Error(mapIntelligenceDbError(error, 'CALLBACK_LIST_ERROR'));
+    }
+  }
+
+  async getCallbackEventsByIds(input: {
+    workspaceId: WorkspaceId;
+    ids: ProviderCallbackEventId[];
+  }) {
+    try {
+      if (input.ids.length === 0) return Result.Ok([]);
+      const rows = await this.db
+        .select()
+        .from(providerCallbackEventTable)
+        .where(
+          and(
+            eq(providerCallbackEventTable.workspaceId, input.workspaceId),
+            inArray(providerCallbackEventTable.id, input.ids)
+          )
+        )
+        .orderBy(desc(providerCallbackEventTable.receivedAt));
+      return Result.Ok(rows.map(toCallbackEvent));
+    } catch (error) {
+      return Result.Error(mapIntelligenceDbError(error, 'CALLBACK_GET_ERROR'));
     }
   }
 }

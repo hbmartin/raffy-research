@@ -18,7 +18,11 @@ export function createOpenAiReportGenerator(): ReportGeneratorPort {
           model: openai(config.model),
           prompt,
         });
-        return Result.Ok({ text, modelName: config.model });
+        return Result.Ok({
+          text,
+          modelName: config.model,
+          modelProvider: 'openai',
+        });
       } catch (error) {
         if (error instanceof AppError) return Result.Error(error);
         return Result.Error(

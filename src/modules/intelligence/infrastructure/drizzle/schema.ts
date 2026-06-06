@@ -268,9 +268,14 @@ export const weeklyReport = pgTable(
   },
   (table) => [
     index('weeklyReport_workspaceId_idx').on(table.workspaceId),
-    uniqueIndex('weeklyReport_workspace_period_key').on(
+    index('weeklyReport_workspace_period_idx').on(
       table.workspaceId,
       table.periodStart
+    ),
+    index('weeklyReport_workspace_published_idx').on(
+      table.workspaceId,
+      table.periodStart,
+      table.publishedAt
     ),
   ]
 );

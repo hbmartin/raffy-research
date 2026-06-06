@@ -112,7 +112,10 @@ export class ReportRepositoryDrizzle implements ReportRepository {
             eq(weeklyReportTable.status, 'published')
           )
         )
-        .orderBy(desc(weeklyReportTable.periodStart))
+        .orderBy(
+          desc(weeklyReportTable.periodStart),
+          desc(weeklyReportTable.publishedAt)
+        )
         .limit(1);
       return Result.Ok(
         row
@@ -133,7 +136,10 @@ export class ReportRepositoryDrizzle implements ReportRepository {
         .select()
         .from(weeklyReportTable)
         .where(eq(weeklyReportTable.workspaceId, workspaceId))
-        .orderBy(desc(weeklyReportTable.periodStart))
+        .orderBy(
+          desc(weeklyReportTable.periodStart),
+          desc(weeklyReportTable.publishedAt)
+        )
         .limit(options?.limit ?? 52);
       return Result.Ok(rows.map(toReportSummary));
     } catch (error) {
@@ -152,6 +158,7 @@ export class ReportRepositoryDrizzle implements ReportRepository {
             eq(weeklyReportTable.periodStart, input.periodStart)
           )
         )
+        .orderBy(desc(weeklyReportTable.publishedAt))
         .limit(1);
       return Result.Ok(
         row

@@ -187,7 +187,7 @@ describe('auth redirect helpers', () => {
       )
     ).toBe(true);
     expect(
-      isPostAuthDestinationUrl('http://localhost:3000/login/verify', '/manager')
+      isPostAuthDestinationUrl('http://localhost:3000/login/error', '/manager')
     ).toBe(false);
     expect(isPostAuthDestinationUrl('http://[::1', '/app')).toBe(false);
   });

@@ -17,6 +17,7 @@ const databaseEnvSchema = baseEnvSchema.extend({
   DATABASE_DRIVER: z.enum(DATABASE_DRIVERS).default('node-pg'),
   DATABASE_MIGRATION_URL: z.url().optional(),
   DATABASE_MIGRATION_DRIVER: z.enum(DATABASE_DRIVERS).optional(),
+  DATABASE_MIGRATION_REQUIRE_URL: z.stringbool().default(false),
 });
 
 export type DatabaseConfig = {
@@ -82,6 +83,12 @@ export function getMigrationDatabaseConfig(): MigrationDatabaseConfig {
   assertMigrationDriver(driver);
 
   const databaseUrl = env.DATABASE_MIGRATION_URL ?? env.DATABASE_URL;
+  if (env.DATABASE_MIGRATION_REQUIRE_URL && !env.DATABASE_MIGRATION_URL) {
+    throw new ConfigurationError(
+      'DATABASE_MIGRATION_URL is required for this migration command.'
+    );
+  }
+
   if (isLikelyTransactionPooledDatabaseUrl(databaseUrl)) {
     throw new ConfigurationError(
       'DATABASE_MIGRATION_URL must use a direct or session-sticky PostgreSQL connection. Transaction-pooler URLs are not safe for migrations.'

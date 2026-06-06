@@ -62,7 +62,11 @@ export async function handleProviderCallback(
 
   const normalizationResult = await adapter.normalizeCallback(context);
   if (normalizationResult.isError()) {
-    return Result.Error(normalizationResult.getError());
+    return markCallbackFailedAndReturnError(
+      deps,
+      eventId,
+      normalizationResult.getError()
+    );
   }
   const normalization = normalizationResult.get();
 
@@ -82,7 +86,13 @@ export async function handleProviderCallback(
   }
 
   const persisted = await persistCallbackNormalization(deps, normalization);
-  if (persisted.isError()) return Result.Error(persisted.getError());
+  if (persisted.isError()) {
+    return markCallbackFailedAndReturnError(
+      deps,
+      eventId,
+      persisted.getError()
+    );
+  }
   const { count, firstSourceRecordId } = persisted.get();
 
   return updateCallbackAndReturn(deps, eventId, {
@@ -117,44 +127,31 @@ async function persistCallbackNormalization(
   deps: IngestionDeps,
   normalization: Extract<CallbackNormalization, { type: 'normalized' }>
 ): Promise<ApplicationResult<PersistedCallbackNormalization>> {
-  let firstSourceRecordId: SourceRecordId | null = null;
-  let count = 0;
-  for (const record of normalization.sourceRecords) {
-    const created = await deps.sourceRepository.createSourceRecord(record);
-    if (created.isError()) {
-      const error = created.getError();
-      deps.logger.warn({
-        event: 'intelligence.callback.source_record_create_failed',
-        error: error.message,
-        details: {
-          errorCode: error.code,
-          providerName: record.providerName,
-          workspaceId: record.workspaceId,
-        },
-      });
-      return Result.Error(error);
-    }
-    count += 1;
-    firstSourceRecordId ??= created.get().id;
+  const created = await deps.sourceRepository.createCallbackArtifacts({
+    sourceRecords: normalization.sourceRecords,
+    searchResults: normalization.searchResults ?? [],
+  });
+  if (created.isError()) {
+    const error = created.getError();
+    deps.logger.warn({
+      event: 'intelligence.callback.artifacts_create_failed',
+      error: error.message,
+      details: {
+        errorCode: error.code,
+        providerName: normalization.sourceRecords[0]?.providerName,
+        workspaceId: normalization.sourceRecords[0]?.workspaceId,
+        sourceRecords: normalization.sourceRecords.length,
+        searchResults: normalization.searchResults?.length ?? 0,
+      },
+    });
+    return Result.Error(error);
   }
-  for (const searchResult of normalization.searchResults ?? []) {
-    const created =
-      await deps.sourceRepository.createSearchResult(searchResult);
-    if (created.isError()) {
-      const error = created.getError();
-      deps.logger.warn({
-        event: 'intelligence.callback.search_result_create_failed',
-        error: error.message,
-        details: {
-          errorCode: error.code,
-          providerName: searchResult.providerName,
-          workspaceId: searchResult.workspaceId,
-        },
-      });
-      return Result.Error(error);
-    }
-  }
-  return Result.Ok({ count, firstSourceRecordId });
+
+  const artifacts = created.get();
+  return Result.Ok({
+    count: artifacts.sourceRecords.length,
+    firstSourceRecordId: artifacts.sourceRecords[0]?.id ?? null,
+  });
 }
 
 type CallbackNormalizationUpdate = Parameters<
@@ -214,4 +211,19 @@ async function updateCallbackNormalization(
     );
   }
   return Result.Ok(undefined);
+}
+
+async function markCallbackFailedAndReturnError(
+  deps: IngestionDeps,
+  eventId: Parameters<
+    IngestionDeps['ingestionRepository']['updateCallbackNormalization']
+  >[0],
+  error: AppError
+): Promise<ApplicationResult<HandleProviderCallbackOutcome>> {
+  const marked = await updateCallbackNormalization(deps, eventId, {
+    normalizationStatus: 'failed',
+    normalizationError: error.message,
+  });
+  if (marked.isError()) return Result.Error(marked.getError());
+  return Result.Error(error);
 }

@@ -1,0 +1,304 @@
+import { streamText } from 'ai';
+import { createClaudeCode } from 'ai-sdk-provider-claude-code';
+import { createCodexCli } from 'ai-sdk-provider-codex-cli';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
+import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
+
+import type { LocalAiProviderName } from './config';
+
+export type LocalAiNdjsonEvent =
+  | {
+      type: 'start';
+      runId: string;
+      action: string;
+      provider: LocalAiProviderName;
+      model: string;
+      at: string;
+    }
+  | {
+      type: 'step';
+      runId: string;
+      action: string;
+      label: string;
+      message: string;
+      at: string;
+      data?: JsonObject;
+    }
+  | {
+      type: 'tool_event';
+      runId: string;
+      action: string;
+      label: string;
+      event: JsonObject;
+      at: string;
+    }
+  | {
+      type: 'artifact';
+      runId: string;
+      action: string;
+      label: string;
+      artifact: JsonObject;
+      at: string;
+    }
+  | {
+      type: 'error';
+      runId: string;
+      action: string;
+      message: string;
+      at: string;
+      data?: JsonObject;
+    }
+  | {
+      type: 'done';
+      runId: string;
+      action: string;
+      at: string;
+      data?: JsonObject;
+    };
+
+export type LocalTextGenerationResult = {
+  text: string;
+  modelName: string;
+  modelProvider: LocalAiProviderName;
+  metadata: JsonObject;
+};
+
+export type LocalTextGenerationInput = {
+  provider: LocalAiProviderName;
+  model: string;
+  prompt: string;
+  action: string;
+  label: string;
+  runId: string;
+  rawOutputDir: string;
+  onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
+};
+
+const nowIso = () => new Date().toISOString();
+
+const safeFileSegment = (value: string) =>
+  value
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'generation';
+
+function toJsonValue(value: unknown): JsonValue {
+  try {
+    return JSON.parse(JSON.stringify(value)) as JsonValue;
+  } catch {
+    return String(value);
+  }
+}
+
+function toJsonObject(value: unknown): JsonObject {
+  const json = toJsonValue(value);
+  return json && typeof json === 'object' && !Array.isArray(json)
+    ? json
+    : { value: json };
+}
+
+function createModel(provider: LocalAiProviderName, model: string) {
+  if (provider === 'codex-cli') {
+    const codex = createCodexCli({
+      defaultSettings: {
+        approvalMode: 'never',
+        sandboxMode: 'read-only',
+        skipGitRepoCheck: true,
+        allowNpx: false,
+        webSearch: true,
+        cwd: process.cwd(),
+        logger: false,
+      },
+    });
+    return codex(model);
+  }
+
+  const claude = createClaudeCode({
+    defaultSettings: {
+      allowedTools: ['WebSearch', 'WebFetch'],
+      disallowedTools: [
+        'Bash',
+        'Edit',
+        'Glob',
+        'Grep',
+        'LS',
+        'MultiEdit',
+        'NotebookEdit',
+        'Read',
+        'Write',
+      ],
+      permissionMode: 'dontAsk',
+      settingSources: [],
+      cwd: process.cwd(),
+      logger: false,
+      streamingInput: 'auto',
+    },
+  });
+  return claude(model);
+}
+
+async function writeRawOutput(input: {
+  runId: string;
+  rawOutputDir: string;
+  label: string;
+  payload: JsonObject;
+}) {
+  const directory = path.resolve(
+    process.cwd(),
+    input.rawOutputDir,
+    input.runId
+  );
+  await mkdir(directory, { recursive: true });
+  const filePath = path.join(
+    directory,
+    `${Date.now()}-${safeFileSegment(input.label)}.json`
+  );
+  await writeFile(filePath, JSON.stringify(input.payload, null, 2), 'utf8');
+  return path.relative(process.cwd(), filePath);
+}
+
+export async function generateLocalText(
+  input: LocalTextGenerationInput
+): Promise<LocalTextGenerationResult> {
+  const rawEvents: JsonValue[] = [];
+  const toolEvents: JsonObject[] = [];
+  let text = '';
+  let rawFilePath: string | null = null;
+
+  try {
+    await input.onEvent?.({
+      type: 'step',
+      runId: input.runId,
+      action: input.action,
+      label: input.label,
+      message: 'local_model_call_started',
+      at: nowIso(),
+    });
+
+    const result = streamText({
+      model: createModel(input.provider, input.model),
+      prompt: input.prompt,
+      includeRawChunks: true,
+    });
+
+    for await (const part of result.fullStream) {
+      rawEvents.push(toJsonValue(part));
+
+      if (part.type === 'text-delta') {
+        text += part.text;
+        continue;
+      }
+
+      if (part.type === 'start-step' || part.type === 'finish-step') {
+        await input.onEvent?.({
+          type: 'step',
+          runId: input.runId,
+          action: input.action,
+          label: input.label,
+          message: part.type,
+          at: nowIso(),
+          data: toJsonObject(part),
+        });
+        continue;
+      }
+
+      if (
+        part.type === 'tool-input-start' ||
+        part.type === 'tool-input-delta' ||
+        part.type === 'tool-input-end' ||
+        part.type === 'tool-call' ||
+        part.type === 'tool-result' ||
+        part.type === 'tool-error' ||
+        part.type === 'tool-output-denied' ||
+        part.type === 'source' ||
+        part.type === 'raw'
+      ) {
+        const event = toJsonObject(part);
+        toolEvents.push(event);
+        await input.onEvent?.({
+          type: 'tool_event',
+          runId: input.runId,
+          action: input.action,
+          label: input.label,
+          event,
+          at: nowIso(),
+        });
+        continue;
+      }
+
+      if (part.type === 'error') {
+        throw part.error;
+      }
+    }
+
+    rawFilePath = await writeRawOutput({
+      runId: input.runId,
+      rawOutputDir: input.rawOutputDir,
+      label: input.label,
+      payload: {
+        provider: input.provider,
+        model: input.model,
+        label: input.label,
+        prompt: input.prompt,
+        text,
+        rawEvents,
+        toolEvents,
+      },
+    });
+
+    const metadata: JsonObject = {
+      rawFilePath,
+      toolEvents,
+      rawEventCount: rawEvents.length,
+    };
+
+    await input.onEvent?.({
+      type: 'artifact',
+      runId: input.runId,
+      action: input.action,
+      label: input.label,
+      artifact: {
+        kind: 'raw_model_output',
+        path: rawFilePath,
+        toolEventCount: toolEvents.length,
+      },
+      at: nowIso(),
+    });
+
+    return {
+      text,
+      modelName: input.model,
+      modelProvider: input.provider,
+      metadata,
+    };
+  } catch (error) {
+    rawFilePath = await writeRawOutput({
+      runId: input.runId,
+      rawOutputDir: input.rawOutputDir,
+      label: `${input.label}-error`,
+      payload: {
+        provider: input.provider,
+        model: input.model,
+        label: input.label,
+        prompt: input.prompt,
+        text,
+        rawEvents,
+        toolEvents,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    }).catch(() => null);
+
+    throw new AppError({
+      code: 'LOCAL_AI_GENERATION_ERROR',
+      category: 'system',
+      status: 502,
+      message:
+        error instanceof Error ? error.message : 'Local AI generation failed',
+      cause: error,
+      details: rawFilePath ? { rawFilePath } : undefined,
+    });
+  }
+}

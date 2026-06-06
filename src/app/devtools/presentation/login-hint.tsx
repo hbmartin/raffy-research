@@ -7,24 +7,22 @@ import {
   AlertTitle,
 } from '@/platform/components/ui/alert';
 
-import {
-  AUTH_EMAIL_OTP_MOCKED,
-  type FormFieldsLogin,
-  type FormFieldsLoginVerify,
-} from '@/modules/auth/client';
+import { type FormFieldsLogin } from '@/modules/auth/client';
 import { envClient } from '@/platform/env/client';
+
+const DEV_LOGIN_PASSWORD = 'password';
 
 const LoginEmailButton = ({
   email,
-  setEmail,
+  setLogin,
 }: {
   email: string;
-  setEmail: (value: string) => void;
+  setLogin: (email: string) => void;
 }) => (
   <button
     type="button"
     className="cursor-pointer font-medium text-neutral-900 underline underline-offset-4 hover:no-underline dark:text-white"
-    onClick={() => setEmail(email)}
+    onClick={() => setLogin(email)}
   >
     {email.split('@')[0]}
   </button>
@@ -32,7 +30,7 @@ const LoginEmailButton = ({
 
 export const LoginEmailHint = () => {
   const form = useTypedAppFormContext({
-    defaultValues: { email: '' } satisfies FormFieldsLogin,
+    defaultValues: { email: '', password: '' } satisfies FormFieldsLogin,
   });
 
   if (
@@ -42,7 +40,10 @@ export const LoginEmailHint = () => {
     return null;
   }
 
-  const setEmail = (value: string) => form.setFieldValue('email', value);
+  const setLogin = (email: string) => {
+    form.setFieldValue('email', email);
+    form.setFieldValue('password', DEV_LOGIN_PASSWORD);
+  };
 
   return (
     <Alert dir="ltr">
@@ -52,41 +53,13 @@ export const LoginEmailHint = () => {
       </AlertTitle>
       <AlertDescription className="flex flex-wrap gap-x-1 text-sm leading-4">
         You can login with{' '}
-        <LoginEmailButton email="admin@admin.com" setEmail={setEmail} />
+        <LoginEmailButton email="admin@admin.com" setLogin={setLogin} />
         {' or '}
-        <LoginEmailButton email="user@user.com" setEmail={setEmail} />
-      </AlertDescription>
-    </Alert>
-  );
-};
-
-export const LoginEmailOtpHint = () => {
-  const form = useTypedAppFormContext({
-    defaultValues: { otp: '' } satisfies FormFieldsLoginVerify,
-  });
-
-  if (
-    envClient.VITE_VISUAL_TEST ||
-    (import.meta.env.PROD && !envClient.VITE_IS_DEMO)
-  ) {
-    return null;
-  }
-
-  return (
-    <Alert dir="ltr">
-      <TerminalIcon className="size-4" />
-      <AlertTitle>
-        {envClient.VITE_IS_DEMO ? 'Demo mode' : 'Dev mode'}
-      </AlertTitle>
-      <AlertDescription className="flex text-sm leading-4">
-        Use the code{' '}
-        <button
-          type="button"
-          className="cursor-pointer font-medium text-neutral-900 underline underline-offset-4 hover:no-underline dark:text-white"
-          onClick={() => form.setFieldValue('otp', AUTH_EMAIL_OTP_MOCKED)}
-        >
-          {AUTH_EMAIL_OTP_MOCKED}
-        </button>
+        <LoginEmailButton email="user@user.com" setLogin={setLogin} />
+        {' using '}
+        <span className="font-medium text-neutral-900 dark:text-white">
+          {DEV_LOGIN_PASSWORD}
+        </span>
       </AlertDescription>
     </Alert>
   );

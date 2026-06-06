@@ -1,5 +1,5 @@
 import { useStore } from '@tanstack/react-form';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,10 +15,19 @@ import {
 } from '@/platform/components/form';
 import { Button } from '@/platform/components/ui/button';
 
-import { type AuthSignInProvider, startSignIn } from '@/modules/auth/client';
+import {
+  type AuthSignInProvider,
+  clearAllQueryStateForAuthBoundary,
+  startSignIn,
+  type StartSignInInput,
+  useAuthSession,
+} from '@/modules/auth/client';
 import { AUTH_SIGNUP_ENABLED } from '@/modules/auth/presentation/config';
 import { useMascot } from '@/modules/auth/presentation/mascot';
-import { zFormFieldsLogin } from '@/modules/auth/presentation/schema';
+import {
+  authPasswordField,
+  zFormFieldsLogin,
+} from '@/modules/auth/presentation/schema';
 import { envClient } from '@/platform/env/client';
 
 import { authE2eDebug } from './e2e-debug';
@@ -37,6 +46,8 @@ export default function PageLogin({
 }) {
   const { i18n, t } = useTranslation(['auth', 'common']);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const session = useAuthSession();
   const hydrated = useHydrated();
   const safeRedirect = normalizeInternalRedirect(search.redirect);
   const social = useMutation({
@@ -64,21 +75,26 @@ export default function PageLogin({
   const form = useAppForm({
     defaultValues: {
       email: '',
+      [authPasswordField]: '',
     },
     validators: { onSubmit: zFormFieldsLogin() },
-    onSubmit: async ({ value: { email } }) => {
-      authE2eDebug('login.email_otp.submit', {
+    onSubmit: async ({ value }) => {
+      const email = value.email;
+      const password = value[authPasswordField];
+      authE2eDebug('login.email_password.submit', {
         redirect: safeRedirect ?? null,
       });
 
-      const result = await startSignIn({
-        strategy: 'email-otp',
+      const signInInput: StartSignInInput = {
+        strategy: 'email-password',
         email,
+        [authPasswordField]: password,
         redirectTo: safeRedirect,
-      });
+      };
+      const result = await startSignIn(signInInput);
 
       if (!result.ok) {
-        authE2eDebug('login.email_otp.error', {
+        authE2eDebug('login.email_password.error', {
           code: result.code,
           message: result.message ?? null,
         });
@@ -103,21 +119,13 @@ export default function PageLogin({
         return;
       }
 
-      authE2eDebug('login.email_otp.navigate_verify', {
-        redirect: safeRedirect ?? null,
-      });
-
-      void router.navigate({
-        replace: true,
-        to: '/login/verify',
-        search: {
-          redirect: safeRedirect,
-          email:
-            result.value.status === 'verification_required'
-              ? result.value.email
-              : email,
-        },
-      });
+      authE2eDebug('login.email_password.success');
+      await session.refetch();
+      authE2eDebug('login.email_password.session.refetched');
+      clearAllQueryStateForAuthBoundary(queryClient);
+      authE2eDebug('login.email_password.query_cache.cleared');
+      await router.invalidate();
+      authE2eDebug('login.email_password.router.invalidated');
     },
   });
 
@@ -155,6 +163,20 @@ export default function PageLogin({
                   type="email"
                   size="lg"
                   placeholder={t('auth:common.email.label')}
+                />
+              )}
+            </form.AppField>
+          </FormField>
+          <FormField>
+            <FormFieldLabel className="sr-only">
+              {t('auth:common.password.label')}
+            </FormFieldLabel>
+            <form.AppField name="password">
+              {(field) => (
+                <field.FieldText
+                  type="password"
+                  size="lg"
+                  placeholder={t('auth:common.password.label')}
                 />
               )}
             </form.AppField>

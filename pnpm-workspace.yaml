@@ -22,7 +22,6 @@ overrides:
 peerDependencyRules:
   allowedVersions:
     '@tailwindcss/typography>tailwindcss': '4'
-    '@tanstack/zod-adapter>zod': '4'
 
 allowBuilds:
   '@nestjs/core': false

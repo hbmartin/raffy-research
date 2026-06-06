@@ -1,5 +1,5 @@
 import { Result } from '@swan-io/boxed';
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
 import {
@@ -10,7 +10,10 @@ import {
 } from '@/modules/kernel/domain/ids';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 import { observeRepository } from '@/modules/kernel/infrastructure/db/observability';
-import type { DbLike } from '@/modules/kernel/infrastructure/db/types';
+import {
+  type DbLike,
+  isTransactionCapableDatabase,
+} from '@/modules/kernel/infrastructure/db/types';
 
 import {
   intelligenceInvariantError,
@@ -94,6 +97,78 @@ const toSourceSummary = (row: SummaryRow): SourceSummary => ({
 export class SourceRepositoryDrizzle implements SourceRepository {
   constructor(private readonly db: DbLike) {}
 
+  private async runWriteBatch<T>(work: (db: DbLike) => Promise<T>): Promise<T> {
+    if (isTransactionCapableDatabase(this.db)) {
+      return this.db.$runInTransaction(work);
+    }
+    return work(this.db);
+  }
+
+  private async insertSourceRecord(
+    db: DbLike,
+    input: SourceRecordWriteInput
+  ): Promise<SourceRecord> {
+    const [created] = await db
+      .insert(sourceRecordTable)
+      .values({
+        workspaceId: input.workspaceId,
+        providerName: input.providerName,
+        providerSourceId: input.providerSourceId ?? null,
+        sourceType: input.sourceType,
+        sourceSubtype: input.sourceSubtype ?? null,
+        sourceName: input.sourceName ?? null,
+        sourceUrl: normalizeHttpUrl(input.sourceUrl),
+        externalUrl: normalizeHttpUrl(input.externalUrl),
+        title: input.title ?? null,
+        authorOrAccount: input.authorOrAccount ?? null,
+        domain: input.domain ?? null,
+        publishedAt: input.publishedAt ?? null,
+        capturedAt: input.capturedAt ?? undefined,
+        contentText: input.contentText ?? null,
+        diffAddedText: input.diffAddedText ?? null,
+        diffRemovedText: input.diffRemovedText ?? null,
+        rawPayload: input.rawPayload ?? {},
+        metadata: input.metadata ?? {},
+      })
+      .returning();
+    if (!created) {
+      throw intelligenceInvariantError(
+        'SOURCE_CREATE_EMPTY',
+        'source record insert returned no row'
+      );
+    }
+    return toSourceRecord(created);
+  }
+
+  private async insertSearchResult(
+    db: DbLike,
+    input: SearchResultWriteInput
+  ): Promise<SearchResultRecord> {
+    const [created] = await db
+      .insert(searchResultTable)
+      .values({
+        workspaceId: input.workspaceId,
+        providerName: input.providerName,
+        query: input.query,
+        resultRank: input.resultRank ?? null,
+        title: input.title ?? null,
+        snippet: input.snippet ?? null,
+        url: normalizeHttpUrl(input.url),
+        returnedAt: input.returnedAt ?? undefined,
+        sourceRecordId: input.sourceRecordId ?? null,
+        rawPayload: input.rawPayload ?? {},
+        metadata: input.metadata ?? {},
+      })
+      .returning();
+    if (!created) {
+      throw intelligenceInvariantError(
+        'SEARCH_RESULT_CREATE_EMPTY',
+        'search result insert returned no row'
+      );
+    }
+    return toSearchResult(created);
+  }
+
   async getById(id: SourceRecordId) {
     try {
       const [row] = await this.db
@@ -134,40 +209,44 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     }
   }
 
+  async listLatestSummariesForSources(input: {
+    workspaceId: WorkspaceId;
+    sourceRecordIds: SourceRecordId[];
+  }) {
+    try {
+      if (input.sourceRecordIds.length === 0) return Result.Ok([]);
+      const rows = await this.db
+        .select()
+        .from(sourceSummaryTable)
+        .where(
+          and(
+            eq(sourceSummaryTable.workspaceId, input.workspaceId),
+            inArray(sourceSummaryTable.sourceRecordId, input.sourceRecordIds)
+          )
+        )
+        .orderBy(
+          asc(sourceSummaryTable.sourceRecordId),
+          desc(sourceSummaryTable.createdAt)
+        );
+
+      const latestBySourceId = new Map<string, SummaryRow>();
+      for (const row of rows) {
+        if (!latestBySourceId.has(row.sourceRecordId)) {
+          latestBySourceId.set(row.sourceRecordId, row);
+        }
+      }
+
+      return Result.Ok([...latestBySourceId.values()].map(toSourceSummary));
+    } catch (error) {
+      return Result.Error(
+        mapIntelligenceDbError(error, 'SOURCE_SUMMARY_LIST_LATEST_ERROR')
+      );
+    }
+  }
+
   async createSourceRecord(input: SourceRecordWriteInput) {
     try {
-      const [created] = await this.db
-        .insert(sourceRecordTable)
-        .values({
-          workspaceId: input.workspaceId,
-          providerName: input.providerName,
-          providerSourceId: input.providerSourceId ?? null,
-          sourceType: input.sourceType,
-          sourceSubtype: input.sourceSubtype ?? null,
-          sourceName: input.sourceName ?? null,
-          sourceUrl: normalizeHttpUrl(input.sourceUrl),
-          externalUrl: normalizeHttpUrl(input.externalUrl),
-          title: input.title ?? null,
-          authorOrAccount: input.authorOrAccount ?? null,
-          domain: input.domain ?? null,
-          publishedAt: input.publishedAt ?? null,
-          capturedAt: input.capturedAt ?? undefined,
-          contentText: input.contentText ?? null,
-          diffAddedText: input.diffAddedText ?? null,
-          diffRemovedText: input.diffRemovedText ?? null,
-          rawPayload: input.rawPayload ?? {},
-          metadata: input.metadata ?? {},
-        })
-        .returning();
-      if (!created) {
-        return Result.Error(
-          intelligenceInvariantError(
-            'SOURCE_CREATE_EMPTY',
-            'source record insert returned no row'
-          )
-        );
-      }
-      return Result.Ok(toSourceRecord(created));
+      return Result.Ok(await this.insertSourceRecord(this.db, input));
     } catch (error) {
       return Result.Error(mapIntelligenceDbError(error, 'SOURCE_CREATE_ERROR'));
     }
@@ -202,34 +281,38 @@ export class SourceRepositoryDrizzle implements SourceRepository {
 
   async createSearchResult(input: SearchResultWriteInput) {
     try {
-      const [created] = await this.db
-        .insert(searchResultTable)
-        .values({
-          workspaceId: input.workspaceId,
-          providerName: input.providerName,
-          query: input.query,
-          resultRank: input.resultRank ?? null,
-          title: input.title ?? null,
-          snippet: input.snippet ?? null,
-          url: normalizeHttpUrl(input.url),
-          returnedAt: input.returnedAt ?? undefined,
-          sourceRecordId: input.sourceRecordId ?? null,
-          rawPayload: input.rawPayload ?? {},
-          metadata: input.metadata ?? {},
-        })
-        .returning();
-      if (!created) {
-        return Result.Error(
-          intelligenceInvariantError(
-            'SEARCH_RESULT_CREATE_EMPTY',
-            'search result insert returned no row'
-          )
-        );
-      }
-      return Result.Ok(toSearchResult(created));
+      return Result.Ok(await this.insertSearchResult(this.db, input));
     } catch (error) {
       return Result.Error(
         mapIntelligenceDbError(error, 'SEARCH_RESULT_CREATE_ERROR')
+      );
+    }
+  }
+
+  async createCallbackArtifacts(input: {
+    sourceRecords: SourceRecordWriteInput[];
+    searchResults?: SearchResultWriteInput[];
+  }) {
+    try {
+      const artifacts = await this.runWriteBatch(async (db) => {
+        const sourceRecords: SourceRecord[] = [];
+        const searchResults: SearchResultRecord[] = [];
+
+        for (const sourceRecord of input.sourceRecords) {
+          sourceRecords.push(await this.insertSourceRecord(db, sourceRecord));
+        }
+
+        for (const searchResult of input.searchResults ?? []) {
+          searchResults.push(await this.insertSearchResult(db, searchResult));
+        }
+
+        return { sourceRecords, searchResults };
+      });
+
+      return Result.Ok(artifacts);
+    } catch (error) {
+      return Result.Error(
+        mapIntelligenceDbError(error, 'CALLBACK_ARTIFACTS_CREATE_ERROR')
       );
     }
   }

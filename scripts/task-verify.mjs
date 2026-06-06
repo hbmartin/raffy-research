@@ -61,8 +61,10 @@ const formatCommand = ({ command, args }) =>
     .map((part) => (part.includes(' ') ? `"${part}"` : part))
     .join(' ');
 
-const runStep = async (step) =>
-  new Promise((resolve) => {
+const runStep = async (step) => {
+  await mkdir(reportDir, { recursive: true });
+
+  return new Promise((resolve) => {
     const startedAt = new Date();
     const logPath = path.join(reportDir, `${step.id}.log`);
     const log = createWriteStream(logPath, { flags: 'a' });
@@ -110,6 +112,7 @@ const runStep = async (step) =>
       });
     });
   });
+};
 
 const writeSummary = async (results) => {
   const failed = results.find((result) => result.code !== 0);
@@ -140,6 +143,7 @@ const writeSummary = async (results) => {
   ];
 
   const summaryPath = path.join(reportDir, 'summary.md');
+  await mkdir(reportDir, { recursive: true });
   await writeFile(summaryPath, lines.join('\n'));
   return { failed, summaryPath };
 };

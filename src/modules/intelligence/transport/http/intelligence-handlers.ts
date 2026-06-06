@@ -59,7 +59,10 @@ export const zSourceByIdInput = () => z.object({ sourceId: zSourceRecordId() });
 export const zWorkspaceConfigInput = () =>
   z.object({ workspaceId: zWorkspaceId() });
 export const zListProviderCallbacksInput = () =>
-  z.object({ workspaceId: zWorkspaceId(), limit: z.number().optional() });
+  z.object({
+    workspaceId: zWorkspaceId(),
+    limit: z.number().int().min(1).max(200).optional(),
+  });
 export const zRecordFeedbackInput = () =>
   z.object({
     workspaceId: zWorkspaceId(),
