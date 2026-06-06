@@ -5,7 +5,8 @@ import { asArray, asObject, asString, pick, toDate } from './json-access';
 import type { ProviderAdapter } from '../../application/ports/provider-adapter';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
-const APIFY_DATASET_ID_PATTERN = /^[A-Za-z0-9]+$/;
+// Apify dataset URLs may use opaque IDs or safe named datasets.
+const APIFY_DATASET_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 /**
  * Apify: LinkedIn / custom scraping. Actor-run-completed webhooks reference a

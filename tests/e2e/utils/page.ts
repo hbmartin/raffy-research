@@ -1,3 +1,4 @@
+/* oxlint-disable no-process-env */
 import type { Page, TestInfo } from '@playwright/test';
 import { expect } from '@playwright/test';
 import type { CustomFixture } from '@tests/e2e/utils/types';
@@ -311,7 +312,7 @@ export const pageWithUtils: CustomFixture<Page & PageUtils> = async (
       emailInputMatches: (await emailInput.inputValue()) === input.email,
     });
 
-    const password = input.password ?? 'password';
+    const password = input.password ?? process.env.DEMO_SEED_PASSWORD ?? '';
     const passwordInput = page.getByPlaceholder(
       locales[DEFAULT_LANGUAGE_KEY].auth.common.password.label
     );

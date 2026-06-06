@@ -58,7 +58,7 @@ export const SourceDetail = (props: {
             variant="secondary"
             size="sm"
             render={
-              <a href={externalUrl} target="_blank" rel="noreferrer">
+              <a href={externalUrl} target="_blank" rel="noopener noreferrer">
                 <ExternalLinkIcon />
                 Open original source
               </a>

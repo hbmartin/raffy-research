@@ -19,3 +19,8 @@ export { createLocalAiReportGenerator } from './infrastructure/local-ai/report-g
 export { createOpenAiReportGenerator } from './infrastructure/openai/report-generator-openai';
 export { createProviderRegistry } from './infrastructure/providers/registry';
 export { createSlackAlert } from './infrastructure/slack/slack-alert';
+export { createIntelligenceJobRequestHandlers } from './transport/http/job-request-handlers';
+export {
+  createLocalAiStreamHandler,
+  type LocalAiStreamHandlerDeps,
+} from './transport/http/local-ai-stream-handler';

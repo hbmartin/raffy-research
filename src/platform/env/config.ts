@@ -41,6 +41,7 @@ const clientSchema = () =>
       .optional()
       .prefault('false')
       .transform((value) => value === 'true'),
+    VITE_DEMO_SEED_PASSWORD: z.string().optional(),
     VITE_VISUAL_TEST: z
       .enum(['true', 'false'])
       .optional()

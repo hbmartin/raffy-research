@@ -46,4 +46,22 @@ describe('computeWeeklyPeriod', () => {
     expect(periodEnd.toISOString()).toBe('2026-04-06T03:59:59.999Z');
     expect(formatPeriodDate(periodEnd, 'America/Santiago')).toBe('2026-04-05');
   });
+
+  it('handles current time within an hour after a spring-forward transition', () => {
+    // Sunday 2026-03-08 03:30 America/Los_Angeles, shortly after 02:00 is skipped.
+    const now = new Date('2026-03-08T10:30:00.000Z');
+    const { periodStart, periodEnd } = computeWeeklyPeriod(
+      now,
+      'America/Los_Angeles'
+    );
+
+    expect(periodStart.toISOString()).toBe('2026-02-23T08:00:00.000Z');
+    expect(periodEnd.toISOString()).toBe('2026-03-02T07:59:59.999Z');
+    expect(formatPeriodDate(periodStart, 'America/Los_Angeles')).toBe(
+      '2026-02-23'
+    );
+    expect(formatPeriodDate(periodEnd, 'America/Los_Angeles')).toBe(
+      '2026-03-01'
+    );
+  });
 });

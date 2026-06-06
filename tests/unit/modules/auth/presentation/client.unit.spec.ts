@@ -43,7 +43,7 @@ describe('auth client facade', () => {
       startSignIn({
         strategy: 'email-password',
         email: 'user@example.com',
-        password: 'password',
+        password: 'password', // pragma: allowlist secret
         redirectTo: '/app',
       })
     ).resolves.toEqual({
@@ -54,7 +54,7 @@ describe('auth client facade', () => {
     });
     expect(mocks.betterAuthBrowserClient.signInEmail).toHaveBeenCalledWith({
       email: 'user@example.com',
-      password: 'password',
+      password: 'password', // pragma: allowlist secret
     });
   });
 
@@ -71,7 +71,7 @@ describe('auth client facade', () => {
       startSignIn({
         strategy: 'email-password',
         email: 'user@example.com',
-        password: 'bad-password',
+        password: 'bad-password', // pragma: allowlist secret
       })
     ).resolves.toEqual({
       ok: false,

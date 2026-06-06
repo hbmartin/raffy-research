@@ -1,0 +1,1 @@
+CREATE INDEX "providerCallbackEvent_workspace_received_idx" ON "providerCallbackEvent" USING btree ("workspaceId","receivedAt");

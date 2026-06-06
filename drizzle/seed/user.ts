@@ -1,5 +1,6 @@
+/* oxlint-disable no-process-env */
 import { faker } from '@faker-js/faker';
-import { inArray, notInArray, sql } from 'drizzle-orm';
+import { notInArray, sql } from 'drizzle-orm';
 
 import { setUserPasswordCredentialsByEmail } from '@/modules/auth/backend';
 import { getDefaultDbClient } from '@/modules/kernel/infrastructure/db/client';
@@ -9,12 +10,45 @@ import { emphasis } from './_utils';
 
 const demoUserEmails = ['user@user.com', 'admin@admin.com'];
 const demoOnboardedAt = new Date('2024-01-01T00:00:00.000Z');
-const demoPassword = 'password';
-const passwordCredentialInputField = 'password' as const;
+
+function isLocalDatabaseUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname;
+    return ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function resolveDemoSeedPassword(): string {
+  const password = process.env.DEMO_SEED_PASSWORD;
+  if (!password) {
+    throw new Error(
+      'DEMO_SEED_PASSWORD is required before seeding demo users.'
+    );
+  }
+
+  const explicitlyAllowed = process.env.ALLOW_DEMO_SEED === 'true';
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.VERCEL_ENV === 'production';
+  if (
+    !explicitlyAllowed &&
+    (isProduction || !isLocalDatabaseUrl(process.env.DATABASE_URL))
+  ) {
+    throw new Error(
+      'Refusing to seed demo users outside a local database. Set ALLOW_DEMO_SEED=true only for an intentional non-local demo seed.'
+    );
+  }
+
+  return password;
+}
 
 export async function createUsers() {
   console.log(`⏳ Seeding users`);
   const db = getDefaultDbClient();
+  const demoPassword = resolveDemoSeedPassword();
 
   let createdCounter = 0;
   const [countRow] = await db
@@ -73,25 +107,29 @@ export async function createUsers() {
   }
 
   const demoUsers = await db.query.user.findMany({
-    where: inArray(user.email, demoUserEmails),
+    where: sql`lower(${user.email}) in (${sql.join(
+      demoUserEmails.map((email) => sql`${email}`),
+      sql`, `
+    )})`,
   });
   const passwordInput = {
     emails: demoUsers.map((demoUser) => demoUser.email),
-    [passwordCredentialInputField]: demoPassword,
+    password: demoPassword,
   };
   const passwordResult = await setUserPasswordCredentialsByEmail(
     db,
     passwordInput
   );
   if (passwordResult.isError()) throw passwordResult.getError();
+  if (passwordResult.get().count !== demoUserEmails.length) {
+    throw new Error(
+      `Expected to set ${demoUserEmails.length} demo passwords, set ${passwordResult.get().count}.`
+    );
+  }
 
   console.log(
     `✅ ${existingRandomUserCount} existing random users 👉 ${createdCounter} users created`
   );
-  console.log(
-    `👉 Admin connect with: ${emphasis('admin@admin.com')} / ${emphasis(demoPassword)}`
-  );
-  console.log(
-    `👉 User connect with: ${emphasis('user@user.com')} / ${emphasis(demoPassword)}`
-  );
+  console.log(`👉 Admin connect with: ${emphasis('admin@admin.com')}`);
+  console.log(`👉 User connect with: ${emphasis('user@user.com')}`);
 }

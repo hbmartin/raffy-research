@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
     handler: vi.fn(),
   })),
   drizzleAdapter: vi.fn(() => ({ id: 'drizzle-adapter' })),
-  emailOTP: vi.fn(() => ({ id: 'email-otp-plugin' })),
   openAPI: vi.fn(() => ({ id: 'open-api-plugin' })),
   tanstackStartCookies: vi.fn(() => ({ id: 'tanstack-cookies-plugin' })),
 }));
@@ -21,7 +20,6 @@ vi.mock('better-auth/adapters/drizzle', () => ({
 
 vi.mock('better-auth/plugins', () => ({
   admin: mocks.admin,
-  emailOTP: mocks.emailOTP,
   openAPI: mocks.openAPI,
 }));
 

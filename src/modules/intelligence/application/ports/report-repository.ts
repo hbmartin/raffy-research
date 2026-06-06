@@ -19,6 +19,10 @@ export type ReportGetOutcome =
   | { type: 'report_found'; report: WeeklyReport }
   | { type: 'report_not_found' };
 
+export type ReportReplaceOutcome =
+  | ReportGetOutcome
+  | { type: 'report_published_protected'; report: WeeklyReport };
+
 export type ReportLatestOutcome =
   | { type: 'report_found'; report: WeeklyReport }
   | { type: 'report_none' };
@@ -39,10 +43,6 @@ export interface ReportRepository {
     workspaceId: WorkspaceId,
     options?: { limit?: number }
   ): Promise<ApplicationResult<WeeklyReportSummary[]>>;
-  findByPeriod(input: {
-    workspaceId: WorkspaceId;
-    periodStart: Date;
-  }): Promise<ApplicationResult<ReportGetOutcome>>;
 
   create(input: {
     workspaceId: WorkspaceId;
@@ -70,7 +70,7 @@ export interface ReportRepository {
       generatedAt?: Date | null;
       publishedAt?: Date | null;
     }
-  ): Promise<ApplicationResult<ReportGetOutcome>>;
+  ): Promise<ApplicationResult<ReportReplaceOutcome>>;
 
   addSources(input: {
     workspaceId: WorkspaceId;

@@ -58,6 +58,7 @@ describe('local AI text generation', () => {
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
     const events: Array<{ type: string; label?: string }> = [];
+    const abortController = new AbortController();
 
     const result = await generateLocalText({
       provider: 'codex-cli',
@@ -67,6 +68,7 @@ describe('local AI text generation', () => {
       label: 'source-summary',
       runId: 'run-1',
       rawOutputDir,
+      abortSignal: abortController.signal,
       onEvent: (event) => {
         events.push({
           type: event.type,
@@ -82,14 +84,65 @@ describe('local AI text generation', () => {
         path.join(rawOutputDir, 'run-1').replaceAll(path.sep, '/')
       )
     );
-    expect(events.map((event) => event.type)).toContain('tool_event');
-    expect(events.map((event) => event.type)).toContain('artifact');
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(['start', 'tool_event', 'artifact', 'done'])
+    );
     expect(mocks.streamText).toHaveBeenCalledWith(
       expect.objectContaining({
         model: mocks.codexModel,
         prompt: 'Return JSON',
         includeRawChunks: true,
+        abortSignal: abortController.signal,
       })
     );
+    expect(mocks.createCodexCli).toHaveBeenCalledWith({
+      defaultSettings: {
+        approvalMode: 'never',
+        sandboxMode: 'read-only',
+        skipGitRepoCheck: true,
+        allowNpx: false,
+        cwd: process.cwd(),
+        logger: false,
+      },
+    });
+  });
+
+  it('configures claude code with no write, bash, read, or web tools', async () => {
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'claude-code',
+      model: 'claude-sonnet',
+      prompt: 'Return JSON',
+      action: 'summarize_sources',
+      label: 'source-summary',
+      runId: 'run-claude',
+      rawOutputDir,
+    });
+
+    expect(mocks.createClaudeCode).toHaveBeenCalledWith({
+      defaultSettings: {
+        allowedTools: [],
+        disallowedTools: [
+          'Bash',
+          'Edit',
+          'Glob',
+          'Grep',
+          'LS',
+          'MultiEdit',
+          'NotebookEdit',
+          'Read',
+          'WebFetch',
+          'WebSearch',
+          'Write',
+        ],
+        permissionMode: 'dontAsk',
+        settingSources: [],
+        cwd: process.cwd(),
+        logger: false,
+        streamingInput: 'auto',
+      },
+    });
   });
 });

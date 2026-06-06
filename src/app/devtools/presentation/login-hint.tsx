@@ -10,8 +10,6 @@ import {
 import { type FormFieldsLogin } from '@/modules/auth/client';
 import { envClient } from '@/platform/env/client';
 
-const DEV_LOGIN_PASSWORD = 'password';
-
 const LoginEmailButton = ({
   email,
   setLogin,
@@ -40,9 +38,12 @@ export const LoginEmailHint = () => {
     return null;
   }
 
+  const demoPassword = envClient.VITE_DEMO_SEED_PASSWORD;
   const setLogin = (email: string) => {
     form.setFieldValue('email', email);
-    form.setFieldValue('password', DEV_LOGIN_PASSWORD);
+    if (demoPassword) {
+      form.setFieldValue('password', demoPassword);
+    }
   };
 
   return (
@@ -56,10 +57,14 @@ export const LoginEmailHint = () => {
         <LoginEmailButton email="admin@admin.com" setLogin={setLogin} />
         {' or '}
         <LoginEmailButton email="user@user.com" setLogin={setLogin} />
-        {' using '}
-        <span className="font-medium text-neutral-900 dark:text-white">
-          {DEV_LOGIN_PASSWORD}
-        </span>
+        {demoPassword ? (
+          <>
+            {' using '}
+            <span className="font-medium text-neutral-900 dark:text-white">
+              {demoPassword}
+            </span>
+          </>
+        ) : null}
       </AlertDescription>
     </Alert>
   );

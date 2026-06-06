@@ -1,5 +1,5 @@
 import { Result } from '@swan-io/boxed';
-import { inArray, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { DbLike } from '@/modules/kernel/infrastructure/db/types';
@@ -9,8 +9,6 @@ import {
   betterAuthCredentialProviderId,
   hashBetterAuthPassword,
 } from '../better-auth/password';
-
-const accountPasswordColumn = 'password' as const;
 
 type PasswordCredentialOutcome =
   | {
@@ -55,7 +53,7 @@ async function upsertPasswordCredentials(
         accountId: existingUser.id,
         providerId: betterAuthCredentialProviderId,
         userId: existingUser.id,
-        [accountPasswordColumn]: hashedPassword,
+        password: hashedPassword,
         createdAt: now,
         updatedAt: now,
       }))
@@ -63,7 +61,7 @@ async function upsertPasswordCredentials(
     .onConflictDoUpdate({
       target: [account.providerId, account.accountId],
       set: {
-        [accountPasswordColumn]: hashedPassword,
+        password: hashedPassword,
         updatedAt: now,
       },
     });
@@ -110,11 +108,22 @@ export async function setUserPasswordCredentialsByEmail(
     password: string;
   }
 ): Promise<Result<PasswordCredentialsForEmailsOutcome, AppError>> {
-  const emails = input.emails.map((email) => email.trim().toLowerCase());
+  const emails = input.emails
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
+  if (emails.length === 0) {
+    return Result.Ok({
+      type: 'password_credentials_set',
+      count: 0,
+    });
+  }
 
   try {
     const users = await db.query.user.findMany({
-      where: inArray(user.email, emails),
+      where: sql`lower(${user.email}) in (${sql.join(
+        emails.map((email) => sql`${email}`),
+        sql`, `
+      )})`,
     });
     const count = await upsertPasswordCredentials(db, users, input.password);
     return Result.Ok({

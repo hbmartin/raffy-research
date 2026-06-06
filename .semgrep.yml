@@ -37,6 +37,58 @@ rules:
       include:
         - src/modules/intelligence/application/use-cases/ingestion/**/*.ts
 
+  - id: no-application-result-boolean-outcome
+    message: Application-layer business outcomes must be tagged Result.Ok variants, not ApplicationResult<boolean>.
+    severity: ERROR
+    languages:
+      - typescript
+    pattern-regex: '\bApplicationResult\s*<\s*boolean\s*>'
+    paths:
+      include:
+        - src/modules/**/application/**/*.ts
+
+  - id: no-length-gated-timing-safe-equal
+    message: Do not branch on secret buffer lengths before timingSafeEqual; hash inputs to fixed length first.
+    severity: ERROR
+    languages:
+      - typescript
+    pattern-either:
+      - pattern: |
+          $A.length === $B.length && timingSafeEqual($A, $B)
+      - pattern: |
+          $A.length !== $B.length ? $C : timingSafeEqual($A, $B)
+    paths:
+      include:
+        - src/**/*.ts
+        - src/**/*.tsx
+
+  - id: no-unhandled-ndjson-line-parse
+    message: NDJSON line parsing must catch malformed JSON and continue stream processing.
+    severity: ERROR
+    languages:
+      - typescript
+    patterns:
+      - pattern: JSON.parse($LINE)
+      - metavariable-regex:
+          metavariable: $LINE
+          regex: '^[A-Za-z_$][A-Za-z0-9_$]*$'
+      - pattern-not-inside: |
+          try {
+            ...
+          } catch {
+            ...
+          }
+      - pattern-not-inside: |
+          try {
+            ...
+          } catch ($ERROR) {
+            ...
+          }
+    paths:
+      include:
+        - src/**/*.ts
+        - src/**/*.tsx
+
   - id: no-unnormalized-glob-star-regexp
     message: Collapse consecutive '*' before converting glob strings to RegExp; raw split('*').join('.*') can create adjacent wildcards and backtracking risk.
     severity: ERROR
@@ -254,6 +306,9 @@ rules:
     severity: ERROR
     pattern: process.env.$X
     paths:
+      include:
+        - src/**/*.ts
+        - src/**/*.tsx
       exclude:
         - src/modules/kernel/infrastructure/config/**
         - src/platform/env/**

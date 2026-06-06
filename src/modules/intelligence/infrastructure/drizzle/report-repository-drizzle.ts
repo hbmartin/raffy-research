@@ -147,31 +147,6 @@ export class ReportRepositoryDrizzle implements ReportRepository {
     }
   }
 
-  async findByPeriod(input: { workspaceId: WorkspaceId; periodStart: Date }) {
-    try {
-      const [row] = await this.db
-        .select()
-        .from(weeklyReportTable)
-        .where(
-          and(
-            eq(weeklyReportTable.workspaceId, input.workspaceId),
-            eq(weeklyReportTable.periodStart, input.periodStart)
-          )
-        )
-        .orderBy(desc(weeklyReportTable.publishedAt))
-        .limit(1);
-      return Result.Ok(
-        row
-          ? ({ type: 'report_found', report: toReport(row) } as const)
-          : ({ type: 'report_not_found' } as const)
-      );
-    } catch (error) {
-      return Result.Error(
-        mapIntelligenceDbError(error, 'REPORT_FIND_PERIOD_ERROR')
-      );
-    }
-  }
-
   async create(input: {
     workspaceId: WorkspaceId;
     periodStart: Date;
@@ -255,9 +230,24 @@ export class ReportRepositoryDrizzle implements ReportRepository {
           )
         )
         .returning();
+      if (updated) {
+        return Result.Ok({
+          type: 'report_found',
+          report: toReport(updated),
+        } as const);
+      }
+
+      const [existing] = await this.db
+        .select()
+        .from(weeklyReportTable)
+        .where(eq(weeklyReportTable.id, id))
+        .limit(1);
       return Result.Ok(
-        updated
-          ? ({ type: 'report_found', report: toReport(updated) } as const)
+        existing?.status === 'published'
+          ? ({
+              type: 'report_published_protected',
+              report: toReport(existing),
+            } as const)
           : ({ type: 'report_not_found' } as const)
       );
     } catch (error) {

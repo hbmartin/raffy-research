@@ -236,4 +236,31 @@ describe('provider adapters', () => {
       ],
     });
   });
+
+  it('accepts safe Apify named dataset ids', async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
+      expect(_url).toBe(
+        'https://api.apify.com/v2/datasets/my-dataset.v1/items?clean=true&format=json'
+      );
+      expect(_init?.headers).toEqual({ Authorization: 'Bearer token' });
+      return new Response(JSON.stringify([]), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const context: ProviderCallbackContext = {
+      workspaceId,
+      credential: 'token',
+      payload: { resource: { defaultDatasetId: 'my-dataset.v1' } },
+      logger,
+    };
+
+    const adapter = createProviderRegistry().get('apify');
+    const normalizationResult = await adapter?.normalizeCallback?.(context);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(normalizationResult?.getOr({ type: 'unsupported' })).toEqual({
+      type: 'normalized',
+      sourceRecords: [],
+    });
+  });
 });

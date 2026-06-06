@@ -19,13 +19,16 @@ import { isSafeHttpUrl, normalizeHttpUrl } from './url';
 export const zNewnessLabel = z.enum(['new_this_week', 'existing']);
 export const zTrendLabel = z.enum(['rising', 'stable', 'declining', 'unknown']);
 
-const zOptionalHttpUrl = z
-  .string()
-  .trim()
-  .min(1)
-  .refine(isSafeHttpUrl, { message: 'Must be an http(s) URL' })
-  .transform((value) => normalizeHttpUrl(value) ?? value)
-  .optional();
+const zOptionalHttpUrl = z.preprocess(
+  (value) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  z
+    .string()
+    .trim()
+    .refine(isSafeHttpUrl, { message: 'Must be an http(s) URL' })
+    .transform((value) => normalizeHttpUrl(value) as string)
+    .optional()
+);
 
 export const zEvidenceItem = z.object({
   id: z.string().min(1),
@@ -178,7 +181,46 @@ const forbiddenAdvicePhrases = [
   'change positioning',
 ] as const;
 
-function findForbiddenReportContent(value: unknown, path: string[] = []) {
+const advicePhraseExcludedKeys = new Set([
+  'id',
+  'source_id',
+  'source_ids',
+  'source_title',
+  'source_type',
+  'provider_name',
+  'external_url',
+  'internal_source_url',
+  'domain',
+  'competitor_id',
+  'excerpt',
+  'source_excerpt',
+]);
+
+function findForbiddenReportKeys(value: unknown, path: string[] = []) {
+  const issues: string[] = [];
+
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      issues.push(...findForbiddenReportKeys(item, [...path, String(index)]));
+    }
+    return issues;
+  }
+
+  if (typeof value !== 'object' || value === null) return issues;
+
+  for (const [key, child] of Object.entries(value)) {
+    if (forbiddenReportKeys.has(key)) {
+      issues.push(
+        `Report contains forbidden key "${[...path, key].join('.')}".`
+      );
+    }
+    issues.push(...findForbiddenReportKeys(child, [...path, key]));
+  }
+
+  return issues;
+}
+
+function findForbiddenAdvicePhrases(value: unknown, path: string[] = []) {
   const issues: string[] = [];
 
   if (typeof value === 'string') {
@@ -195,7 +237,7 @@ function findForbiddenReportContent(value: unknown, path: string[] = []) {
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
       issues.push(
-        ...findForbiddenReportContent(item, [...path, String(index)])
+        ...findForbiddenAdvicePhrases(item, [...path, String(index)])
       );
     }
     return issues;
@@ -204,15 +246,18 @@ function findForbiddenReportContent(value: unknown, path: string[] = []) {
   if (typeof value !== 'object' || value === null) return issues;
 
   for (const [key, child] of Object.entries(value)) {
-    if (forbiddenReportKeys.has(key)) {
-      issues.push(
-        `Report contains forbidden key "${[...path, key].join('.')}".`
-      );
-    }
-    issues.push(...findForbiddenReportContent(child, [...path, key]));
+    if (advicePhraseExcludedKeys.has(key)) continue;
+    issues.push(...findForbiddenAdvicePhrases(child, [...path, key]));
   }
 
   return issues;
+}
+
+function findForbiddenReportContent(value: unknown) {
+  return [
+    ...findForbiddenReportKeys(value),
+    ...findForbiddenAdvicePhrases(value),
+  ];
 }
 
 function addForbiddenReportContentIssues(value: unknown, ctx: z.RefinementCtx) {
@@ -317,7 +362,12 @@ const stripCodeFences = (text: string): string => {
   if (!trimmed.startsWith('```')) return trimmed;
 
   const openingFenceEnd = trimmed.indexOf('\n');
-  if (openingFenceEnd < 0) return trimmed;
+  if (openingFenceEnd < 0) {
+    return trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+  }
 
   const body = trimmed.slice(openingFenceEnd + 1).trim();
   if (!body.endsWith('```')) return body;
