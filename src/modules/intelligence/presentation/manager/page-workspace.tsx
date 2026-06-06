@@ -1,6 +1,6 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   PageLayout,
@@ -79,6 +79,7 @@ const DevAiConsole = (props: {
   );
   const [events, setEvents] = useState<string[]>([]);
   const [runningAction, setRunningAction] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const selectedSourceIds = useMemo(
     () => [...selectedSources],
@@ -95,12 +96,16 @@ const DevAiConsole = (props: {
 
   const runAction = useCallback(
     async (action: string) => {
+      abortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
       setRunningAction(action);
       appendEvent(`${action}: started`);
 
       try {
         const response = await fetch('/api/dev/intelligence/local-ai/stream', {
           method: 'POST',
+          signal: abortController.signal,
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             action,
@@ -132,7 +137,15 @@ const DevAiConsole = (props: {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            const event = JSON.parse(line) as LocalAiEvent;
+            let event: LocalAiEvent;
+            try {
+              event = JSON.parse(line) as LocalAiEvent;
+            } catch (error) {
+              appendEvent(
+                `${action}: malformed JSON line (${error instanceof Error ? error.message : 'parse failed'}): ${line.slice(0, 120)}`
+              );
+              continue;
+            }
 
             if (
               event.type === 'artifact' &&
@@ -165,6 +178,13 @@ const DevAiConsole = (props: {
               continue;
             }
 
+            if (event.type === 'start') {
+              appendEvent(
+                `${action}: ${event.message ?? event.label ?? 'started'}`
+              );
+              continue;
+            }
+
             if (event.type === 'step') {
               appendEvent(`${action}: ${event.message ?? event.label}`);
               continue;
@@ -176,10 +196,17 @@ const DevAiConsole = (props: {
           }
         }
       } catch (error) {
+        if (abortController.signal.aborted) {
+          appendEvent(`${action}: cancelled`);
+          return;
+        }
         appendEvent(
           `${action}: ${error instanceof Error ? error.message : 'failed'}`
         );
       } finally {
+        if (abortControllerRef.current === abortController) {
+          abortControllerRef.current = null;
+        }
         setRunningAction(null);
       }
     },
@@ -195,6 +222,12 @@ const DevAiConsole = (props: {
     ]
   );
 
+  const stopRunningAction = useCallback(() => {
+    if (!abortControllerRef.current) return;
+    appendEvent(`${runningAction ?? 'local_ai'}: cancelling`);
+    abortControllerRef.current.abort();
+  }, [appendEvent, runningAction]);
+
   useEffect(() => {
     const timeoutId = globalThis.setTimeout(() => {
       void runAction('list_sources');
@@ -203,6 +236,13 @@ const DevAiConsole = (props: {
     // Only reload period sources when the selected week or workspace changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodDate, props.workspaceId]);
+
+  useEffect(
+    () => () => {
+      abortControllerRef.current?.abort();
+    },
+    []
+  );
 
   const toggleSource = (id: string) => {
     setSelectedSources((current) => {
@@ -328,6 +368,15 @@ const DevAiConsole = (props: {
           >
             Full workflow
           </Button>
+          {isRunning ? (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={stopRunningAction}
+            >
+              Stop
+            </Button>
+          ) : null}
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -396,7 +445,10 @@ const DevAiConsole = (props: {
                       <span className="block truncate font-medium">
                         {callback.providerName} · {callback.normalizationStatus}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span
+                        className="block truncate text-xs text-muted-foreground"
+                        suppressHydrationWarning
+                      >
                         {callback.receivedAt.toLocaleString()}
                       </span>
                     </span>

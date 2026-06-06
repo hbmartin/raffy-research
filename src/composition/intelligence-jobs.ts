@@ -1,5 +1,3 @@
-import { timingSafeEqual } from 'node:crypto';
-
 import {
   generateWeeklyReport,
   handleProviderCallback,
@@ -8,6 +6,7 @@ import {
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
+  createIntelligenceJobRequestHandlers,
   createOpenAiReportGenerator,
   createProviderRegistry,
   createSlackAlert,
@@ -15,8 +14,7 @@ import {
   getProviderCredential,
   getProviderWebhookSecret,
 } from '@/modules/intelligence/backend';
-import { toWorkspaceId, zWorkspaceId } from '@/modules/kernel';
-import type { JsonValue } from '@/modules/kernel/domain/json';
+import { toWorkspaceId } from '@/modules/kernel';
 
 import { getIntelligenceRepositories } from './intelligence';
 import { getKernel } from './kernel';
@@ -177,124 +175,18 @@ export async function runDailyIngest(input?: {
   return { workspaces: list.length, ingested };
 }
 
-const jsonResponse = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
+const jobRequestHandlers = createIntelligenceJobRequestHandlers({
+  getCronSecret: () => getCronSecret() ?? null,
+  getProviderWebhookSecret: () => getProviderWebhookSecret() ?? null,
+  getLogger: () => getKernel().logger,
+  runWeeklyReports: () => runWeeklyReports(),
+  runDailyIngest: () => runDailyIngest(),
+  handleProviderCallback: (input) =>
+    handleProviderCallback(buildIngestionDeps(), input),
+});
 
-/** Cron routes require `Authorization: Bearer ${CRON_SECRET}`. */
-function constantTimeStringEquals(actual: string, expected: string): boolean {
-  const actualBuffer = Buffer.from(actual);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    actualBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(actualBuffer, expectedBuffer)
-  );
-}
-
-function getBearerToken(request: Request): string | null {
-  const authorization = request.headers.get('authorization');
-  if (!authorization?.toLowerCase().startsWith('bearer ')) return null;
-  return authorization.slice('Bearer '.length).trim() || null;
-}
-
-function isAuthorizedCronRequest(request: Request): boolean {
-  const secret = getCronSecret();
-  if (!secret) {
-    getKernel().logger.warn({
-      event: 'intelligence.cron.secret_not_configured',
-      details: { message: 'CRON_SECRET environment variable is not set' },
-    });
-    return false;
-  }
-  const token = getBearerToken(request);
-  return token ? constantTimeStringEquals(token, secret) : false;
-}
-
-function isAuthorizedProviderCallbackRequest(request: Request): boolean {
-  const secret = getProviderWebhookSecret();
-  if (!secret) {
-    getKernel().logger.warn({
-      event: 'intelligence.provider_callback.secret_not_configured',
-      details: {
-        message: 'PROVIDER_WEBHOOK_SECRET environment variable is not set',
-      },
-    });
-    return false;
-  }
-
-  const token =
-    getBearerToken(request) ?? request.headers.get('x-provider-webhook-secret');
-  return token ? constantTimeStringEquals(token, secret) : false;
-}
-
-export async function handleWeeklyReportsCron(
-  request: Request
-): Promise<Response> {
-  if (!isAuthorizedCronRequest(request)) {
-    return jsonResponse({ error: 'unauthorized' }, 401);
-  }
-  const summary = await runWeeklyReports();
-  return jsonResponse({ ok: true, ...summary });
-}
-
-export async function handleDailyIngestCron(
-  request: Request
-): Promise<Response> {
-  if (!isAuthorizedCronRequest(request)) {
-    return jsonResponse({ error: 'unauthorized' }, 401);
-  }
-  const summary = await runDailyIngest();
-  return jsonResponse({ ok: true, ...summary });
-}
-
-async function readJsonBody(request: Request): Promise<JsonValue> {
-  try {
-    return (await request.json()) as JsonValue;
-  } catch (error) {
-    const contentLength = request.headers.get('content-length');
-    if (contentLength !== '0') {
-      getKernel().logger.warn({
-        event: 'intelligence.provider_callback.invalid_json_body',
-        error: error instanceof Error ? error.message : String(error),
-        exception: error,
-        details: {
-          contentLength,
-          contentType: request.headers.get('content-type'),
-        },
-      });
-    }
-    return null;
-  }
-}
-
-/**
- * Generic provider callback entrypoint: stores the raw payload first, then
- * normalizes to source records when an adapter and `?workspaceId=` are present.
- */
-export async function handleProviderCallbackRequest(
-  provider: string,
-  request: Request
-): Promise<Response> {
-  if (!isAuthorizedProviderCallbackRequest(request)) {
-    return jsonResponse({ error: 'unauthorized' }, 401);
-  }
-
-  const url = new URL(request.url);
-  const workspaceIdParam = url.searchParams.get('workspaceId');
-  const parsedWorkspaceId = workspaceIdParam
-    ? zWorkspaceId().safeParse(workspaceIdParam)
-    : null;
-
-  const payload = await readJsonBody(request);
-  const result = await handleProviderCallback(buildIngestionDeps(), {
-    providerName: provider,
-    workspaceId: parsedWorkspaceId?.success ? parsedWorkspaceId.data : null,
-    payload,
-  });
-  if (result.isError()) {
-    return jsonResponse({ ok: false, error: result.getError().message }, 500);
-  }
-  return jsonResponse({ ok: true, ...result.get() });
-}
+export const handleWeeklyReportsCron =
+  jobRequestHandlers.handleWeeklyReportsCron;
+export const handleDailyIngestCron = jobRequestHandlers.handleDailyIngestCron;
+export const handleProviderCallbackRequest =
+  jobRequestHandlers.handleProviderCallbackRequest;

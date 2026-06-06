@@ -71,9 +71,11 @@ export const semrushAdapter: ProviderAdapter = {
     const sourceRecords: SourceRecordWriteInput[] = [];
 
     for (const domain of competitorDomains(ctx)) {
+      // SEMrush SEO API requires credentials as the `key` query parameter.
+      // Keep provider HTTP helpers from logging full URLs for this adapter.
       const response = await fetchText(
         'semrush',
-        `https://api.semrush.com/?type=domain_ranks&key=${ctx.credential}&domain=${encodeURIComponent(domain)}&database=us`
+        `https://api.semrush.com/?type=domain_ranks&key=${encodeURIComponent(ctx.credential)}&domain=${encodeURIComponent(domain)}&database=us`
       );
       if (response.isError()) {
         ctx.logger.warn({

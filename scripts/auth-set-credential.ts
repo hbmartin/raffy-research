@@ -1,12 +1,11 @@
+/* oxlint-disable no-process-env */
 import { setExistingUserPasswordCredential } from '@/modules/auth/backend';
 import { createDbClient } from '@/modules/kernel/infrastructure/db/client';
 
 type CliOptions = {
   email?: string;
-  password?: string;
+  passwordStdin?: boolean;
 };
-
-const passwordCredentialInputField = 'password' as const;
 
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {};
@@ -23,23 +22,33 @@ function parseArgs(argv: string[]): CliOptions {
       options.email = arg.slice('--email='.length);
       continue;
     }
-    if (arg === '--password') {
-      options.password = argv[index + 1];
-      index += 1;
-      continue;
+    if (arg === '--password' || arg.startsWith('--password=')) {
+      throw new Error(
+        'Do not pass passwords via argv. Use AUTH_SET_CREDENTIAL_PASSWORD or --password-stdin.'
+      );
     }
-    if (arg.startsWith('--password=')) {
-      options.password = arg.slice('--password='.length);
+    if (arg === '--password-stdin') {
+      options.passwordStdin = true;
     }
   }
 
   return options;
 }
 
+async function readPasswordFromStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks)
+    .toString('utf8')
+    .replace(/\r?\n$/, '');
+}
+
 async function promptHidden(label: string): Promise<string> {
   if (!process.stdin.isTTY) {
     throw new Error(
-      `${label} is required. Pass --password in non-interactive shells.`
+      `${label} is required. Set AUTH_SET_CREDENTIAL_PASSWORD or pipe it with --password-stdin.`
     );
   }
 
@@ -73,7 +82,7 @@ async function promptHidden(label: string): Promise<string> {
           return;
         }
 
-        if (char === '\u007f') {
+        if (char === '\u007f' || char === '\u0008') {
           value = value.slice(0, -1);
           stdout.write('\b \b');
           continue;
@@ -92,7 +101,10 @@ async function promptHidden(label: string): Promise<string> {
 }
 
 async function resolvePassword(options: CliOptions): Promise<string> {
-  if (options.password !== undefined) return options.password;
+  if (process.env.AUTH_SET_CREDENTIAL_PASSWORD !== undefined) {
+    return process.env.AUTH_SET_CREDENTIAL_PASSWORD;
+  }
+  if (options.passwordStdin) return readPasswordFromStdin();
 
   const first = await promptHidden('New password');
   const second = await promptHidden('Confirm password');
@@ -108,7 +120,7 @@ const email = options.email?.trim().toLowerCase();
 
 if (!email) {
   throw new Error(
-    'Usage: pnpm auth:set-password -- --email user@example.com [--password ...]'
+    'Usage: pnpm auth:set-credential -- --email user@example.com [--password-stdin]'
   );
 }
 
@@ -122,7 +134,7 @@ const db = createDbClient();
 try {
   const input = {
     email,
-    [passwordCredentialInputField]: password,
+    password,
   };
   const result = await setExistingUserPasswordCredential(db, input);
   if (result.isError()) throw result.getError();

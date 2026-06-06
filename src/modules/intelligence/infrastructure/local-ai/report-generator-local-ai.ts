@@ -14,6 +14,7 @@ export function createLocalAiReportGenerator(input: {
   model: string;
   rawOutputDir: string;
   runId: string;
+  abortSignal?: AbortSignal;
   action?: string;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
 }): ReportGeneratorPort {
@@ -32,6 +33,7 @@ export function createLocalAiReportGenerator(input: {
             callCount === 1 ? 'weekly-report' : `weekly-report-${callCount}`,
           runId: input.runId,
           rawOutputDir: input.rawOutputDir,
+          abortSignal: input.abortSignal,
           onEvent: input.onEvent,
         });
         return Result.Ok({

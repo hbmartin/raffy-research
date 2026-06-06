@@ -13,12 +13,14 @@ const localAiEnvSchema = baseEnvSchema.extend({
   LOCAL_AI_PROVIDER: z.enum(LOCAL_AI_PROVIDERS).default('codex-cli'),
   LOCAL_AI_MODEL: z.string().trim().min(1).default('gpt-5-codex'),
   LOCAL_AI_RAW_OUTPUT_DIR: z.string().trim().min(1).default('.local-ai-runs'),
+  LOCAL_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
 });
 
 export type LocalAiConfig = {
   provider: LocalAiProviderName;
   model: string;
   rawOutputDir: string;
+  timeoutMs: number;
 };
 
 export function getLocalAiConfig(): LocalAiConfig {
@@ -27,5 +29,6 @@ export function getLocalAiConfig(): LocalAiConfig {
     provider: env.LOCAL_AI_PROVIDER,
     model: env.LOCAL_AI_MODEL,
     rawOutputDir: env.LOCAL_AI_RAW_OUTPUT_DIR,
+    timeoutMs: env.LOCAL_AI_TIMEOUT_MS,
   };
 }

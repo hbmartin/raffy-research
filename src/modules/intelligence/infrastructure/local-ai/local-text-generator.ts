@@ -1,6 +1,7 @@
 import { streamText } from 'ai';
 import { createClaudeCode } from 'ai-sdk-provider-claude-code';
 import { createCodexCli } from 'ai-sdk-provider-codex-cli';
+import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -16,6 +17,8 @@ export type LocalAiNdjsonEvent =
       action: string;
       provider: LocalAiProviderName;
       model: string;
+      label?: string;
+      message?: string;
       at: string;
     }
   | {
@@ -47,6 +50,7 @@ export type LocalAiNdjsonEvent =
       type: 'error';
       runId: string;
       action: string;
+      label?: string;
       message: string;
       at: string;
       data?: JsonObject;
@@ -55,6 +59,7 @@ export type LocalAiNdjsonEvent =
       type: 'done';
       runId: string;
       action: string;
+      label?: string;
       at: string;
       data?: JsonObject;
     };
@@ -74,6 +79,7 @@ export type LocalTextGenerationInput = {
   label: string;
   runId: string;
   rawOutputDir: string;
+  abortSignal?: AbortSignal;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
 };
 
@@ -108,7 +114,6 @@ function createModel(provider: LocalAiProviderName, model: string) {
         sandboxMode: 'read-only',
         skipGitRepoCheck: true,
         allowNpx: false,
-        webSearch: true,
         cwd: process.cwd(),
         logger: false,
       },
@@ -118,7 +123,7 @@ function createModel(provider: LocalAiProviderName, model: string) {
 
   const claude = createClaudeCode({
     defaultSettings: {
-      allowedTools: ['WebSearch', 'WebFetch'],
+      allowedTools: [],
       disallowedTools: [
         'Bash',
         'Edit',
@@ -128,6 +133,8 @@ function createModel(provider: LocalAiProviderName, model: string) {
         'MultiEdit',
         'NotebookEdit',
         'Read',
+        'WebFetch',
+        'WebSearch',
         'Write',
       ],
       permissionMode: 'dontAsk',
@@ -154,10 +161,28 @@ async function writeRawOutput(input: {
   await mkdir(directory, { recursive: true });
   const filePath = path.join(
     directory,
-    `${Date.now()}-${safeFileSegment(input.label)}.json`
+    `${Date.now()}-${randomUUID()}-${safeFileSegment(input.label)}.json`
   );
   await writeFile(filePath, JSON.stringify(input.payload, null, 2), 'utf8');
   return path.relative(process.cwd(), filePath);
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (reason instanceof AppError) throw reason;
+  throw new AppError({
+    code: 'LOCAL_AI_GENERATION_ABORTED',
+    category: 'system',
+    status: 499,
+    message:
+      reason instanceof Error
+        ? reason.message
+        : typeof reason === 'string'
+          ? reason
+          : 'Local AI generation aborted',
+    cause: reason,
+  });
 }
 
 export async function generateLocalText(
@@ -170,6 +195,17 @@ export async function generateLocalText(
 
   try {
     await input.onEvent?.({
+      type: 'start',
+      runId: input.runId,
+      action: input.action,
+      provider: input.provider,
+      model: input.model,
+      label: input.label,
+      message: 'local_model_call_started',
+      at: nowIso(),
+    });
+
+    await input.onEvent?.({
       type: 'step',
       runId: input.runId,
       action: input.action,
@@ -178,13 +214,17 @@ export async function generateLocalText(
       at: nowIso(),
     });
 
+    throwIfAborted(input.abortSignal);
+
     const result = streamText({
       model: createModel(input.provider, input.model),
       prompt: input.prompt,
       includeRawChunks: true,
+      abortSignal: input.abortSignal,
     });
 
     for await (const part of result.fullStream) {
+      throwIfAborted(input.abortSignal);
       rawEvents.push(toJsonValue(part));
 
       if (part.type === 'text-delta') {
@@ -268,6 +308,20 @@ export async function generateLocalText(
       at: nowIso(),
     });
 
+    await input.onEvent?.({
+      type: 'done',
+      runId: input.runId,
+      action: input.action,
+      label: input.label,
+      at: nowIso(),
+      data: {
+        status: 'local_model_call_completed',
+        rawFilePath,
+        rawEventCount: rawEvents.length,
+        toolEventCount: toolEvents.length,
+      },
+    });
+
     return {
       text,
       modelName: input.model,
@@ -290,6 +344,19 @@ export async function generateLocalText(
         error: error instanceof Error ? error.message : String(error),
       },
     }).catch(() => null);
+
+    await Promise.resolve(
+      input.onEvent?.({
+        type: 'error',
+        runId: input.runId,
+        action: input.action,
+        label: input.label,
+        message:
+          error instanceof Error ? error.message : 'Local AI generation failed',
+        at: nowIso(),
+        data: rawFilePath ? { rawFilePath } : undefined,
+      })
+    ).catch(() => undefined);
 
     throw new AppError({
       code: 'LOCAL_AI_GENERATION_ERROR',

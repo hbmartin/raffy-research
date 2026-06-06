@@ -19,7 +19,7 @@ import type { ReportRepository } from '../ports/report-repository';
 import type { SourceRepository } from '../ports/source-repository';
 import type { WorkspaceRepository } from '../ports/workspace-repository';
 import { computeWeeklyPeriod, formatPeriodDate } from '../../domain/period';
-import type { WeeklyReport } from '../../domain/report';
+import type { WeeklyReport, WeeklyReportSummary } from '../../domain/report';
 import type { GeneratedReportDataValidation } from '../../domain/report-data';
 import {
   parseGeneratedReportJson,
@@ -227,6 +227,12 @@ export async function generateWeeklyReport(
       reason: 'report row vanished before freezing',
     });
   }
+  if (frozenOutcome.type === 'report_published_protected') {
+    return Result.Ok({
+      type: 'report_failed',
+      reason: 'report row was already published before freezing',
+    });
+  }
 
   // Link cited / relevant-but-unused sources that exist in this period.
   const sourceById = new Map(
@@ -281,7 +287,38 @@ async function recordFailure(
       { status: 'failed', failureReason: input.reason, generatedAt: now }
     );
     if (replaced.isError()) return Result.Error(replaced.getError());
+    const replaceOutcome = replaced.get();
+    if (replaceOutcome.type !== 'report_found') {
+      deps.logger.warn({
+        event: 'intelligence.report.failure_record_skipped',
+        details: {
+          workspaceId: input.workspace.id,
+          reportId: input.reservedReportId,
+          outcome: replaceOutcome.type,
+        },
+      });
+    }
   } else {
+    const reusableFailedReport = await findReusableFailedReport(deps, input);
+    if (reusableFailedReport.isError()) {
+      return Result.Error(reusableFailedReport.getError());
+    }
+
+    const existing = reusableFailedReport.get();
+    if (existing) {
+      const replaced = await deps.reportRepository.replaceContent(existing.id, {
+        status: 'failed',
+        failureReason: input.reason,
+        generatedAt: now,
+      });
+      if (replaced.isError()) return Result.Error(replaced.getError());
+      const replaceOutcome = replaced.get();
+      if (replaceOutcome.type === 'report_found') {
+        await sendFailureAlert(deps, input);
+        return Result.Ok({ type: 'report_failed', reason: input.reason });
+      }
+    }
+
     const created = await deps.reportRepository.create({
       workspaceId: input.workspace.id,
       periodStart: input.period.periodStart,
@@ -294,6 +331,43 @@ async function recordFailure(
     if (created.isError()) return Result.Error(created.getError());
   }
 
+  await sendFailureAlert(deps, input);
+
+  return Result.Ok({ type: 'report_failed', reason: input.reason });
+}
+
+async function findReusableFailedReport(
+  deps: WeeklyReportGenerationDeps,
+  input: {
+    workspace: { id: WorkspaceId };
+    period: { periodStart: Date };
+  }
+): Promise<ApplicationResult<WeeklyReportSummary | null>> {
+  const reports = await deps.reportRepository.listByWorkspace(
+    input.workspace.id,
+    {
+      limit: 20,
+    }
+  );
+  if (reports.isError()) return Result.Error(reports.getError());
+  const reusable =
+    reports
+      .get()
+      .find(
+        (report) =>
+          report.status === 'failed' &&
+          report.periodStart.getTime() === input.period.periodStart.getTime()
+      ) ?? null;
+  return Result.Ok(reusable);
+}
+
+async function sendFailureAlert(
+  deps: WeeklyReportGenerationDeps,
+  input: {
+    workspace: { id: WorkspaceId };
+    reason: string;
+  }
+) {
   const alert = await deps.alert.sendAlert({
     title: 'Weekly report generation failed',
     message: `Workspace ${input.workspace.id}: ${input.reason}`,
@@ -309,6 +383,4 @@ async function recordFailure(
       },
     });
   }
-
-  return Result.Ok({ type: 'report_failed', reason: input.reason });
 }

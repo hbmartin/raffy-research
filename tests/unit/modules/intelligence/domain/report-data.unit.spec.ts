@@ -115,9 +115,51 @@ describe('report data validation', () => {
     );
   });
 
+  it('rejects advice phrases in authored narrative fields', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        topic_clusters: [
+          {
+            ...validGeneratedReport.topic_clusters[0],
+            summary: 'You should increase spend next week.',
+          },
+        ],
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_invalid');
+    expect(getGeneratedReportIssues(result).join('\n')).toContain('you should');
+  });
+
+  it('allows advice-like phrases inside quoted source evidence', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        topic_clusters: [
+          {
+            ...validGeneratedReport.topic_clusters[0],
+            representative_evidence: [
+              {
+                id: 'e1',
+                source_ids: ['src-1'],
+                excerpt: 'A prospect wrote: "you should change positioning."',
+                source_title: 'Thread saying you should change positioning',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_valid');
+  });
+
   it('parses JSON with code fences and rejects malformed JSON', () => {
     const fenced = '```json\n' + JSON.stringify(validReport) + '\n```';
+    const singleLineFenced = `\`\`\`json ${JSON.stringify(validReport)} \`\`\``;
     expect(parseReportJson(fenced).type).toBe('report_data_valid');
+    expect(parseReportJson(singleLineFenced).type).toBe('report_data_valid');
     expect(parseReportJson('not json').type).toBe('report_data_invalid');
   });
 
@@ -130,7 +172,12 @@ describe('report data validation', () => {
     expect(parseReportJson(fenced).type).toBe('report_data_invalid');
   });
 
-  it('rejects unsafe generated report URLs', () => {
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,hi',
+    'vbscript:msgbox(1)',
+    'file:///evil.com',
+  ])('rejects unsafe generated report URL %s', (externalUrl) => {
     const result = parseGeneratedReportJson(
       JSON.stringify({
         ...validGeneratedReport,
@@ -142,7 +189,7 @@ describe('report data validation', () => {
                 id: 'e1',
                 source_ids: ['src-1'],
                 excerpt: 'x',
-                external_url: 'javascript:alert(1)',
+                external_url: externalUrl,
               },
             ],
           },
@@ -151,5 +198,52 @@ describe('report data validation', () => {
     );
 
     expect(result.type).toBe('generated_report_data_invalid');
+  });
+
+  it('accepts safe generated report URLs', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        topic_clusters: [
+          {
+            ...validGeneratedReport.topic_clusters[0],
+            representative_evidence: [
+              {
+                id: 'e1',
+                source_ids: ['src-1'],
+                excerpt: 'x',
+                external_url: 'https://example.com/path',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_valid');
+  });
+
+  it('normalizes empty optional URL fields from generated report JSON', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        topic_clusters: [
+          {
+            ...validGeneratedReport.topic_clusters[0],
+            representative_evidence: [
+              {
+                id: 'e1',
+                source_ids: ['src-1'],
+                excerpt: 'x',
+                external_url: '',
+                internal_source_url: '   ',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_valid');
   });
 });

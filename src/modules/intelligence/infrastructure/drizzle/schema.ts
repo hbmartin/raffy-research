@@ -267,6 +267,8 @@ export const weeklyReport = pgTable(
     failureReason: text('failureReason'),
   },
   (table) => [
+    // Multiple generation attempts per workspace-period are allowed; readers
+    // select the newest published/report row by period and publishedAt.
     index('weeklyReport_workspaceId_idx').on(table.workspaceId),
     index('weeklyReport_workspace_period_idx').on(
       table.workspaceId,
@@ -388,5 +390,9 @@ export const providerCallbackEvent = pgTable(
   },
   (table) => [
     index('providerCallbackEvent_provider_idx').on(table.providerName),
+    index('providerCallbackEvent_workspace_received_idx').on(
+      table.workspaceId,
+      table.receivedAt
+    ),
   ]
 );

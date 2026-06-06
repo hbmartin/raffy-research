@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { zu } from '@/platform/lib/zod/zod-utils';
 
-export const authPasswordField = 'password' as const;
+export const authPasswordField = 'password' as const; // pragma: allowlist secret
 
 export type FormFieldsLogin = z.infer<ReturnType<typeof zFormFieldsLogin>>;
 export const zFormFieldsLogin = () =>

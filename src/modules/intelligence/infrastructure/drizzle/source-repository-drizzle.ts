@@ -1,6 +1,7 @@
 import { Result } from '@swan-io/boxed';
 import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
 import {
   toSearchResultId,
@@ -37,6 +38,45 @@ import { normalizeHttpUrl } from '../../domain/url';
 type SourceRow = typeof sourceRecordTable.$inferSelect;
 type SearchRow = typeof searchResultTable.$inferSelect;
 type SummaryRow = typeof sourceSummaryTable.$inferSelect;
+
+const toSourceRecordInsert = (
+  input: SourceRecordWriteInput
+): typeof sourceRecordTable.$inferInsert => ({
+  workspaceId: input.workspaceId,
+  providerName: input.providerName,
+  providerSourceId: input.providerSourceId ?? null,
+  sourceType: input.sourceType,
+  sourceSubtype: input.sourceSubtype ?? null,
+  sourceName: input.sourceName ?? null,
+  sourceUrl: normalizeHttpUrl(input.sourceUrl),
+  externalUrl: normalizeHttpUrl(input.externalUrl),
+  title: input.title ?? null,
+  authorOrAccount: input.authorOrAccount ?? null,
+  domain: input.domain ?? null,
+  publishedAt: input.publishedAt ?? null,
+  capturedAt: input.capturedAt ?? undefined,
+  contentText: input.contentText ?? null,
+  diffAddedText: input.diffAddedText ?? null,
+  diffRemovedText: input.diffRemovedText ?? null,
+  rawPayload: input.rawPayload ?? {},
+  metadata: input.metadata ?? {},
+});
+
+const toSearchResultInsert = (
+  input: SearchResultWriteInput
+): typeof searchResultTable.$inferInsert => ({
+  workspaceId: input.workspaceId,
+  providerName: input.providerName,
+  query: input.query,
+  resultRank: input.resultRank ?? null,
+  title: input.title ?? null,
+  snippet: input.snippet ?? null,
+  url: normalizeHttpUrl(input.url),
+  returnedAt: input.returnedAt ?? undefined,
+  sourceRecordId: input.sourceRecordId ?? null,
+  rawPayload: input.rawPayload ?? {},
+  metadata: input.metadata ?? {},
+});
 
 const toSourceRecord = (row: SourceRow): SourceRecord => ({
   id: toSourceRecordId(row.id),
@@ -110,26 +150,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   ): Promise<SourceRecord> {
     const [created] = await db
       .insert(sourceRecordTable)
-      .values({
-        workspaceId: input.workspaceId,
-        providerName: input.providerName,
-        providerSourceId: input.providerSourceId ?? null,
-        sourceType: input.sourceType,
-        sourceSubtype: input.sourceSubtype ?? null,
-        sourceName: input.sourceName ?? null,
-        sourceUrl: normalizeHttpUrl(input.sourceUrl),
-        externalUrl: normalizeHttpUrl(input.externalUrl),
-        title: input.title ?? null,
-        authorOrAccount: input.authorOrAccount ?? null,
-        domain: input.domain ?? null,
-        publishedAt: input.publishedAt ?? null,
-        capturedAt: input.capturedAt ?? undefined,
-        contentText: input.contentText ?? null,
-        diffAddedText: input.diffAddedText ?? null,
-        diffRemovedText: input.diffRemovedText ?? null,
-        rawPayload: input.rawPayload ?? {},
-        metadata: input.metadata ?? {},
-      })
+      .values(toSourceRecordInsert(input))
       .returning();
     if (!created) {
       throw intelligenceInvariantError(
@@ -146,19 +167,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   ): Promise<SearchResultRecord> {
     const [created] = await db
       .insert(searchResultTable)
-      .values({
-        workspaceId: input.workspaceId,
-        providerName: input.providerName,
-        query: input.query,
-        resultRank: input.resultRank ?? null,
-        title: input.title ?? null,
-        snippet: input.snippet ?? null,
-        url: normalizeHttpUrl(input.url),
-        returnedAt: input.returnedAt ?? undefined,
-        sourceRecordId: input.sourceRecordId ?? null,
-        rawPayload: input.rawPayload ?? {},
-        metadata: input.metadata ?? {},
-      })
+      .values(toSearchResultInsert(input))
       .returning();
     if (!created) {
       throw intelligenceInvariantError(
@@ -259,6 +268,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     limit?: number;
   }) {
     try {
+      const limit = input.limit ?? 1000;
       const rows = await this.db
         .select()
         .from(sourceRecordTable)
@@ -270,7 +280,24 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           )
         )
         .orderBy(asc(sourceRecordTable.capturedAt))
-        .limit(input.limit ?? 1000);
+        .limit(limit + 1);
+      if (rows.length > limit) {
+        return Result.Error(
+          new AppError({
+            code: 'SOURCE_LIST_PERIOD_LIMIT_EXCEEDED',
+            category: 'system',
+            status: 500,
+            message:
+              'Source list exceeded the period limit; narrow the source set or add pagination before generation.',
+            details: {
+              workspaceId: input.workspaceId,
+              periodStart: input.periodStart.toISOString(),
+              periodEnd: input.periodEnd.toISOString(),
+              limit,
+            },
+          })
+        );
+      }
       return Result.Ok(rows.map(toSourceRecord));
     } catch (error) {
       return Result.Error(
@@ -295,18 +322,39 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   }) {
     try {
       const artifacts = await this.runWriteBatch(async (db) => {
-        const sourceRecords: SourceRecord[] = [];
-        const searchResults: SearchResultRecord[] = [];
+        const sourceRecordRows =
+          input.sourceRecords.length > 0
+            ? await db
+                .insert(sourceRecordTable)
+                .values(input.sourceRecords.map(toSourceRecordInsert))
+                .returning()
+            : [];
+        const searchResultInputs = input.searchResults ?? [];
+        const searchResultRows =
+          searchResultInputs.length > 0
+            ? await db
+                .insert(searchResultTable)
+                .values(searchResultInputs.map(toSearchResultInsert))
+                .returning()
+            : [];
 
-        for (const sourceRecord of input.sourceRecords) {
-          sourceRecords.push(await this.insertSourceRecord(db, sourceRecord));
+        if (sourceRecordRows.length !== input.sourceRecords.length) {
+          throw intelligenceInvariantError(
+            'SOURCE_CREATE_BATCH_MISMATCH',
+            'source record batch insert returned the wrong row count'
+          );
+        }
+        if (searchResultRows.length !== searchResultInputs.length) {
+          throw intelligenceInvariantError(
+            'SEARCH_RESULT_CREATE_BATCH_MISMATCH',
+            'search result batch insert returned the wrong row count'
+          );
         }
 
-        for (const searchResult of input.searchResults ?? []) {
-          searchResults.push(await this.insertSearchResult(db, searchResult));
-        }
-
-        return { sourceRecords, searchResults };
+        return {
+          sourceRecords: sourceRecordRows.map(toSourceRecord),
+          searchResults: searchResultRows.map(toSearchResult),
+        };
       });
 
       return Result.Ok(artifacts);
