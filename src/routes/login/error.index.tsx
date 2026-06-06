@@ -1,16 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { fallback, zodValidator } from '@tanstack/zod-adapter';
 import { z } from 'zod';
 
 import { PageLoginError } from '@/modules/auth/presentation';
 
+const searchSchema = z.object({
+  error: z.string().catch('').optional(),
+});
+
 export const Route = createFileRoute('/login/error/')({
   component: RouteComponent,
-  validateSearch: zodValidator(
-    z.object({
-      error: fallback(z.string(), '').optional(),
-    })
-  ),
+  validateSearch: searchSchema,
 });
 
 function RouteComponent() {

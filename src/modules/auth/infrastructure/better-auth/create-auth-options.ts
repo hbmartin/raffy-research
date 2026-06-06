@@ -1,10 +1,7 @@
 import type { Database } from '@/modules/kernel/infrastructure/db/client';
 
-import type { AuthEmailPort } from '../../application/ports/auth-email-port';
-
 export type CreateAuthOptions = {
   database?: Database;
-  authEmailPort?: AuthEmailPort;
 };
 
 const hasDatabaseShape = (input: unknown): input is Database =>

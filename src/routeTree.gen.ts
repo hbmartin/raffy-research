@@ -23,10 +23,8 @@ import { Route as ManagerWorkspacesIndexRouteImport } from './routes/manager/wor
 import { Route as ManagerUsersIndexRouteImport } from './routes/manager/users/index'
 import { Route as ManagerDashboardIndexRouteImport } from './routes/manager/dashboard.index'
 import { Route as ManagerAccountIndexRouteImport } from './routes/manager/account.index'
-import { Route as LoginVerifyIndexRouteImport } from './routes/login/verify.index'
 import { Route as LoginErrorIndexRouteImport } from './routes/login/error.index'
 import { Route as AppAccountIndexRouteImport } from './routes/app/account.index'
-import { Route as ApiWebhooksResendRouteImport } from './routes/api/webhooks.resend'
 import { Route as ApiTelemetrySentryTunnelRouteImport } from './routes/api/telemetry.sentry-tunnel'
 import { Route as ApiTelemetryLogsRouteImport } from './routes/api/telemetry.logs'
 import { Route as ApiCronWeeklyReportsRouteImport } from './routes/api/cron.weekly-reports'
@@ -38,10 +36,10 @@ import { Route as ManagerUsersIdIndexRouteImport } from './routes/manager/users/
 import { Route as AppSourcesSourceIdIndexRouteImport } from './routes/app/sources/$sourceId.index'
 import { Route as AppReportsReportIdIndexRouteImport } from './routes/app/reports/$reportId.index'
 import { Route as ApiProvidersProviderCallbackRouteImport } from './routes/api/providers.$provider.callback'
-import { Route as ApiDevEmailTemplateRouteImport } from './routes/api/dev.email.$template'
 import { Route as ManagerUsersIdUpdateIndexRouteImport } from './routes/manager/users/$id.update.index'
 import { Route as ApiTelemetryOtelV1TracesRouteImport } from './routes/api/telemetry.otel.v1.traces'
 import { Route as ApiTelemetryOtelV1MetricsRouteImport } from './routes/api/telemetry.otel.v1.metrics'
+import { Route as ApiDevIntelligenceLocalAiStreamRouteImport } from './routes/api/dev.intelligence.local-ai.stream'
 
 const LogoutRoute = LogoutRouteImport.update({
   id: '/logout',
@@ -113,11 +111,6 @@ const ManagerAccountIndexRoute = ManagerAccountIndexRouteImport.update({
   path: '/account/',
   getParentRoute: () => ManagerRouteRoute,
 } as any)
-const LoginVerifyIndexRoute = LoginVerifyIndexRouteImport.update({
-  id: '/verify/',
-  path: '/verify/',
-  getParentRoute: () => LoginRouteRoute,
-} as any)
 const LoginErrorIndexRoute = LoginErrorIndexRouteImport.update({
   id: '/error/',
   path: '/error/',
@@ -127,11 +120,6 @@ const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
   id: '/account/',
   path: '/account/',
   getParentRoute: () => AppRouteRoute,
-} as any)
-const ApiWebhooksResendRoute = ApiWebhooksResendRouteImport.update({
-  id: '/api/webhooks/resend',
-  path: '/api/webhooks/resend',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTelemetrySentryTunnelRoute =
   ApiTelemetrySentryTunnelRouteImport.update({
@@ -191,11 +179,6 @@ const ApiProvidersProviderCallbackRoute =
     path: '/api/providers/$provider/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiDevEmailTemplateRoute = ApiDevEmailTemplateRouteImport.update({
-  id: '/api/dev/email/$template',
-  path: '/api/dev/email/$template',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ManagerUsersIdUpdateIndexRoute =
   ManagerUsersIdUpdateIndexRouteImport.update({
     id: '/users/$id/update/',
@@ -212,6 +195,12 @@ const ApiTelemetryOtelV1MetricsRoute =
   ApiTelemetryOtelV1MetricsRouteImport.update({
     id: '/api/telemetry/otel/v1/metrics',
     path: '/api/telemetry/otel/v1/metrics',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiDevIntelligenceLocalAiStreamRoute =
+  ApiDevIntelligenceLocalAiStreamRouteImport.update({
+    id: '/api/dev/intelligence/local-ai/stream',
+    path: '/api/dev/intelligence/local-ai/stream',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -231,21 +220,19 @@ export interface FileRoutesByFullPath {
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
-  '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account/': typeof AppAccountIndexRoute
   '/login/error/': typeof LoginErrorIndexRoute
-  '/login/verify/': typeof LoginVerifyIndexRoute
   '/manager/account/': typeof ManagerAccountIndexRoute
   '/manager/dashboard/': typeof ManagerDashboardIndexRoute
   '/manager/users/': typeof ManagerUsersIndexRoute
   '/manager/workspaces/': typeof ManagerWorkspacesIndexRoute
-  '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
   '/api/providers/$provider/callback': typeof ApiProvidersProviderCallbackRoute
   '/app/reports/$reportId/': typeof AppReportsReportIdIndexRoute
   '/app/sources/$sourceId/': typeof AppSourcesSourceIdIndexRoute
   '/manager/users/$id/': typeof ManagerUsersIdIndexRoute
   '/manager/users/new/': typeof ManagerUsersNewIndexRoute
   '/manager/workspaces/$id/': typeof ManagerWorkspacesIdIndexRoute
+  '/api/dev/intelligence/local-ai/stream': typeof ApiDevIntelligenceLocalAiStreamRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
   '/manager/users/$id/update/': typeof ManagerUsersIdUpdateIndexRoute
@@ -262,21 +249,19 @@ export interface FileRoutesByTo {
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
-  '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account': typeof AppAccountIndexRoute
   '/login/error': typeof LoginErrorIndexRoute
-  '/login/verify': typeof LoginVerifyIndexRoute
   '/manager/account': typeof ManagerAccountIndexRoute
   '/manager/dashboard': typeof ManagerDashboardIndexRoute
   '/manager/users': typeof ManagerUsersIndexRoute
   '/manager/workspaces': typeof ManagerWorkspacesIndexRoute
-  '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
   '/api/providers/$provider/callback': typeof ApiProvidersProviderCallbackRoute
   '/app/reports/$reportId': typeof AppReportsReportIdIndexRoute
   '/app/sources/$sourceId': typeof AppSourcesSourceIdIndexRoute
   '/manager/users/$id': typeof ManagerUsersIdIndexRoute
   '/manager/users/new': typeof ManagerUsersNewIndexRoute
   '/manager/workspaces/$id': typeof ManagerWorkspacesIdIndexRoute
+  '/api/dev/intelligence/local-ai/stream': typeof ApiDevIntelligenceLocalAiStreamRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
   '/manager/users/$id/update': typeof ManagerUsersIdUpdateIndexRoute
@@ -298,21 +283,19 @@ export interface FileRoutesById {
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
-  '/api/webhooks/resend': typeof ApiWebhooksResendRoute
   '/app/account/': typeof AppAccountIndexRoute
   '/login/error/': typeof LoginErrorIndexRoute
-  '/login/verify/': typeof LoginVerifyIndexRoute
   '/manager/account/': typeof ManagerAccountIndexRoute
   '/manager/dashboard/': typeof ManagerDashboardIndexRoute
   '/manager/users/': typeof ManagerUsersIndexRoute
   '/manager/workspaces/': typeof ManagerWorkspacesIndexRoute
-  '/api/dev/email/$template': typeof ApiDevEmailTemplateRoute
   '/api/providers/$provider/callback': typeof ApiProvidersProviderCallbackRoute
   '/app/reports/$reportId/': typeof AppReportsReportIdIndexRoute
   '/app/sources/$sourceId/': typeof AppSourcesSourceIdIndexRoute
   '/manager/users/$id/': typeof ManagerUsersIdIndexRoute
   '/manager/users/new/': typeof ManagerUsersNewIndexRoute
   '/manager/workspaces/$id/': typeof ManagerWorkspacesIdIndexRoute
+  '/api/dev/intelligence/local-ai/stream': typeof ApiDevIntelligenceLocalAiStreamRoute
   '/api/telemetry/otel/v1/metrics': typeof ApiTelemetryOtelV1MetricsRoute
   '/api/telemetry/otel/v1/traces': typeof ApiTelemetryOtelV1TracesRoute
   '/manager/users/$id/update/': typeof ManagerUsersIdUpdateIndexRoute
@@ -335,21 +318,19 @@ export interface FileRouteTypes {
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
-    | '/api/webhooks/resend'
     | '/app/account/'
     | '/login/error/'
-    | '/login/verify/'
     | '/manager/account/'
     | '/manager/dashboard/'
     | '/manager/users/'
     | '/manager/workspaces/'
-    | '/api/dev/email/$template'
     | '/api/providers/$provider/callback'
     | '/app/reports/$reportId/'
     | '/app/sources/$sourceId/'
     | '/manager/users/$id/'
     | '/manager/users/new/'
     | '/manager/workspaces/$id/'
+    | '/api/dev/intelligence/local-ai/stream'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
     | '/manager/users/$id/update/'
@@ -366,21 +347,19 @@ export interface FileRouteTypes {
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
-    | '/api/webhooks/resend'
     | '/app/account'
     | '/login/error'
-    | '/login/verify'
     | '/manager/account'
     | '/manager/dashboard'
     | '/manager/users'
     | '/manager/workspaces'
-    | '/api/dev/email/$template'
     | '/api/providers/$provider/callback'
     | '/app/reports/$reportId'
     | '/app/sources/$sourceId'
     | '/manager/users/$id'
     | '/manager/users/new'
     | '/manager/workspaces/$id'
+    | '/api/dev/intelligence/local-ai/stream'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
     | '/manager/users/$id/update'
@@ -401,21 +380,19 @@ export interface FileRouteTypes {
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
-    | '/api/webhooks/resend'
     | '/app/account/'
     | '/login/error/'
-    | '/login/verify/'
     | '/manager/account/'
     | '/manager/dashboard/'
     | '/manager/users/'
     | '/manager/workspaces/'
-    | '/api/dev/email/$template'
     | '/api/providers/$provider/callback'
     | '/app/reports/$reportId/'
     | '/app/sources/$sourceId/'
     | '/manager/users/$id/'
     | '/manager/users/new/'
     | '/manager/workspaces/$id/'
+    | '/api/dev/intelligence/local-ai/stream'
     | '/api/telemetry/otel/v1/metrics'
     | '/api/telemetry/otel/v1/traces'
     | '/manager/users/$id/update/'
@@ -433,9 +410,8 @@ export interface RootRouteChildren {
   ApiCronWeeklyReportsRoute: typeof ApiCronWeeklyReportsRoute
   ApiTelemetryLogsRoute: typeof ApiTelemetryLogsRoute
   ApiTelemetrySentryTunnelRoute: typeof ApiTelemetrySentryTunnelRoute
-  ApiWebhooksResendRoute: typeof ApiWebhooksResendRoute
-  ApiDevEmailTemplateRoute: typeof ApiDevEmailTemplateRoute
   ApiProvidersProviderCallbackRoute: typeof ApiProvidersProviderCallbackRoute
+  ApiDevIntelligenceLocalAiStreamRoute: typeof ApiDevIntelligenceLocalAiStreamRoute
   ApiTelemetryOtelV1MetricsRoute: typeof ApiTelemetryOtelV1MetricsRoute
   ApiTelemetryOtelV1TracesRoute: typeof ApiTelemetryOtelV1TracesRoute
 }
@@ -540,13 +516,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerAccountIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
-    '/login/verify/': {
-      id: '/login/verify/'
-      path: '/verify'
-      fullPath: '/login/verify/'
-      preLoaderRoute: typeof LoginVerifyIndexRouteImport
-      parentRoute: typeof LoginRouteRoute
-    }
     '/login/error/': {
       id: '/login/error/'
       path: '/error'
@@ -560,13 +529,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/account/'
       preLoaderRoute: typeof AppAccountIndexRouteImport
       parentRoute: typeof AppRouteRoute
-    }
-    '/api/webhooks/resend': {
-      id: '/api/webhooks/resend'
-      path: '/api/webhooks/resend'
-      fullPath: '/api/webhooks/resend'
-      preLoaderRoute: typeof ApiWebhooksResendRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/api/telemetry/sentry-tunnel': {
       id: '/api/telemetry/sentry-tunnel'
@@ -645,13 +607,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProvidersProviderCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/dev/email/$template': {
-      id: '/api/dev/email/$template'
-      path: '/api/dev/email/$template'
-      fullPath: '/api/dev/email/$template'
-      preLoaderRoute: typeof ApiDevEmailTemplateRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/manager/users/$id/update/': {
       id: '/manager/users/$id/update/'
       path: '/users/$id/update'
@@ -671,6 +626,13 @@ declare module '@tanstack/react-router' {
       path: '/api/telemetry/otel/v1/metrics'
       fullPath: '/api/telemetry/otel/v1/metrics'
       preLoaderRoute: typeof ApiTelemetryOtelV1MetricsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/dev/intelligence/local-ai/stream': {
+      id: '/api/dev/intelligence/local-ai/stream'
+      path: '/api/dev/intelligence/local-ai/stream'
+      fullPath: '/api/dev/intelligence/local-ai/stream'
+      preLoaderRoute: typeof ApiDevIntelligenceLocalAiStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -697,13 +659,11 @@ const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
 interface LoginRouteRouteChildren {
   LoginIndexRoute: typeof LoginIndexRoute
   LoginErrorIndexRoute: typeof LoginErrorIndexRoute
-  LoginVerifyIndexRoute: typeof LoginVerifyIndexRoute
 }
 
 const LoginRouteRouteChildren: LoginRouteRouteChildren = {
   LoginIndexRoute: LoginIndexRoute,
   LoginErrorIndexRoute: LoginErrorIndexRoute,
-  LoginVerifyIndexRoute: LoginVerifyIndexRoute,
 }
 
 const LoginRouteRouteWithChildren = LoginRouteRoute._addFileChildren(
@@ -762,9 +722,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiCronWeeklyReportsRoute: ApiCronWeeklyReportsRoute,
   ApiTelemetryLogsRoute: ApiTelemetryLogsRoute,
   ApiTelemetrySentryTunnelRoute: ApiTelemetrySentryTunnelRoute,
-  ApiWebhooksResendRoute: ApiWebhooksResendRoute,
-  ApiDevEmailTemplateRoute: ApiDevEmailTemplateRoute,
   ApiProvidersProviderCallbackRoute: ApiProvidersProviderCallbackRoute,
+  ApiDevIntelligenceLocalAiStreamRoute: ApiDevIntelligenceLocalAiStreamRoute,
   ApiTelemetryOtelV1MetricsRoute: ApiTelemetryOtelV1MetricsRoute,
   ApiTelemetryOtelV1TracesRoute: ApiTelemetryOtelV1TracesRoute,
 }

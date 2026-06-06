@@ -1,6 +1,7 @@
 import { faker } from '@faker-js/faker';
-import { notInArray, sql } from 'drizzle-orm';
+import { inArray, notInArray, sql } from 'drizzle-orm';
 
+import { setUserPasswordCredentialsByEmail } from '@/modules/auth/backend';
 import { getDefaultDbClient } from '@/modules/kernel/infrastructure/db/client';
 import { user } from '@/modules/kernel/infrastructure/db/schema';
 
@@ -8,6 +9,8 @@ import { emphasis } from './_utils';
 
 const demoUserEmails = ['user@user.com', 'admin@admin.com'];
 const demoOnboardedAt = new Date('2024-01-01T00:00:00.000Z');
+const demoPassword = 'password';
+const passwordCredentialInputField = 'password' as const;
 
 export async function createUsers() {
   console.log(`⏳ Seeding users`);
@@ -69,9 +72,26 @@ export async function createUsers() {
     createdCounter += 1;
   }
 
+  const demoUsers = await db.query.user.findMany({
+    where: inArray(user.email, demoUserEmails),
+  });
+  const passwordInput = {
+    emails: demoUsers.map((demoUser) => demoUser.email),
+    [passwordCredentialInputField]: demoPassword,
+  };
+  const passwordResult = await setUserPasswordCredentialsByEmail(
+    db,
+    passwordInput
+  );
+  if (passwordResult.isError()) throw passwordResult.getError();
+
   console.log(
     `✅ ${existingRandomUserCount} existing random users 👉 ${createdCounter} users created`
   );
-  console.log(`👉 Admin connect with: ${emphasis('admin@admin.com')}`);
-  console.log(`👉 User connect with: ${emphasis('user@user.com')}`);
+  console.log(
+    `👉 Admin connect with: ${emphasis('admin@admin.com')} / ${emphasis(demoPassword)}`
+  );
+  console.log(
+    `👉 User connect with: ${emphasis('user@user.com')} / ${emphasis(demoPassword)}`
+  );
 }

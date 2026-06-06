@@ -2,16 +2,9 @@ import { Result } from '@swan-io/boxed';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ApplicationResult } from '@/modules/kernel/testing';
-import {
-  toEmailAddress,
-  toLanguageCode,
-  toOtpCode,
-  toSessionId,
-  toUserId,
-} from '@/modules/kernel';
+import { toEmailAddress, toSessionId, toUserId } from '@/modules/kernel';
 
 import {
-  type AuthEmailPort,
   type AuthSession,
   type AuthorizationGateway,
   createAuthUseCases,
@@ -39,7 +32,6 @@ const session: AuthSession = {
 const makeDeps = (overrides?: {
   sessionGateway?: Partial<SessionGateway>;
   authorizationGateway?: Partial<AuthorizationGateway>;
-  authEmailPort?: Partial<AuthEmailPort>;
   userAdminGateway?: Partial<UserAdminGateway>;
 }) => ({
   sessionGateway: {
@@ -54,12 +46,6 @@ const makeDeps = (overrides?: {
     ),
     ...overrides?.authorizationGateway,
   } as AuthorizationGateway,
-  authEmailPort: {
-    sendSignInOtp: vi.fn(async () =>
-      Result.Ok({ type: 'auth_sign_in_otp_sent' })
-    ),
-    ...overrides?.authEmailPort,
-  } as AuthEmailPort,
   userAdminGateway: {
     removeUser: vi.fn(async () => Result.Ok({ type: 'auth_user_removed' })),
     revokeUserSessions: vi.fn(async () =>
@@ -121,24 +107,6 @@ describe('auth use cases', () => {
       userId: toUserId('user-1'),
       permissions: { book: ['create'] },
       headers,
-    });
-  });
-
-  it('delegates sendSignInOtp to the email port', async () => {
-    const deps = makeDeps();
-    const useCases = createAuthUseCases(deps);
-
-    const result = await useCases.sendSignInOtp({
-      email: toEmailAddress('a@b.com'),
-      otp: toOtpCode('123456'),
-      language: toLanguageCode('en'),
-    });
-
-    expect(getOk(result)).toEqual({ type: 'auth_sign_in_otp_sent' });
-    expect(deps.authEmailPort.sendSignInOtp).toHaveBeenCalledWith({
-      email: toEmailAddress('a@b.com'),
-      otp: toOtpCode('123456'),
-      language: toLanguageCode('en'),
     });
   });
 

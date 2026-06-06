@@ -97,6 +97,18 @@ describe('server config accessors', () => {
     });
   });
 
+  it('requires explicit migration URL when requested by evidence migration command', async () => {
+    vi.stubEnv('DATABASE_URL', makeTestDatabaseUrl());
+    vi.stubEnv('DATABASE_DRIVER', 'neon-http');
+    vi.stubEnv('DATABASE_MIGRATION_REQUIRE_URL', 'true');
+    const { getMigrationDatabaseConfig } =
+      await import('@/modules/kernel/infrastructure/config/database');
+    const { ConfigurationError } =
+      await import('@/modules/kernel/domain/errors/configuration-error');
+
+    expect(() => getMigrationDatabaseConfig()).toThrow(ConfigurationError);
+  });
+
   it('rejects Neon HTTP as a migration driver', async () => {
     vi.stubEnv('DATABASE_URL', makeTestDatabaseUrl());
     vi.stubEnv('DATABASE_MIGRATION_DRIVER', 'neon-http');

@@ -203,7 +203,10 @@ export const searchResult = pgTable(
     rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
     metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
   },
-  (table) => [index('searchResult_workspaceId_idx').on(table.workspaceId)]
+  (table) => [
+    index('searchResult_workspaceId_idx').on(table.workspaceId),
+    index('searchResult_sourceRecordId_idx').on(table.sourceRecordId),
+  ]
 );
 
 /** Opportunistic source-level summaries/evidence candidates produced during synthesis. */
@@ -259,14 +262,8 @@ export const weeklyReport = pgTable(
     generatedAt: timestamp('generatedAt', { precision: 3, mode: 'date' }),
     publishedAt: timestamp('publishedAt', { precision: 3, mode: 'date' }),
     title: text('title'),
-    reportData: jsonb('reportData')
-      .$type<ReportData | null>()
-      .notNull()
-      .default({} as any),
-    modelMetadata: jsonb('modelMetadata')
-      .$type<JsonMetadata>()
-      .notNull()
-      .default({}),
+    reportData: jsonb('reportData').$type<ReportData | null>(),
+    modelMetadata: jsonb('modelMetadata').$type<JsonMetadata | null>(),
     failureReason: text('failureReason'),
   },
   (table) => [
@@ -274,6 +271,11 @@ export const weeklyReport = pgTable(
     index('weeklyReport_workspace_period_idx').on(
       table.workspaceId,
       table.periodStart
+    ),
+    index('weeklyReport_workspace_published_idx').on(
+      table.workspaceId,
+      table.periodStart,
+      table.publishedAt
     ),
   ]
 );
@@ -327,7 +329,11 @@ export const feedbackEvent = pgTable(
     }),
     payload: jsonb('payload').$type<JsonMetadata>().notNull().default({}),
   },
-  (table) => [index('feedbackEvent_workspaceId_idx').on(table.workspaceId)]
+  (table) => [
+    index('feedbackEvent_workspaceId_idx').on(table.workspaceId),
+    index('feedbackEvent_reportId_idx').on(table.reportId),
+    index('feedbackEvent_sourceRecordId_idx').on(table.sourceRecordId),
+  ]
 );
 
 /** Records of scheduled/callback ingestion attempts for observability. */
@@ -352,7 +358,7 @@ export const ingestionRun = pgTable(
     finishedAt: timestamp('finishedAt', { precision: 3, mode: 'date' }),
     itemsIngested: integer('itemsIngested').notNull().default(0),
     failureReason: text('failureReason'),
-    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
+    metadata: jsonb('metadata').$type<JsonMetadata | null>(),
   },
   (table) => [index('ingestionRun_workspaceId_idx').on(table.workspaceId)]
 );

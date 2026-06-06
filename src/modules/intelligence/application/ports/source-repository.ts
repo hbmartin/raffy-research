@@ -22,6 +22,10 @@ export interface SourceRepository {
     workspaceId: WorkspaceId,
     ids: SourceRecordId[]
   ): Promise<ApplicationResult<SourceRecord[]>>;
+  listLatestSummariesForSources(input: {
+    workspaceId: WorkspaceId;
+    sourceRecordIds: SourceRecordId[];
+  }): Promise<ApplicationResult<SourceSummary[]>>;
   createSourceRecord(
     input: SourceRecordWriteInput
   ): Promise<ApplicationResult<SourceRecord>>;
@@ -35,6 +39,15 @@ export interface SourceRepository {
   createSearchResult(
     input: SearchResultWriteInput
   ): Promise<ApplicationResult<SearchResultRecord>>;
+  createCallbackArtifacts(input: {
+    sourceRecords: SourceRecordWriteInput[];
+    searchResults?: SearchResultWriteInput[];
+  }): Promise<
+    ApplicationResult<{
+      sourceRecords: SourceRecord[];
+      searchResults: SearchResultRecord[];
+    }>
+  >;
 
   createSourceSummary(input: {
     workspaceId: WorkspaceId;

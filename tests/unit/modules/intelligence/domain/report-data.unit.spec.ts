@@ -35,15 +35,38 @@ const validGeneratedReport = {
   topic_clusters: validReport.topic_clusters,
 };
 
+const getValidReportData = (result: ReturnType<typeof validateReportData>) => {
+  if (result.type !== 'report_data_valid') {
+    throw new Error(`expected report_data_valid, got ${result.type}`);
+  }
+  return result.data;
+};
+
+const getReportDataIssues = (result: ReturnType<typeof validateReportData>) => {
+  if (result.type !== 'report_data_invalid') {
+    throw new Error(`expected report_data_invalid, got ${result.type}`);
+  }
+  return result.issues;
+};
+
+const getGeneratedReportIssues = (
+  result: ReturnType<typeof parseGeneratedReportJson>
+) => {
+  if (result.type !== 'generated_report_data_invalid') {
+    throw new Error(
+      `expected generated_report_data_invalid, got ${result.type}`
+    );
+  }
+  return result.issues;
+};
+
 describe('report data validation', () => {
   it('accepts a minimal valid report and applies array defaults', () => {
-    const result = validateReportData(validReport);
-    expect(result.type).toBe('report_data_valid');
-    if (result.type === 'report_data_valid') {
-      expect(result.data.what_looks_most_interesting).toEqual([]);
-      expect(result.data.source_library).toEqual([]);
-      expect(result.data.topic_clusters[0]?.all_evidence).toEqual([]);
-    }
+    const data = getValidReportData(validateReportData(validReport));
+
+    expect(data.what_looks_most_interesting).toEqual([]);
+    expect(data.source_library).toEqual([]);
+    expect(data.topic_clusters[0]?.all_evidence).toEqual([]);
   });
 
   it('requires exactly 3 executive summary bullets', () => {
@@ -67,17 +90,29 @@ describe('report data validation', () => {
     expect(result.type).toBe('report_data_invalid');
   });
 
-  it('strips disallowed confidence fields from stored data', () => {
+  it('rejects forbidden keys before Zod can strip unknown object properties', () => {
     const result = validateReportData({
       ...validReport,
       confidence: 0.9,
       executive_summary: { bullets: ['a', 'b', 'c'], confidence: 'high' },
     });
-    expect(result.type).toBe('report_data_valid');
-    if (result.type === 'report_data_valid') {
-      expect('confidence' in result.data).toBe(false);
-      expect('confidence' in result.data.executive_summary).toBe(false);
-    }
+
+    expect(result.type).toBe('report_data_invalid');
+    expect(getReportDataIssues(result).join('\n')).toContain('confidence');
+  });
+
+  it('rejects forbidden keys in generated report JSON', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        recommendation: 'launch campaign',
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_invalid');
+    expect(getGeneratedReportIssues(result).join('\n')).toContain(
+      'recommendation'
+    );
   });
 
   it('parses JSON with code fences and rejects malformed JSON', () => {
@@ -93,5 +128,28 @@ describe('report data validation', () => {
       'generated_report_data_valid'
     );
     expect(parseReportJson(fenced).type).toBe('report_data_invalid');
+  });
+
+  it('rejects unsafe generated report URLs', () => {
+    const result = parseGeneratedReportJson(
+      JSON.stringify({
+        ...validGeneratedReport,
+        topic_clusters: [
+          {
+            ...validGeneratedReport.topic_clusters[0],
+            representative_evidence: [
+              {
+                id: 'e1',
+                source_ids: ['src-1'],
+                excerpt: 'x',
+                external_url: 'javascript:alert(1)',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    expect(result.type).toBe('generated_report_data_invalid');
   });
 });

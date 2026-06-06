@@ -11,6 +11,10 @@ import { createServerContextTools } from './transport/tanstack/server-context';
 
 export type { AuthenticatedSession, AuthenticatedUser } from './domain/session';
 export {
+  setExistingUserPasswordCredential,
+  setUserPasswordCredentialsByEmail,
+} from './infrastructure/drizzle/password-credentials-admin';
+export {
   createServerContextTools,
   type ProcedureLogger,
   type ProtectedContext,

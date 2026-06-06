@@ -18,7 +18,7 @@ type RedirectLocation = {
 const hasSingleLeadingSlash = (value: string): value is InternalRedirectPath =>
   value.startsWith('/') && !value.startsWith('//');
 
-const authLoopPaths = new Set(['/login', '/login/verify', '/login/error']);
+const authLoopPaths = new Set(['/login', '/login/error']);
 
 const isAuthLoopPath = (pathname: string) =>
   pathname === '/logout' ||

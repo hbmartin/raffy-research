@@ -1,7 +1,7 @@
 export * from './common';
+export * from './legacy-email';
 export * from './relations';
 export * from '@/modules/auth/infrastructure/drizzle/schema';
-export * from '@/modules/email/infrastructure/drizzle/schema';
 export * from '@/modules/intelligence/infrastructure/drizzle/schema';
 
 import {
@@ -11,7 +11,6 @@ import {
   user,
   verification,
 } from '@/modules/auth/infrastructure/drizzle/schema';
-import { emailStatus } from '@/modules/email/infrastructure/drizzle/schema';
 import {
   feedbackEvent,
   ingestionRun,
@@ -28,6 +27,8 @@ import {
   workspaceKeyword,
   workspaceSocialAccount,
 } from '@/modules/intelligence/infrastructure/drizzle/schema';
+
+import { emailStatus } from './legacy-email';
 
 export type User = typeof user.$inferSelect;
 export type NewUser = typeof user.$inferInsert;

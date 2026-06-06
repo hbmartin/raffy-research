@@ -2,8 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   betterAuthBrowserClient: {
-    sendEmailOtp: vi.fn(),
-    signInEmailOtp: vi.fn(),
+    signInEmail: vi.fn(),
     signInSocial: vi.fn(),
     signOut: vi.fn(),
   },
@@ -25,7 +24,6 @@ import {
   createUseAuthSession,
   signOut,
   startSignIn,
-  verifyEmailOtp,
 } from '@/modules/auth/presentation/client';
 
 describe('auth client facade', () => {
@@ -35,46 +33,50 @@ describe('auth client facade', () => {
     mocks.useMatches.mockReturnValue(undefined);
   });
 
-  it('starts the email OTP flow without exposing Better Auth response shapes', async () => {
-    mocks.betterAuthBrowserClient.sendEmailOtp.mockResolvedValue({
+  it('starts email password sign-in without exposing Better Auth response shapes', async () => {
+    mocks.betterAuthBrowserClient.signInEmail.mockResolvedValue({
       data: null,
       error: null,
     });
 
     await expect(
       startSignIn({
-        strategy: 'email-otp',
+        strategy: 'email-password',
         email: 'user@example.com',
+        password: 'password',
         redirectTo: '/app',
       })
     ).resolves.toEqual({
       ok: true,
       value: {
-        status: 'verification_required',
-        email: 'user@example.com',
-        redirectTo: '/app',
+        status: 'complete',
       },
     });
-    expect(mocks.betterAuthBrowserClient.sendEmailOtp).toHaveBeenCalledWith({
+    expect(mocks.betterAuthBrowserClient.signInEmail).toHaveBeenCalledWith({
       email: 'user@example.com',
+      password: 'password',
     });
   });
 
   it('maps provider errors into neutral auth action results', async () => {
-    mocks.betterAuthBrowserClient.signInEmailOtp.mockResolvedValue({
+    mocks.betterAuthBrowserClient.signInEmail.mockResolvedValue({
       data: null,
       error: {
-        code: 'INVALID_OTP',
-        message: 'Invalid code',
+        code: 'INVALID_EMAIL_OR_PASSWORD',
+        message: 'Invalid email or password',
       },
     });
 
     await expect(
-      verifyEmailOtp({ email: 'user@example.com', otp: '000000' })
+      startSignIn({
+        strategy: 'email-password',
+        email: 'user@example.com',
+        password: 'bad-password',
+      })
     ).resolves.toEqual({
       ok: false,
-      code: 'INVALID_OTP',
-      message: 'Invalid code',
+      code: 'INVALID_EMAIL_OR_PASSWORD',
+      message: 'Invalid email or password',
     });
   });
 

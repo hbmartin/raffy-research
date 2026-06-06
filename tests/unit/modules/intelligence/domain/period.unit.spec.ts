@@ -34,4 +34,16 @@ describe('computeWeeklyPeriod', () => {
     // Tokyo is already Tuesday; the prior week still starts on a Monday.
     expect(formatPeriodDate(periodStart, 'Asia/Tokyo')).toBe('2026-05-25');
   });
+
+  it('handles weekly boundaries across a midnight DST transition', () => {
+    const now = new Date('2026-04-06T12:00:00.000Z');
+    const { periodStart, periodEnd } = computeWeeklyPeriod(
+      now,
+      'America/Santiago'
+    );
+
+    expect(periodStart.toISOString()).toBe('2026-03-30T03:00:00.000Z');
+    expect(periodEnd.toISOString()).toBe('2026-04-06T03:59:59.999Z');
+    expect(formatPeriodDate(periodEnd, 'America/Santiago')).toBe('2026-04-05');
+  });
 });

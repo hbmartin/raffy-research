@@ -112,34 +112,6 @@ pnpm codeql:db       # Create test-results/codeql/start-ui-web-db
 pnpm codeql:analyze  # Analyze that DB and write test-results/codeql/start-ui-web.sarif
 ```
 
-### Emails in development
-
-#### Resend delivery
-
-Emails are sent with [Resend](https://resend.com). Configure `RESEND_API_KEY`
-with a Resend API key and set `EMAIL_FROM` to a sender from a verified domain.
-Set `RESEND_WEBHOOK_SECRET` to the Resend/Svix signing secret for
-`/api/webhooks/resend` delivery status callbacks.
-Use `EMAIL_DELIVERY_DISABLED=true` when a workflow should skip delivery, such
-as automated end-to-end test runs.
-
-#### Preview emails
-
-Emails templates are built with `react-email` components in the `src/modules/email/presentation` folder.
-
-You can preview an email template at `http://localhost:3000/api/dev/email/{template}` where `{template}` is the name of the template file in the `src/modules/email/presentation/templates` folder.
-
-Example: [Login Code](http://localhost:3000/api/dev/email/login-code)
-
-##### Email translation preview
-
-Add the language in the preview url like `http://localhost:3000/api/dev/email/{template}?language={language}` where `{language}` is the language key (`en`, `fr`, ...)
-
-#### Email props preview
-
-You can add search params to the preview url to pass as props to the template.
-`http://localhost:3000/api/dev/email/{template}/?{propsName}={propsValue}`
-
 ### OpenAPI Documentation for the API
 
 You can access the API documentation via the OpenAPI interface at:

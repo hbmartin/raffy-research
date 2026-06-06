@@ -26,6 +26,7 @@ import type {
 const SectionShell = (props: {
   title: string;
   description?: string;
+  emptyText?: string;
   isEmpty: boolean;
   children: ReactNode;
 }) => (
@@ -38,7 +39,7 @@ const SectionShell = (props: {
     </div>
     {props.isEmpty ? (
       <p className="text-sm text-muted-foreground italic">
-        No new evidence this week.
+        {props.emptyText ?? 'No new evidence this week.'}
       </p>
     ) : (
       props.children
@@ -211,7 +212,7 @@ export const ReportPageBody = (props: ReportPageBodyProps) => {
         <ul className="flex flex-col gap-2">
           {data.executive_summary.bullets.map((bullet, index) => (
             <li
-              key={index}
+              key={bullet}
               className="flex gap-2 rounded-md border bg-card p-3 text-sm"
             >
               <span className="font-semibold text-primary">{index + 1}.</span>
@@ -345,6 +346,7 @@ export const ReportPageBody = (props: ReportPageBodyProps) => {
       <SectionShell
         title="Market Questions"
         isEmpty={data.market_questions.length === 0}
+        emptyText="No market questions captured this week."
       >
         <ul className="flex flex-col gap-3">
           {data.market_questions.map((item) => (
@@ -409,6 +411,7 @@ export const ReportPageBody = (props: ReportPageBodyProps) => {
       <SectionShell
         title="Source Library"
         isEmpty={data.source_library.length === 0}
+        emptyText="No sources are linked to this report."
       >
         <ul className="flex flex-col gap-2">
           {data.source_library.map((item) => (

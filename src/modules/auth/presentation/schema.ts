@@ -2,13 +2,7 @@ import { z } from 'zod';
 
 import { zu } from '@/platform/lib/zod/zod-utils';
 
-export type Otp = z.infer<ReturnType<typeof zOtp>>;
-export const zOtp = () =>
-  z
-    .string({
-      error: 'auth:common.otp.required',
-    })
-    .length(6, 'auth:common.otp.invalidLength');
+export const authPasswordField = 'password' as const;
 
 export type FormFieldsLogin = z.infer<ReturnType<typeof zFormFieldsLogin>>;
 export const zFormFieldsLogin = () =>
@@ -21,14 +15,9 @@ export const zFormFieldsLogin = () =>
             : 'auth:common.email.required',
       })
     ),
-  });
-
-export type FormFieldsLoginVerify = z.infer<
-  ReturnType<typeof zFormFieldsLoginVerify>
->;
-export const zFormFieldsLoginVerify = () =>
-  z.object({
-    otp: zOtp(),
+    [authPasswordField]: zu.fieldText.required({
+      error: 'auth:common.password.required',
+    }),
   });
 
 export type FormFieldsOnboarding = z.infer<

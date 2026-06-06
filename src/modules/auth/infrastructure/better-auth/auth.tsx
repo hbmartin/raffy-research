@@ -1,28 +1,16 @@
-import { Result } from '@swan-io/boxed';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { admin, emailOTP, openAPI } from 'better-auth/plugins';
+import { admin, openAPI } from 'better-auth/plugins';
 import { tanstackStartCookies } from 'better-auth/tanstack-start';
-import { match } from 'ts-pattern';
 
-import {
-  AUTH_EMAIL_OTP_EXPIRATION_IN_MINUTES,
-  AUTH_EMAIL_OTP_MOCKED,
-  isAuthSignupEnabled,
-} from '@/modules/auth';
+import { isAuthSignupEnabled } from '@/modules/auth';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import { DEMO_MODE_ERROR } from '@/modules/kernel/domain/errors/demo-mode';
-import {
-  toEmailAddress,
-  toLanguageCode,
-  toOtpCode,
-} from '@/modules/kernel/domain/ids';
 import { getBetterAuthConfig } from '@/modules/kernel/infrastructure/config/auth';
 import {
   type Database,
   getDefaultDbClient,
 } from '@/modules/kernel/infrastructure/db/client';
-import { getUserLanguage } from '@/modules/kernel/transport/tanstack/user-language';
 import { envClient } from '@/platform/env/client';
 
 import { createAuthCookieSecurityOptions } from './cookie-options';
@@ -32,23 +20,9 @@ import {
 } from './create-auth-options';
 import { betterAuthPermissions } from './permissions';
 
-const missingAuthEmailPort = {
-  async sendSignInOtp() {
-    return Result.Error(
-      new AppError({
-        code: 'AUTH_EMAIL_PORT_NOT_CONFIGURED',
-        category: 'system',
-        status: 500,
-        message: 'Auth email port is not configured',
-      })
-    );
-  },
-};
-
 export function createAuth(input?: Database | CreateAuthOptions) {
   const options = normalizeCreateAuthInput(input);
   const database = options.database ?? getDefaultDbClient();
-  const authEmailPort = options.authEmailPort ?? missingAuthEmailPort;
   const authConfig = getBetterAuthConfig();
   const authSignupEnabled = isAuthSignupEnabled({
     isDemo: envClient.VITE_IS_DEMO,
@@ -71,6 +45,10 @@ export function createAuth(input?: Database | CreateAuthOptions) {
     }),
     account: {
       encryptOAuthTokens: true,
+    },
+    emailAndPassword: {
+      enabled: true,
+      disableSignUp: true,
     },
     trustedOrigins: authConfig.trustedOrigins,
     database: drizzleAdapter(database, {
@@ -102,53 +80,6 @@ export function createAuth(input?: Database | CreateAuthOptions) {
       }),
       admin({
         ...betterAuthPermissions,
-      }),
-      emailOTP({
-        disableSignUp: !authSignupEnabled,
-        expiresIn: AUTH_EMAIL_OTP_EXPIRATION_IN_MINUTES * 60,
-        // Use predictable mocked code in dev and demo
-        ...(envClient.DEV || envClient.VITE_IS_DEMO
-          ? { generateOTP: () => AUTH_EMAIL_OTP_MOCKED }
-          : undefined),
-        async sendVerificationOTP({ email, otp, type }) {
-          await match(type)
-            .with('sign-in', async () => {
-              const result = await authEmailPort.sendSignInOtp({
-                email: toEmailAddress(email),
-                otp: toOtpCode(otp),
-                language: toLanguageCode(getUserLanguage()),
-              });
-              if (result.isError()) throw result.getError();
-            })
-            .with('email-verification', async () => {
-              throw new AppError({
-                code: 'AUTH_EMAIL_VERIFICATION_NOT_IMPLEMENTED',
-                category: 'system',
-                status: 500,
-                message:
-                  'email-verification email not implemented, update the /app/server/auth.tsx file',
-              });
-            })
-            .with('forget-password', async () => {
-              throw new AppError({
-                code: 'AUTH_FORGET_PASSWORD_NOT_IMPLEMENTED',
-                category: 'system',
-                status: 500,
-                message:
-                  'forget-password email not implemented, update the /app/server/auth.tsx file',
-              });
-            })
-            .with('change-email', async () => {
-              throw new AppError({
-                code: 'AUTH_CHANGE_EMAIL_NOT_IMPLEMENTED',
-                category: 'system',
-                status: 500,
-                message:
-                  'change-email email not implemented, update the /app/server/auth.tsx file',
-              });
-            })
-            .exhaustive();
-        },
       }),
       tanstackStartCookies(),
     ],

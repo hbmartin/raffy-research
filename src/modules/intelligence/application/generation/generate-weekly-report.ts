@@ -2,7 +2,12 @@ import { Result } from '@swan-io/boxed';
 
 import type { Clock, Logger } from '@/modules/kernel';
 import type { ApplicationResult } from '@/modules/kernel/application/result';
-import type { WeeklyReportId, WorkspaceId } from '@/modules/kernel/domain/ids';
+import type {
+  SourceRecordId,
+  WeeklyReportId,
+  WorkspaceId,
+} from '@/modules/kernel/domain/ids';
+import type { JsonObject } from '@/modules/kernel/domain/json';
 
 import {
   buildRepairPrompt,
@@ -20,6 +25,7 @@ import {
   parseGeneratedReportJson,
   validateReportData,
 } from '../../domain/report-data';
+import type { SourceSummary } from '../../domain/source';
 
 export type WeeklyReportGenerationDeps = {
   workspaceRepository: WorkspaceRepository;
@@ -34,15 +40,14 @@ export type WeeklyReportGenerationDeps = {
 export type GenerateWeeklyReportInput = {
   workspaceId: WorkspaceId;
   now?: Date;
+  sourceRecordIds?: SourceRecordId[];
+  includeSourceSummaries?: boolean;
 };
 
 export type GenerateWeeklyReportOutcome =
   | { type: 'report_published'; report: WeeklyReport }
-  | { type: 'report_skipped_published'; report: WeeklyReport }
   | { type: 'report_failed'; reason: string }
   | { type: 'workspace_not_found' };
-
-const MODEL_PROVIDER = 'openai';
 
 export async function generateWeeklyReport(
   deps: WeeklyReportGenerationDeps,
@@ -63,38 +68,22 @@ export async function generateWeeklyReport(
 
   const period = computeWeeklyPeriod(now, workspace.timezone);
 
-  // Never overwrite a successfully published report for the same period.
-  const existingResult = await deps.reportRepository.findByPeriod({
-    workspaceId: workspace.id,
-    periodStart: period.periodStart,
-  });
-  if (existingResult.isError()) return Result.Error(existingResult.getError());
-  const existing =
-    existingResult.get().type === 'report_found' ? existingResult.get() : null;
-  if (
-    existing &&
-    existing.type === 'report_found' &&
-    existing.report.status === 'published'
-  ) {
-    return Result.Ok({
-      type: 'report_skipped_published',
-      report: existing.report,
-    });
-  }
-  const existingFailedId =
-    existing && existing.type === 'report_found' ? existing.report.id : null;
-
   // Gather period evidence and configuration.
   const [keywords, competitors, social, sources, priorReports] =
     await Promise.all([
       deps.workspaceRepository.listKeywords(workspace.id, { activeOnly: true }),
       deps.workspaceRepository.listCompetitors(workspace.id),
       deps.workspaceRepository.listSocialAccounts(workspace.id),
-      deps.sourceRepository.listForPeriod({
-        workspaceId: workspace.id,
-        periodStart: period.periodStart,
-        periodEnd: period.periodEnd,
-      }),
+      input.sourceRecordIds
+        ? deps.sourceRepository.getManyByIds(
+            workspace.id,
+            input.sourceRecordIds
+          )
+        : deps.sourceRepository.listForPeriod({
+            workspaceId: workspace.id,
+            periodStart: period.periodStart,
+            periodEnd: period.periodEnd,
+          }),
       deps.reportRepository.listByWorkspace(workspace.id, { limit: 4 }),
     ]);
   if (keywords.isError()) return Result.Error(keywords.getError());
@@ -102,6 +91,19 @@ export async function generateWeeklyReport(
   if (social.isError()) return Result.Error(social.getError());
   if (sources.isError()) return Result.Error(sources.getError());
   if (priorReports.isError()) return Result.Error(priorReports.getError());
+
+  let sourceSummaries: SourceSummary[] = [];
+  if (input.includeSourceSummaries && sources.get().length > 0) {
+    const sourceSummariesResult =
+      await deps.sourceRepository.listLatestSummariesForSources({
+        workspaceId: workspace.id,
+        sourceRecordIds: sources.get().map((source) => source.id),
+      });
+    if (sourceSummariesResult.isError()) {
+      return Result.Error(sourceSummariesResult.getError());
+    }
+    sourceSummaries = sourceSummariesResult.get();
+  }
 
   const periodStartLabel = formatPeriodDate(
     period.periodStart,
@@ -115,6 +117,7 @@ export async function generateWeeklyReport(
     competitors: competitors.get(),
     socialAccounts: social.get(),
     sources: sources.get(),
+    sourceSummaries,
     priorReports: priorReports.get(),
     periodStartLabel,
     periodEndLabel,
@@ -126,12 +129,15 @@ export async function generateWeeklyReport(
     return recordFailure(deps, {
       workspace,
       period,
-      existingFailedId,
       reason: first.getError().message,
     });
   }
 
+  const generationMetadata: JsonObject = {
+    initial: first.get().metadata ?? {},
+  };
   let modelName = first.get().modelName;
+  let modelProvider = first.get().modelProvider ?? 'unknown';
   let validation: GeneratedReportDataValidation = parseGeneratedReportJson(
     first.get().text
   );
@@ -148,11 +154,12 @@ export async function generateWeeklyReport(
       return recordFailure(deps, {
         workspace,
         period,
-        existingFailedId,
         reason: repair.getError().message,
       });
     }
     modelName = repair.get().modelName;
+    modelProvider = repair.get().modelProvider ?? modelProvider;
+    generationMetadata.repair = repair.get().metadata ?? {};
     validation = parseGeneratedReportJson(repair.get().text);
   }
 
@@ -160,34 +167,30 @@ export async function generateWeeklyReport(
     return recordFailure(deps, {
       workspace,
       period,
-      existingFailedId,
       reason: `schema validation failed: ${validation.issues.join('; ')}`,
     });
   }
 
   const generatedData = validation.data;
   const modelMetadata = {
-    modelProvider: MODEL_PROVIDER,
+    modelProvider,
     modelName,
     promptVersion: REPORT_PROMPT_VERSION,
+    ...generationMetadata,
   };
 
   // Reserve a report row so report_data can reference the durable report id.
   let reportId: WeeklyReportId;
-  if (existingFailedId) {
-    reportId = existingFailedId;
-  } else {
-    const created = await deps.reportRepository.create({
-      workspaceId: workspace.id,
-      periodStart: period.periodStart,
-      periodEnd: period.periodEnd,
-      timezone: workspace.timezone,
-      status: 'generated',
-      generatedAt: now,
-    });
-    if (created.isError()) return Result.Error(created.getError());
-    reportId = created.get().id;
-  }
+  const created = await deps.reportRepository.create({
+    workspaceId: workspace.id,
+    periodStart: period.periodStart,
+    periodEnd: period.periodEnd,
+    timezone: workspace.timezone,
+    status: 'generated',
+    generatedAt: now,
+  });
+  if (created.isError()) return Result.Error(created.getError());
+  reportId = created.get().id;
 
   const reportDataValidation = validateReportData({
     ...generatedData,
@@ -202,7 +205,7 @@ export async function generateWeeklyReport(
     return recordFailure(deps, {
       workspace,
       period,
-      existingFailedId,
+      reservedReportId: reportId,
       reason: `schema validation failed: ${reportDataValidation.issues.join('; ')}`,
     });
   }
@@ -262,7 +265,7 @@ async function recordFailure(
   input: {
     workspace: { id: WorkspaceId; timezone: string };
     period: { periodStart: Date; periodEnd: Date };
-    existingFailedId: WeeklyReport['id'] | null;
+    reservedReportId?: WeeklyReportId;
     reason: string;
   }
 ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> {
@@ -272,9 +275,9 @@ async function recordFailure(
     details: { workspaceId: input.workspace.id, reason: input.reason },
   });
 
-  if (input.existingFailedId) {
+  if (input.reservedReportId) {
     const replaced = await deps.reportRepository.replaceContent(
-      input.existingFailedId,
+      input.reservedReportId,
       { status: 'failed', failureReason: input.reason, generatedAt: now }
     );
     if (replaced.isError()) return Result.Error(replaced.getError());

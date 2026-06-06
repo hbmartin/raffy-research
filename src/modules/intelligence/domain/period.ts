@@ -84,7 +84,9 @@ function zonedWallToUtc(
     wall.ms
   );
   const offset = getTimeZoneOffsetMs(new Date(utcGuess), timeZone);
-  return new Date(utcGuess - offset);
+  const firstCandidate = new Date(utcGuess - offset);
+  const correctedOffset = getTimeZoneOffsetMs(firstCandidate, timeZone);
+  return new Date(utcGuess - correctedOffset);
 }
 
 function addCivilDays(date: ZonedDate, days: number): ZonedDate {

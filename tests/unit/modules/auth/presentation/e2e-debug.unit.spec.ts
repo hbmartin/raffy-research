@@ -23,7 +23,7 @@ describe('authE2eDebug', () => {
     const { authE2eDebug } =
       await import('@/modules/auth/presentation/e2e-debug');
 
-    authE2eDebug('login.email_otp.submit', {
+    authE2eDebug('login.email_password.submit', {
       email: 'person@example.com',
       message: 'Sent to person@example.com',
       nested: {
@@ -39,7 +39,7 @@ describe('authE2eDebug', () => {
     expect(payload).toEqual(
       expect.objectContaining({
         email: '[REDACTED]',
-        event: 'login.email_otp.submit',
+        event: 'login.email_password.submit',
         message: 'Sent to [REDACTED]',
         nested: {
           id: '[REDACTED]',
@@ -56,7 +56,9 @@ describe('authE2eDebug', () => {
     const fields: Record<string, unknown> = { email: 'person@example.com' };
     fields.self = fields;
 
-    expect(() => authE2eDebug('login.email_otp.error', fields)).not.toThrow();
+    expect(() =>
+      authE2eDebug('login.email_password.error', fields)
+    ).not.toThrow();
 
     const [, serializedPayload] = vi.mocked(console.info).mock.calls[0] ?? [];
     const payload = JSON.parse(String(serializedPayload));
@@ -70,7 +72,7 @@ describe('authE2eDebug', () => {
       await import('@/modules/auth/presentation/e2e-debug');
     const shared = { safe: 'kept' };
 
-    authE2eDebug('login.email_otp.debug', {
+    authE2eDebug('login.email_password.debug', {
       at: new Date('2026-05-26T12:00:00.000Z'),
       first: shared,
       pattern: /login-\d+/i,

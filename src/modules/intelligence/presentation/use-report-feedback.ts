@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from '@tanstack/react-router';
 import { toast } from 'sonner';
 
@@ -30,6 +30,7 @@ export type RecordFeedbackArgs = {
  */
 export function useReportFeedback(context: ReportFeedbackContext) {
   const mutation = useMutation(intelligenceQueries.recordFeedback());
+  const queryClient = useQueryClient();
   const router = useRouter();
 
   const record = (args: RecordFeedbackArgs) => {
@@ -48,7 +49,11 @@ export function useReportFeedback(context: ReportFeedbackContext) {
           if (args.eventType === 'add_competitor_to_watchlist') {
             if (result?.competitorAccepted) {
               toast.success('Competitor added to your watchlist');
-              void router.invalidate();
+              void queryClient
+                .invalidateQueries({
+                  predicate: (query) => query.queryKey[0] === 'intelligence',
+                })
+                .then(() => router.invalidate());
             } else {
               toast.error('Could not add competitor to watchlist');
             }

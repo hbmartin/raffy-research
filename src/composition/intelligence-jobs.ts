@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
+
 import {
   generateWeeklyReport,
   handleProviderCallback,
@@ -11,6 +13,7 @@ import {
   createSlackAlert,
   getCronSecret,
   getProviderCredential,
+  getProviderWebhookSecret,
 } from '@/modules/intelligence/backend';
 import { toWorkspaceId, zWorkspaceId } from '@/modules/kernel';
 import type { JsonValue } from '@/modules/kernel/domain/json';
@@ -181,6 +184,21 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   });
 
 /** Cron routes require `Authorization: Bearer ${CRON_SECRET}`. */
+function constantTimeStringEquals(actual: string, expected: string): boolean {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return (
+    actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer)
+  );
+}
+
+function getBearerToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.toLowerCase().startsWith('bearer ')) return null;
+  return authorization.slice('Bearer '.length).trim() || null;
+}
+
 function isAuthorizedCronRequest(request: Request): boolean {
   const secret = getCronSecret();
   if (!secret) {
@@ -190,7 +208,25 @@ function isAuthorizedCronRequest(request: Request): boolean {
     });
     return false;
   }
-  return request.headers.get('authorization') === `Bearer ${secret}`;
+  const token = getBearerToken(request);
+  return token ? constantTimeStringEquals(token, secret) : false;
+}
+
+function isAuthorizedProviderCallbackRequest(request: Request): boolean {
+  const secret = getProviderWebhookSecret();
+  if (!secret) {
+    getKernel().logger.warn({
+      event: 'intelligence.provider_callback.secret_not_configured',
+      details: {
+        message: 'PROVIDER_WEBHOOK_SECRET environment variable is not set',
+      },
+    });
+    return false;
+  }
+
+  const token =
+    getBearerToken(request) ?? request.headers.get('x-provider-webhook-secret');
+  return token ? constantTimeStringEquals(token, secret) : false;
 }
 
 export async function handleWeeklyReportsCron(
@@ -241,6 +277,10 @@ export async function handleProviderCallbackRequest(
   provider: string,
   request: Request
 ): Promise<Response> {
+  if (!isAuthorizedProviderCallbackRequest(request)) {
+    return jsonResponse({ error: 'unauthorized' }, 401);
+  }
+
   const url = new URL(request.url);
   const workspaceIdParam = url.searchParams.get('workspaceId');
   const parsedWorkspaceId = workspaceIdParam

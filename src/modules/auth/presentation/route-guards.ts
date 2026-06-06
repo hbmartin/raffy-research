@@ -8,7 +8,6 @@ import type { CurrentSessionLike } from '@/platform/router/context';
 import {
   internalRedirectFromLocation,
   normalizeInternalRedirect,
-  parseSafeRedirectPath,
   resolvePostAuthDestination,
 } from './redirects';
 
@@ -66,12 +65,10 @@ const sessionOptions = (requireFresh: boolean | undefined) =>
   requireFresh === undefined ? undefined : { requireFresh };
 
 const redirectToSafePath = (input: string | null | undefined) => {
-  const safeRedirect = parseSafeRedirectPath(input);
+  const safeRedirect = normalizeInternalRedirect(input);
   if (!safeRedirect) return false;
   throw redirect({
-    to: safeRedirect.to,
-    search: safeRedirect.search,
-    hash: safeRedirect.hash || undefined,
+    href: safeRedirect,
     replace: true,
   });
 };
@@ -187,10 +184,7 @@ export async function redirectAuthenticatedRoute(input: {
   if (!currentSession) return;
 
   if (!currentSession.user.onboardedAt) {
-    const safeRedirect = parseSafeRedirectPath(input.redirect);
-    const normalizedRedirect = safeRedirect
-      ? normalizeRedirectForSearch(input.redirect)
-      : undefined;
+    const normalizedRedirect = normalizeInternalRedirect(input.redirect);
     throw redirect({
       to: '/onboarding',
       search: normalizedRedirect ? { redirect: normalizedRedirect } : undefined,
@@ -205,6 +199,3 @@ export async function redirectAuthenticatedRoute(input: {
     replace: true,
   });
 }
-
-const normalizeRedirectForSearch = (input: string | null | undefined) =>
-  input?.trim() || undefined;

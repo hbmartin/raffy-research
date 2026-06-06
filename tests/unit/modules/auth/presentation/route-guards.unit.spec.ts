@@ -104,9 +104,7 @@ describe('auth route guards', () => {
     );
 
     expect(error.options).toMatchObject({
-      to: '/app/books',
-      search: {},
-      hash: 'current',
+      href: '/app/books#current',
       replace: true,
     });
   });

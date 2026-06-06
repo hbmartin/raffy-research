@@ -6,47 +6,54 @@ import { DEFAULT_LANGUAGE_KEY } from '@/platform/lib/i18n/constants';
 import locales from '@/app/i18n';
 
 const t = locales[DEFAULT_LANGUAGE_KEY];
+const adminSearchUrl = '/manager/users?searchTerm=admin%40admin.com';
 
 test.describe('Protected route navigation', () => {
   test('returns to a protected deep link after login with search intact', async ({
     page,
   }) => {
-    await page.goto('/manager/books?searchTerm=Hobbit', {
+    await page.goto(adminSearchUrl, {
       waitUntil: 'commit',
     });
 
     await expect(page).toHaveURL(/\/login\?/);
     expect(new URL(page.url()).searchParams.get('redirect')).toBe(
-      '/manager/books?searchTerm=Hobbit'
+      '/manager/users?searchTerm=admin%40admin.com'
     );
 
     await page.login({ email: ADMIN_EMAIL });
 
-    await expect(page).toHaveURL(/\/manager\/books\?searchTerm=Hobbit$/);
+    await expect(page).toHaveURL(
+      /\/manager\/users\?searchTerm=admin%40admin\.com$/
+    );
     await expect(page.getByTestId('layout-manager')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'The Hobbit' })).toBeVisible();
-    await expect(page.getByText('1 results for "Hobbit"')).toBeVisible();
+    await expect(
+      page.getByText('admin@admin.com', { exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByText('1 results for "admin@admin.com"')
+    ).toBeVisible();
   });
 });
 
 test.describe('Protected route navigation as manager', () => {
   test.use({ storageState: ADMIN_FILE });
 
-  test('opens and refreshes a nested book route from a direct URL', async ({
+  test('opens and refreshes a nested user route from a direct URL', async ({
     page,
   }) => {
-    await page.goto('/manager/books?searchTerm=Hobbit', {
+    await page.goto(adminSearchUrl, {
       waitUntil: 'commit',
     });
 
-    const bookLink = page.getByRole('link', { name: 'The Hobbit' });
-    await expect(bookLink).toBeVisible();
-    const href = await bookLink.getAttribute('href');
-    expect(href).toMatch(/^\/manager\/books\/[^/]+\/?$/);
+    const userLink = page.getByRole('link', { name: 'Admin' });
+    await expect(userLink).toBeVisible();
+    const href = await userLink.getAttribute('href');
+    expect(href).toMatch(/^\/manager\/users\/[^/]+\/?$/);
 
     await expect(async () => {
       try {
-        await page.goto(href ?? '/manager/books', { waitUntil: 'commit' });
+        await page.goto(href ?? '/manager/users', { waitUntil: 'commit' });
       } catch (error) {
         if (
           !(error instanceof Error) ||
@@ -57,21 +64,21 @@ test.describe('Protected route navigation as manager', () => {
       }
 
       expect(new URL(page.url()).pathname).toMatch(
-        /^\/manager\/books\/[^/]+\/?$/
+        /^\/manager\/users\/[^/]+\/?$/
       );
     }).toPass({ timeout: 10_000 });
     const deepLink = new URL(page.url()).pathname;
 
-    await expect(page.getByText('The Hobbit - J.R.R. Tolkien')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
     await expect(
-      page.getByText('J.R.R. Tolkien', { exact: true })
+      page.getByText('admin@admin.com', { exact: true })
     ).toBeVisible();
 
     await page.reload({ waitUntil: 'commit' });
 
     await expect(page).toHaveURL(new RegExp(`${deepLink}/?$`));
     await expect(page.getByTestId('layout-manager')).toBeVisible();
-    await expect(page.getByText('The Hobbit - J.R.R. Tolkien')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Admin' })).toBeVisible();
   });
 
   test('preserves manager list search params across reloads', async ({

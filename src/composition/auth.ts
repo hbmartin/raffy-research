@@ -1,5 +1,4 @@
 import {
-  type AuthEmailPort,
   type AuthHttpGateway,
   type AuthorizationGateway,
   createAuthUseCases,
@@ -16,27 +15,19 @@ import { UserAdminGatewayBetterAuth } from '@/modules/auth/infrastructure/better
 import { ConfigurationError } from '@/modules/kernel/domain/errors/configuration-error';
 import { getAuthProviderConfig } from '@/modules/kernel/infrastructure/config/auth';
 
-import { AuthEmailPortEmailGateway } from './auth-email-port';
-import { getEmailGateway } from './email';
 import { createCachedFactory } from './shared/singleton';
 
 export type AuthOverrides = {
   sessionGateway?: SessionGateway;
   authorizationGateway?: AuthorizationGateway;
-  authEmailPort?: AuthEmailPort;
   userAdminGateway?: UserAdminGateway;
 };
 
-type AuthInstanceOverrides = {
-  authEmailPort?: AuthEmailPort;
-};
+type AuthInstanceOverrides = {};
 
 type AuthHttpOverrides = AuthInstanceOverrides & {
   authHttpGateway?: AuthHttpGateway;
 };
-
-const buildAuthEmailPort = (overrides?: AuthInstanceOverrides) =>
-  overrides?.authEmailPort ?? new AuthEmailPortEmailGateway(getEmailGateway());
 
 const assertBetterAuthProvider = () => {
   const { provider } = getAuthProviderConfig();
@@ -49,9 +40,7 @@ const assertBetterAuthProvider = () => {
 
 const buildAuth = (overrides?: AuthInstanceOverrides) => {
   assertBetterAuthProvider();
-  return createAuth({
-    authEmailPort: buildAuthEmailPort(overrides),
-  });
+  return createAuth(overrides);
 };
 
 const authFactory = createCachedFactory<Auth, AuthInstanceOverrides>(buildAuth);
@@ -71,7 +60,7 @@ const buildAuthHttpGateway = (
   overrides?: AuthHttpOverrides
 ): AuthHttpGateway => {
   if (overrides?.authHttpGateway) return overrides.authHttpGateway;
-  const authInstance = getAuth(overrides);
+  const authInstance = getAuth();
 
   return {
     handle: (request) => authInstance.handler(request),
@@ -86,8 +75,7 @@ export const getAuthHttpGateway = (overrides?: AuthHttpOverrides) =>
   authHttpFactory.get(overrides);
 
 const buildAuthUseCases = (overrides?: AuthOverrides) => {
-  const authEmailPort = buildAuthEmailPort(overrides);
-  const authInstance = getAuth({ authEmailPort });
+  const authInstance = getAuth();
 
   return createAuthUseCases({
     sessionGateway:
@@ -95,7 +83,6 @@ const buildAuthUseCases = (overrides?: AuthOverrides) => {
     authorizationGateway:
       overrides?.authorizationGateway ??
       new AuthorizationGatewayBetterAuth(authInstance),
-    authEmailPort,
     userAdminGateway:
       overrides?.userAdminGateway ??
       new UserAdminGatewayBetterAuth(authInstance),

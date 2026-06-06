@@ -58,7 +58,7 @@ describe('TanStack Start instance', () => {
       shouldProtectBrowserMutation({
         handlerType: 'router',
         method: 'POST',
-        pathname: '/api/auth/sign-in/email-otp',
+        pathname: '/api/auth/sign-in/email',
       })
     ).toBe(false);
     expect(
@@ -72,9 +72,9 @@ describe('TanStack Start instance', () => {
       shouldProtectBrowserMutation({
         handlerType: 'router',
         method: 'POST',
-        pathname: '/api/webhooks/resend',
+        pathname: '/api/dev/intelligence/local-ai/stream',
       })
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldProtectBrowserMutation({
         handlerType: 'serverFn',

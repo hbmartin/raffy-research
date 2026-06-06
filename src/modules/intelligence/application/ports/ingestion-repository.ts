@@ -3,6 +3,7 @@ import type {
   IngestionRunId,
   ProviderCallbackEventId,
   SourceRecordId,
+  WorkspaceId,
 } from '@/modules/kernel/domain/ids';
 import type { JsonObject } from '@/modules/kernel/domain/json';
 
@@ -45,7 +46,11 @@ export interface IngestionRepository {
   >;
 
   listCallbackEvents(input: {
-    workspaceId: string;
+    workspaceId: WorkspaceId;
     limit?: number;
+  }): Promise<ApplicationResult<ProviderCallbackEvent[]>>;
+  getCallbackEventsByIds(input: {
+    workspaceId: WorkspaceId;
+    ids: ProviderCallbackEventId[];
   }): Promise<ApplicationResult<ProviderCallbackEvent[]>>;
 }

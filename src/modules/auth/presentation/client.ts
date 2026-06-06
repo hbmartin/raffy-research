@@ -13,6 +13,7 @@ import {
   betterAuthBrowserClient,
   type BetterAuthSocialProvider,
 } from './better-auth-client';
+import { authPasswordField } from './schema';
 
 type AuthProviderError = {
   code?: string | null;
@@ -32,8 +33,9 @@ export type AuthSignInProvider = BetterAuthSocialProvider;
 
 export type StartSignInInput =
   | {
-      strategy: 'email-otp';
+      strategy: 'email-password';
       email: string;
+      password: string;
       redirectTo?: string;
     }
   | {
@@ -43,11 +45,6 @@ export type StartSignInInput =
     };
 
 export type StartSignInResult =
-  | {
-      status: 'verification_required';
-      email: string;
-      redirectTo?: string;
-    }
   | {
       status: 'redirect';
       url: string;
@@ -131,12 +128,14 @@ export const startSignIn = async (
 ): Promise<AuthClientResult<StartSignInResult>> => {
   try {
     return await match(input)
-      .with({ strategy: 'email-otp' }, async ({ email, redirectTo }) => {
-        const response = await betterAuthBrowserClient.sendEmailOtp({ email });
-        return mapProviderResponse(response, {
-          status: 'verification_required' as const,
+      .with({ strategy: 'email-password' }, async ({ email, password }) => {
+        const credentials = {
           email,
-          redirectTo,
+          [authPasswordField]: password,
+        };
+        const response = await betterAuthBrowserClient.signInEmail(credentials);
+        return mapProviderResponse(response, {
+          status: 'complete' as const,
         });
       })
       .with({ strategy: 'social' }, async ({ provider, redirectTo }) => {
@@ -155,18 +154,6 @@ export const startSignIn = async (
         );
       })
       .exhaustive();
-  } catch (error) {
-    return unknownErrorResult(error);
-  }
-};
-
-export const verifyEmailOtp = async (input: {
-  email: string;
-  otp: string;
-}): Promise<AuthClientResult<void>> => {
-  try {
-    const response = await betterAuthBrowserClient.signInEmailOtp(input);
-    return mapProviderResponse(response, undefined);
   } catch (error) {
     return unknownErrorResult(error);
   }

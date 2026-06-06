@@ -9,6 +9,7 @@ import {
   type ProviderCallbackEvent,
   runWorkspaceIngest,
   type RunWorkspaceIngestOutcome,
+  type SourceRecord,
   type Workspace,
 } from '@/modules/intelligence';
 import type { Logger } from '@/modules/kernel/application/ports/logger';
@@ -18,6 +19,7 @@ import {
   toIngestionRunId,
   toProviderCallbackEventId,
   toProviderConfigId,
+  toSourceRecordId,
   toWorkspaceId,
 } from '@/modules/kernel/domain/ids';
 
@@ -51,6 +53,30 @@ const callbackEvent = {
   receivedAt: now,
   createdAt: now,
 } satisfies ProviderCallbackEvent;
+
+const sourceRecord = {
+  id: toSourceRecordId('source-1'),
+  workspaceId,
+  providerName: 'awario',
+  providerSourceId: null,
+  sourceType: 'mention',
+  sourceSubtype: null,
+  sourceName: null,
+  sourceUrl: null,
+  externalUrl: null,
+  title: 'Mention',
+  authorOrAccount: null,
+  domain: null,
+  publishedAt: null,
+  capturedAt: now,
+  contentText: 'content',
+  diffAddedText: null,
+  diffRemovedText: null,
+  rawPayload: {},
+  metadata: null,
+  createdAt: now,
+  updatedAt: now,
+} satisfies SourceRecord;
 
 const ingestionRun: IngestionRun = {
   id: toIngestionRunId('run-1'),
@@ -100,6 +126,9 @@ function makeDeps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       listCompetitors: vi.fn(async () => Result.Ok([])),
       listSocialAccounts: vi.fn(async () => Result.Ok([])),
       listInternalNoteConfigs: vi.fn(async () => Result.Ok([])),
+      getProviderConfig: vi.fn(async () =>
+        Result.Ok({ type: 'provider_config_not_found' as const })
+      ),
       listProviderConfigs: vi.fn(async () =>
         Result.Ok([
           {
@@ -122,6 +151,9 @@ function makeDeps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       createSearchResult: vi.fn(async () => {
         throw new Error('not expected');
       }),
+      createCallbackArtifacts: vi.fn(async () =>
+        Result.Ok({ sourceRecords: [], searchResults: [] })
+      ),
     },
     ingestionRepository: {
       startRun: vi.fn(async () => Result.Ok(ingestionRun)),
@@ -161,6 +193,138 @@ describe('ingestion use cases', () => {
     });
 
     expectErrorCode(result, 'CALLBACK_UPDATE_FAILED');
+  });
+
+  it('marks callback normalization failed when adapter normalization fails', async () => {
+    const updateCallbackNormalization = vi.fn(async () =>
+      Result.Ok({ type: 'callback_updated' as const })
+    );
+    const error = appError('NORMALIZATION_FAILED');
+    const deps = makeDeps({
+      ingestionRepository: {
+        ...makeDeps().ingestionRepository,
+        updateCallbackNormalization,
+      },
+      registry: {
+        get: vi.fn(() => ({
+          name: 'awario' as const,
+          isConfigured: () => true,
+          normalizeCallback: async () => Result.Error(error),
+        })),
+        all: vi.fn(() => []),
+      },
+    });
+
+    const result = await handleProviderCallback(deps, {
+      providerName: 'awario',
+      workspaceId,
+      payload: {},
+    });
+
+    expectErrorCode(result, 'NORMALIZATION_FAILED');
+    expect(updateCallbackNormalization).toHaveBeenCalledWith(callbackEvent.id, {
+      normalizationStatus: 'failed',
+      normalizationError: error.message,
+    });
+  });
+
+  it('writes normalized callback artifacts through the atomic repository method', async () => {
+    const createCallbackArtifacts = vi.fn(async () =>
+      Result.Ok({ sourceRecords: [sourceRecord], searchResults: [] })
+    );
+    const deps = makeDeps({
+      sourceRepository: {
+        ...makeDeps().sourceRepository,
+        createCallbackArtifacts,
+      },
+      registry: {
+        get: vi.fn(() => ({
+          name: 'awario' as const,
+          isConfigured: () => true,
+          normalizeCallback: async () =>
+            Result.Ok({
+              type: 'normalized' as const,
+              sourceRecords: [
+                {
+                  workspaceId,
+                  providerName: 'awario',
+                  sourceType: 'mention',
+                  title: 'Mention',
+                },
+              ],
+              searchResults: [],
+            }),
+        })),
+        all: vi.fn(() => []),
+      },
+    });
+
+    const result = await handleProviderCallback(deps, {
+      providerName: 'awario',
+      workspaceId,
+      payload: {},
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(createCallbackArtifacts).toHaveBeenCalledWith({
+      sourceRecords: [
+        {
+          workspaceId,
+          providerName: 'awario',
+          sourceType: 'mention',
+          title: 'Mention',
+        },
+      ],
+      searchResults: [],
+    });
+  });
+
+  it('marks callback normalization failed when artifact persistence fails', async () => {
+    const updateCallbackNormalization = vi.fn(async () =>
+      Result.Ok({ type: 'callback_updated' as const })
+    );
+    const error = appError('CALLBACK_ARTIFACTS_FAILED');
+    const deps = makeDeps({
+      ingestionRepository: {
+        ...makeDeps().ingestionRepository,
+        updateCallbackNormalization,
+      },
+      sourceRepository: {
+        ...makeDeps().sourceRepository,
+        createCallbackArtifacts: vi.fn(async () => Result.Error(error)),
+      },
+      registry: {
+        get: vi.fn(() => ({
+          name: 'awario' as const,
+          isConfigured: () => true,
+          normalizeCallback: async () =>
+            Result.Ok({
+              type: 'normalized' as const,
+              sourceRecords: [
+                {
+                  workspaceId,
+                  providerName: 'awario',
+                  sourceType: 'mention',
+                  title: 'Mention',
+                },
+              ],
+            }),
+        })),
+        all: vi.fn(() => []),
+      },
+    });
+
+    const result = await handleProviderCallback(deps, {
+      providerName: 'awario',
+      workspaceId,
+      payload: {},
+    });
+
+    expectErrorCode(result, 'CALLBACK_ARTIFACTS_FAILED');
+    expect(updateCallbackNormalization).toHaveBeenCalledWith(callbackEvent.id, {
+      normalizationStatus: 'failed',
+      normalizationError: error.message,
+    });
   });
 
   it('returns failed-run finalization errors', async () => {
