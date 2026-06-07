@@ -2,12 +2,12 @@ import { Result } from '@swan-io/boxed';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
-import type { LocalAiProviderName } from './config';
-import {
-  generateLocalText,
-  type LocalAiNdjsonEvent,
-} from './local-text-generator';
+import { generateLocalText } from './local-text-generator';
 import type { ReportGeneratorPort } from '../../application/ports/report-generator';
+import type {
+  LocalAiNdjsonEvent,
+  LocalAiProviderName,
+} from '../../domain/local-ai';
 
 export function createLocalAiReportGenerator(input: {
   provider: LocalAiProviderName;

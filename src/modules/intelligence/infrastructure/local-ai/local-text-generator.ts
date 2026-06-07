@@ -8,80 +8,11 @@ import path from 'node:path';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-import type { LocalAiProviderName } from './config';
-
-export type LocalAiNdjsonEvent =
-  | {
-      type: 'start';
-      runId: string;
-      action: string;
-      provider: LocalAiProviderName;
-      model: string;
-      label?: string;
-      message?: string;
-      at: string;
-    }
-  | {
-      type: 'step';
-      runId: string;
-      action: string;
-      label: string;
-      message: string;
-      at: string;
-      data?: JsonObject;
-    }
-  | {
-      type: 'tool_event';
-      runId: string;
-      action: string;
-      label: string;
-      event: JsonObject;
-      at: string;
-    }
-  | {
-      type: 'artifact';
-      runId: string;
-      action: string;
-      label: string;
-      artifact: JsonObject;
-      at: string;
-    }
-  | {
-      type: 'error';
-      runId: string;
-      action: string;
-      label?: string;
-      message: string;
-      at: string;
-      data?: JsonObject;
-    }
-  | {
-      type: 'done';
-      runId: string;
-      action: string;
-      label?: string;
-      at: string;
-      data?: JsonObject;
-    };
-
-export type LocalTextGenerationResult = {
-  text: string;
-  modelName: string;
-  modelProvider: LocalAiProviderName;
-  metadata: JsonObject;
-};
-
-export type LocalTextGenerationInput = {
-  provider: LocalAiProviderName;
-  model: string;
-  prompt: string;
-  action: string;
-  label: string;
-  runId: string;
-  rawOutputDir: string;
-  abortSignal?: AbortSignal;
-  onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
-};
+import type {
+  LocalAiProviderName,
+  LocalTextGenerationInput,
+  LocalTextGenerationResult,
+} from '../../domain/local-ai';
 
 const nowIso = () => new Date().toISOString();
 
@@ -357,6 +288,10 @@ export async function generateLocalText(
         data: rawFilePath ? { rawFilePath } : undefined,
       })
     ).catch(() => undefined);
+
+    if (error instanceof AppError) {
+      throw error;
+    }
 
     throw new AppError({
       code: 'LOCAL_AI_GENERATION_ERROR',

@@ -5,9 +5,7 @@ import {
   parseEnv,
 } from '@/modules/kernel/infrastructure/config/env-schema';
 
-export const LOCAL_AI_PROVIDERS = ['codex-cli', 'claude-code'] as const;
-
-export type LocalAiProviderName = (typeof LOCAL_AI_PROVIDERS)[number];
+import { LOCAL_AI_PROVIDERS, type LocalAiConfig } from '../../domain/local-ai';
 
 const localAiEnvSchema = baseEnvSchema.extend({
   LOCAL_AI_PROVIDER: z.enum(LOCAL_AI_PROVIDERS).default('codex-cli'),
@@ -15,13 +13,6 @@ const localAiEnvSchema = baseEnvSchema.extend({
   LOCAL_AI_RAW_OUTPUT_DIR: z.string().trim().min(1).default('.local-ai-runs'),
   LOCAL_AI_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
 });
-
-export type LocalAiConfig = {
-  provider: LocalAiProviderName;
-  model: string;
-  rawOutputDir: string;
-  timeoutMs: number;
-};
 
 export function getLocalAiConfig(): LocalAiConfig {
   const env = parseEnv(localAiEnvSchema);

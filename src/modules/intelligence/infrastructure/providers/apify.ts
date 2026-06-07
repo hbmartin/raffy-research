@@ -7,6 +7,10 @@ import type { SourceRecordWriteInput } from '../../domain/source';
 
 // Apify dataset URLs may use opaque IDs or safe named datasets.
 const APIFY_DATASET_ID_PATTERN = /^[A-Za-z0-9_.-]+$/;
+const isSafeApifyDatasetId = (datasetId: string) =>
+  APIFY_DATASET_ID_PATTERN.test(datasetId) &&
+  !datasetId.startsWith('.') &&
+  !datasetId.includes('..');
 
 /**
  * Apify: LinkedIn / custom scraping. Actor-run-completed webhooks reference a
@@ -25,7 +29,7 @@ export const apifyAdapter: ProviderAdapter = {
     const resource = asObject(pick(ctx.payload, 'resource'));
     const datasetId = asString(resource.defaultDatasetId);
     if (!datasetId) return Result.Ok({ type: 'unsupported' });
-    if (!APIFY_DATASET_ID_PATTERN.test(datasetId)) {
+    if (!isSafeApifyDatasetId(datasetId)) {
       return Result.Ok({
         type: 'invalid',
         reason: 'Apify callback referenced an invalid dataset id',

@@ -390,9 +390,8 @@ export const providerCallbackEvent = pgTable(
   },
   (table) => [
     index('providerCallbackEvent_provider_idx').on(table.providerName),
-    index('providerCallbackEvent_workspace_received_idx').on(
-      table.workspaceId,
-      table.receivedAt
-    ),
+    index('providerCallbackEvent_workspace_received_idx')
+      .on(table.workspaceId, table.receivedAt)
+      .concurrently(),
   ]
 );
