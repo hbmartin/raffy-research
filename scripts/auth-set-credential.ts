@@ -102,14 +102,27 @@ async function promptHidden(label: string): Promise<string> {
 
 async function resolvePassword(options: CliOptions): Promise<string> {
   if (process.env.AUTH_SET_CREDENTIAL_PASSWORD !== undefined) {
-    return process.env.AUTH_SET_CREDENTIAL_PASSWORD;
+    const password = process.env.AUTH_SET_CREDENTIAL_PASSWORD;
+    if (password.trim().length === 0) {
+      throw new Error('AUTH_SET_CREDENTIAL_PASSWORD must not be empty.');
+    }
+    return password;
   }
-  if (options.passwordStdin) return readPasswordFromStdin();
+  if (options.passwordStdin) {
+    const password = await readPasswordFromStdin();
+    if (password.trim().length === 0) {
+      throw new Error('--password-stdin must provide a non-empty password.');
+    }
+    return password;
+  }
 
   const first = await promptHidden('New password');
   const second = await promptHidden('Confirm password');
   if (first !== second) {
     throw new Error('Passwords do not match.');
+  }
+  if (first.trim().length === 0) {
+    throw new Error('Password must not be empty.');
   }
 
   return first;

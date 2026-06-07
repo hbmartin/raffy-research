@@ -129,17 +129,22 @@ describe('provider adapters', () => {
 
   it('logs and skips SEMrush ERROR text responses', async () => {
     const logger = makeLogger();
+    const credential = 'semrush-secret-token';
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () => new Response('ERROR: 50 :: ACCESS_DENIED', { status: 200 })
+        async () =>
+          new Response(`ERROR: 50 :: ACCESS_DENIED ${credential}`, {
+            status: 200,
+          })
       )
     );
 
     const adapter = createProviderRegistry().get('semrush');
-    const result = await adapter?.runDailyIngest?.(
-      makeDailyContext('semrush', logger)
-    );
+    const result = await adapter?.runDailyIngest?.({
+      ...makeDailyContext('semrush', logger),
+      credential,
+    });
     const value = expectOkValue(result);
 
     expect(value.sourceRecords).toEqual([]);
@@ -148,9 +153,35 @@ describe('provider adapters', () => {
       details: {
         provider: 'semrush',
         domain: 'competitor.example',
-        error: 'ERROR: 50 :: ACCESS_DENIED',
+        error: 'SEMrush returned an error response',
       },
     });
+    expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain(
+      credential
+    );
+  });
+
+  it('does not log SEMrush request URLs or query credentials on HTTP failures', async () => {
+    const logger = makeLogger();
+    const credential = 'semrush/secret token';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Bad Gateway', { status: 502 }))
+    );
+
+    const adapter = createProviderRegistry().get('semrush');
+    const result = await adapter?.runDailyIngest?.({
+      ...makeDailyContext('semrush', logger),
+      credential,
+    });
+    const value = expectOkValue(result);
+
+    expect(value.sourceRecords).toEqual([]);
+    const serializedLogs = JSON.stringify(vi.mocked(logger.warn).mock.calls);
+    expect(serializedLogs).not.toContain(credential);
+    expect(serializedLogs).not.toContain(encodeURIComponent(credential));
+    expect(serializedLogs).not.toContain('api.semrush.com');
+    expect(serializedLogs).not.toContain('key=');
   });
 
   it('normalizes known empty social callback payloads', async () => {
@@ -191,6 +222,30 @@ describe('provider adapters', () => {
       reason: 'Apify callback referenced an invalid dataset id',
     });
   });
+
+  it.each(['..', '.hidden', 'dataset..name'])(
+    'rejects Apify callback dataset id traversal segment %s',
+    async (datasetId) => {
+      const logger = makeLogger();
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const context: ProviderCallbackContext = {
+        workspaceId,
+        credential: 'token',
+        payload: { resource: { defaultDatasetId: datasetId } },
+        logger,
+      };
+
+      const adapter = createProviderRegistry().get('apify');
+      const normalizationResult = await adapter?.normalizeCallback?.(context);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(normalizationResult?.getOr({ type: 'unsupported' })).toEqual({
+        type: 'invalid',
+        reason: 'Apify callback referenced an invalid dataset id',
+      });
+    }
+  );
 
   it('fetches Apify callback datasets with an encoded path and bearer token', async () => {
     const logger = makeLogger();

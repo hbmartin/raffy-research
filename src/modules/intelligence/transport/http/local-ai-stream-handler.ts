@@ -24,45 +24,12 @@ import {
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-type LocalAiProviderName = 'codex-cli' | 'claude-code';
-
-type LocalAiNdjsonEvent = {
-  type: string;
-  runId: string;
-  action: string;
-  at: string;
-  label?: string;
-  provider?: LocalAiProviderName;
-  model?: string;
-  message?: string;
-  data?: JsonObject;
-  event?: JsonObject;
-  artifact?: JsonObject;
-};
-
-type LocalAiConfig = {
-  provider: LocalAiProviderName;
-  model: string;
-  rawOutputDir: string;
-  timeoutMs: number;
-};
-
-type LocalTextGenerator = (input: {
-  provider: LocalAiProviderName;
-  model: string;
-  prompt: string;
-  action: string;
-  label: string;
-  runId: string;
-  rawOutputDir: string;
-  abortSignal?: AbortSignal;
-  onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
-}) => Promise<{
-  text: string;
-  modelName: string;
-  modelProvider: LocalAiProviderName;
-  metadata: JsonObject;
-}>;
+import type {
+  LocalAiConfig,
+  LocalAiNdjsonEvent,
+  LocalAiProviderName,
+  LocalTextGenerator,
+} from '../../domain/local-ai';
 
 type LocalAiRepositories = {
   workspaceRepository: WorkspaceRepository;

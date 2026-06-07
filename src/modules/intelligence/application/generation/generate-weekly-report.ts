@@ -346,6 +346,8 @@ async function findReusableFailedReport(
   const reports = await deps.reportRepository.listByWorkspace(
     input.workspace.id,
     {
+      // Best-effort reuse keeps failure recording bounded; older failed rows may
+      // fall outside this recent window.
       limit: 20,
     }
   );

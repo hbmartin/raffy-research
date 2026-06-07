@@ -206,8 +206,8 @@ const DevAiConsole = (props: {
       } finally {
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null;
+          setRunningAction(null);
         }
-        setRunningAction(null);
       }
     },
     [
