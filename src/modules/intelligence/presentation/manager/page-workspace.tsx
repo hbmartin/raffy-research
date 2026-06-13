@@ -368,6 +368,14 @@ const DevAiConsole = (props: {
           >
             Full workflow
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isRunning}
+            onClick={() => void runAction('evaluate_report')}
+          >
+            Evaluate report
+          </Button>
           {isRunning ? (
             <Button
               type="button"

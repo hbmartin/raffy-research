@@ -6,7 +6,6 @@ import {
   zWeeklyReportId,
   zWorkspaceId,
 } from '@/modules/kernel/domain/ids';
-import type { JsonValue } from '@/modules/kernel/domain/json';
 import {
   type OutcomeHandlerConfig,
   unwrapApplicationResult,
@@ -16,41 +15,35 @@ import type {
   ReportGetOutcome,
   ReportLatestOutcome,
 } from '../../application/ports/report-repository';
-import type { SourceRecordGetOutcome } from '../../application/ports/source-repository';
+import type {
+  SourceLabelOutcome,
+  SourceRecordGetOutcome,
+} from '../../application/ports/source-repository';
 import type { ListProviderCallbacksOutcome } from '../../application/use-cases/ingestion-queries';
-import type { RecordFeedbackOutcome } from '../../application/use-cases/record-feedback';
 import type {
   LatestReportForUserOutcome,
   ListReportSourcesOutcome,
   ListReportsOutcome,
 } from '../../application/use-cases/report-queries';
+import type { ScoreReportOutcome } from '../../application/use-cases/score-report';
 import type { ForbiddenOutcome } from '../../application/use-cases/types';
 import type {
   GetWorkspaceConfigOutcome,
   WorkspaceConfig,
 } from '../../application/use-cases/workspace-queries';
 import type { ListWorkspacesOutcome } from '../../application/use-cases/workspace-queries';
-import { FEEDBACK_EVENT_TYPES } from '../../domain/feedback';
 import type { ProviderCallbackEvent } from '../../domain/ingestion';
 import type {
   ReportSourceLink,
   WeeklyReport,
   WeeklyReportSummary,
 } from '../../domain/report';
+import type { ReportRubricScore } from '../../domain/rubric';
+import { RUBRIC_SCORE_MAX, RUBRIC_SCORE_MIN } from '../../domain/rubric';
 import type { SourceRecord } from '../../domain/source';
+import { SOURCE_RELEVANCE_LABELS } from '../../domain/source';
 import type { Workspace } from '../../domain/workspace';
 import type { IntelligenceUseCases } from '../../factory';
-
-const zJsonValue: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(zJsonValue),
-    z.record(z.string(), zJsonValue),
-  ])
-);
 
 export const zReportByIdInput = () => z.object({ reportId: zWeeklyReportId() });
 export const zReportSourcesInput = () =>
@@ -63,15 +56,24 @@ export const zListProviderCallbacksInput = () =>
     workspaceId: zWorkspaceId(),
     limit: z.number().int().min(1).max(200).optional(),
   });
-export const zRecordFeedbackInput = () =>
+const zRubricValue = () =>
+  z.number().int().min(RUBRIC_SCORE_MIN).max(RUBRIC_SCORE_MAX);
+export const zScoreReportInput = () =>
   z.object({
     workspaceId: zWorkspaceId(),
-    reportId: zWeeklyReportId().optional(),
-    eventType: z.enum(FEEDBACK_EVENT_TYPES),
-    targetType: z.string().optional(),
-    targetId: z.string().optional(),
-    sourceRecordId: zSourceRecordId().optional(),
-    payload: z.record(z.string(), zJsonValue).optional(),
+    reportId: zWeeklyReportId(),
+    relevance: zRubricValue(),
+    accuracy: zRubricValue(),
+    novelty: zRubricValue(),
+    note: z.string().trim().max(2000).optional(),
+  });
+export const zReportScoreInput = () =>
+  z.object({ reportId: zWeeklyReportId() });
+export const zLabelSourceInput = () =>
+  z.object({
+    workspaceId: zWorkspaceId(),
+    sourceRecordId: zSourceRecordId(),
+    label: z.enum(SOURCE_RELEVANCE_LABELS).nullable(),
   });
 
 type IntelligenceHandlerDeps = {
@@ -163,21 +165,32 @@ const workspaceConfigConfig = {
   WorkspaceConfig
 >;
 
-export type RecordFeedbackPayload = {
-  recorded: boolean;
-  competitorAccepted: boolean;
-};
-
-const recordFeedbackConfig = {
+const scoreReportConfig = {
   forbidden: 'FORBIDDEN',
-  feedback_recorded: (outcome) => ({
-    recorded: true,
-    competitorAccepted: outcome.competitorAccepted,
-  }),
-  competitor_not_found: () => ({ recorded: true, competitorAccepted: false }),
+  report_scored: (outcome) => outcome.score,
 } as const satisfies OutcomeHandlerConfig<
-  RecordFeedbackOutcome | ForbiddenOutcome,
-  RecordFeedbackPayload
+  ScoreReportOutcome | ForbiddenOutcome,
+  ReportRubricScore
+>;
+
+const reportScoreConfig = {
+  forbidden: 'FORBIDDEN',
+  rubric_score_found: (outcome) => outcome.score,
+  rubric_score_none: () => null,
+} as const satisfies OutcomeHandlerConfig<
+  | { type: 'rubric_score_found'; score: ReportRubricScore }
+  | { type: 'rubric_score_none' }
+  | ForbiddenOutcome,
+  ReportRubricScore | null
+>;
+
+const labelSourceConfig = {
+  forbidden: 'FORBIDDEN',
+  source_labeled: (outcome) => outcome.sourceRecord,
+  source_record_not_found: 'NOT_FOUND',
+} as const satisfies OutcomeHandlerConfig<
+  SourceLabelOutcome | ForbiddenOutcome,
+  SourceRecord
 >;
 
 export const createIntelligenceHandlers = ({
@@ -239,22 +252,45 @@ export const createIntelligenceHandlers = ({
       }),
       workspaceConfigConfig
     ),
-  recordFeedback: (
+  scoreReport: (
     ctx: ProtectedContext,
-    data: z.infer<ReturnType<typeof zRecordFeedbackInput>>
+    data: z.infer<ReturnType<typeof zScoreReportInput>>
   ) =>
     unwrapApplicationResult(
-      getUseCases(ctx).recordFeedback({
+      getUseCases(ctx).scoreReport({
         currentUserId: ctx.scope.userId,
         workspaceId: data.workspaceId,
         reportId: data.reportId,
-        eventType: data.eventType,
-        targetType: data.targetType,
-        targetId: data.targetId,
-        sourceRecordId: data.sourceRecordId,
-        payload: data.payload ?? null,
+        relevance: data.relevance,
+        accuracy: data.accuracy,
+        novelty: data.novelty,
+        note: data.note ?? null,
       }),
-      recordFeedbackConfig
+      scoreReportConfig
+    ),
+  getReportScore: (
+    ctx: ProtectedContext,
+    data: z.infer<ReturnType<typeof zReportScoreInput>>
+  ) =>
+    unwrapApplicationResult(
+      getUseCases(ctx).getReportRubricScore({
+        currentUserId: ctx.scope.userId,
+        reportId: data.reportId,
+      }),
+      reportScoreConfig
+    ),
+  labelSource: (
+    ctx: ProtectedContext,
+    data: z.infer<ReturnType<typeof zLabelSourceInput>>
+  ) =>
+    unwrapApplicationResult(
+      getUseCases(ctx).labelSource({
+        currentUserId: ctx.scope.userId,
+        workspaceId: data.workspaceId,
+        sourceRecordId: data.sourceRecordId,
+        label: data.label,
+      }),
+      labelSourceConfig
     ),
   // latestConfig is exported for the workspace-scoped latest report variant.
   getLatestReport: (

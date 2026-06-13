@@ -74,6 +74,8 @@ const sourceRecord = {
   diffRemovedText: null,
   rawPayload: {},
   metadata: null,
+  relevanceLabel: null,
+  labeledAt: null,
   createdAt: now,
   updatedAt: now,
 } satisfies SourceRecord;

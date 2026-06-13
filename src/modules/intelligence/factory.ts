@@ -1,5 +1,5 @@
 import { listProviderCallbacks } from './application/use-cases/ingestion-queries';
-import { recordFeedback } from './application/use-cases/record-feedback';
+import { labelSource } from './application/use-cases/label-source';
 import {
   getLatestReport,
   getLatestReportForUser,
@@ -7,6 +7,10 @@ import {
   listReports,
   listReportSources,
 } from './application/use-cases/report-queries';
+import {
+  getReportRubricScore,
+  scoreReport,
+} from './application/use-cases/score-report';
 import { getSourceRecord } from './application/use-cases/source-queries';
 import type { IntelligenceUseCaseDeps } from './application/use-cases/types';
 import {
@@ -41,8 +45,12 @@ export function createIntelligenceUseCases(deps: IntelligenceUseCaseDeps) {
       createWorkspace(deps, input),
     updateWorkspace: (input: Parameters<typeof updateWorkspace>[1]) =>
       updateWorkspace(deps, input),
-    recordFeedback: (input: Parameters<typeof recordFeedback>[1]) =>
-      recordFeedback(deps, input),
+    scoreReport: (input: Parameters<typeof scoreReport>[1]) =>
+      scoreReport(deps, input),
+    getReportRubricScore: (input: Parameters<typeof getReportRubricScore>[1]) =>
+      getReportRubricScore(deps, input),
+    labelSource: (input: Parameters<typeof labelSource>[1]) =>
+      labelSource(deps, input),
     listProviderCallbacks: (
       input: Parameters<typeof listProviderCallbacks>[1]
     ) => listProviderCallbacks(deps, input),

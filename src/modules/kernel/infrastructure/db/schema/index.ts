@@ -12,11 +12,11 @@ import {
   verification,
 } from '@/modules/auth/infrastructure/drizzle/schema';
 import {
-  feedbackEvent,
   ingestionRun,
   internalNoteConfig,
   providerCallbackEvent,
   providerConfig,
+  reportRubricScore,
   searchResult,
   sourceRecord,
   sourceSummary,
@@ -66,8 +66,8 @@ export type WeeklyReport = typeof weeklyReport.$inferSelect;
 export type NewWeeklyReport = typeof weeklyReport.$inferInsert;
 export type WeeklyReportSource = typeof weeklyReportSource.$inferSelect;
 export type NewWeeklyReportSource = typeof weeklyReportSource.$inferInsert;
-export type FeedbackEvent = typeof feedbackEvent.$inferSelect;
-export type NewFeedbackEvent = typeof feedbackEvent.$inferInsert;
+export type ReportRubricScore = typeof reportRubricScore.$inferSelect;
+export type NewReportRubricScore = typeof reportRubricScore.$inferInsert;
 export type IngestionRun = typeof ingestionRun.$inferSelect;
 export type NewIngestionRun = typeof ingestionRun.$inferInsert;
 export type ProviderCallbackEvent = typeof providerCallbackEvent.$inferSelect;

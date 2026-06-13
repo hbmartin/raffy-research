@@ -6,6 +6,16 @@ import type {
 } from '@/modules/kernel/domain/ids';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
+export const SOURCE_RELEVANCE_LABELS = ['keep', 'junk'] as const;
+
+export type SourceRelevanceLabel = (typeof SOURCE_RELEVANCE_LABELS)[number];
+
+export function isSourceRelevanceLabel(
+  value: string
+): value is SourceRelevanceLabel {
+  return (SOURCE_RELEVANCE_LABELS as readonly string[]).includes(value);
+}
+
 export type SourceRecord = {
   id: SourceRecordId;
   workspaceId: WorkspaceId;
@@ -26,6 +36,8 @@ export type SourceRecord = {
   diffRemovedText: string | null;
   rawPayload: JsonValue | null;
   metadata: JsonObject | null;
+  relevanceLabel: SourceRelevanceLabel | null;
+  labeledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };

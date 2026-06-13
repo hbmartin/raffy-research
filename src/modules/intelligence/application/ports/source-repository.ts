@@ -7,11 +7,16 @@ import type {
   SearchResultWriteInput,
   SourceRecord,
   SourceRecordWriteInput,
+  SourceRelevanceLabel,
   SourceSummary,
 } from '../../domain/source';
 
 export type SourceRecordGetOutcome =
   | { type: 'source_record_found'; sourceRecord: SourceRecord }
+  | { type: 'source_record_not_found' };
+
+export type SourceLabelOutcome =
+  | { type: 'source_labeled'; sourceRecord: SourceRecord }
   | { type: 'source_record_not_found' };
 
 export interface SourceRepository {
@@ -35,6 +40,12 @@ export interface SourceRepository {
     periodEnd: Date;
     limit?: number;
   }): Promise<ApplicationResult<SourceRecord[]>>;
+  setRelevanceLabel(input: {
+    workspaceId: WorkspaceId;
+    sourceRecordId: SourceRecordId;
+    label: SourceRelevanceLabel | null;
+    labeledAt: Date;
+  }): Promise<ApplicationResult<SourceLabelOutcome>>;
 
   createSearchResult(
     input: SearchResultWriteInput

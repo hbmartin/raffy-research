@@ -64,6 +64,20 @@
       "when": 1780783863959,
       "tag": "0008_rare_sheva_callister",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781189958911,
+      "tag": "0009_shocking_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781189977214,
+      "tag": "0010_chemical_sister_grimm",
+      "breakpoints": true
     }
   ]
 }

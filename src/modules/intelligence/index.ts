@@ -1,4 +1,8 @@
 export {
+  buildEvalPrompt,
+  EVAL_PROMPT_VERSION,
+} from './application/generation/build-eval-prompt';
+export {
   buildRepairPrompt,
   buildReportPrompt,
   NO_RECOMMENDATION_GUIDANCE,
@@ -11,11 +15,11 @@ export {
   type GenerateWeeklyReportOutcome,
   type WeeklyReportGenerationDeps,
 } from './application/generation/generate-weekly-report';
-export type * from './application/ports/feedback-repository';
 export type * from './application/ports/ingestion-repository';
 export type * from './application/ports/provider-adapter';
 export type * from './application/ports/report-generator';
 export type * from './application/ports/report-repository';
+export type * from './application/ports/rubric-score-repository';
 export type * from './application/ports/source-repository';
 export type * from './application/ports/workspace-repository';
 export {
@@ -31,14 +35,14 @@ export {
 export type { IngestionDeps } from './application/use-cases/ingestion/types';
 export type { IntelligenceUseCaseDeps } from './application/use-cases/types';
 export type { WorkspaceConfig } from './application/use-cases/workspace-queries';
-export * from './domain/feedback';
 export * from './domain/ingestion';
 export * from './domain/local-ai';
 export * from './domain/period';
 export * from './domain/provider';
 export * from './domain/report';
 export * from './domain/report-data';
-export type * from './domain/source';
+export * from './domain/rubric';
+export * from './domain/source';
 export { isSafeHttpUrl, normalizeHttpUrl } from './domain/url';
 export * from './domain/workspace';
 export {
