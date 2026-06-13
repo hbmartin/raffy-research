@@ -1,7 +1,6 @@
 import { validateReportData } from '@/modules/intelligence';
 import { getDefaultDbClient } from '@/modules/kernel/infrastructure/db/client';
 import {
-  feedbackEvent,
   providerConfig,
   searchResult,
   sourceRecord,
@@ -423,14 +422,6 @@ export async function createWorkspaces() {
       topicClusterId: source.id === redditSource.id ? 'topic_1' : null,
     }))
   );
-
-  await db.insert(feedbackEvent).values({
-    workspaceId: ws.id,
-    reportId: report.id,
-    eventType: 'useful',
-    targetType: 'topic_cluster',
-    targetId: 'topic_1',
-  });
 
   console.log(`✅ Seeded workspace "${ws.name}" with a published report`);
 }

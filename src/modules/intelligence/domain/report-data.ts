@@ -26,7 +26,7 @@ const zOptionalHttpUrl = z.preprocess(
     .string()
     .trim()
     .refine(isSafeHttpUrl, { message: 'Must be an http(s) URL' })
-    .transform((value) => normalizeHttpUrl(value) as string)
+    .transform((value) => normalizeHttpUrl(value) ?? value)
     .optional()
 );
 

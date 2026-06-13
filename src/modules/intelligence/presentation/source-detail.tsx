@@ -1,11 +1,81 @@
-import { ExternalLinkIcon } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { CheckIcon, ExternalLinkIcon, Trash2Icon } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/platform/components/ui/badge';
 import { Button } from '@/platform/components/ui/button';
 
-import type { SourceRecord } from '../domain/source';
+import { intelligenceQueries } from './wired-queries';
+import type { SourceRecord, SourceRelevanceLabel } from '../domain/source';
 import { normalizeHttpUrl } from '../domain/url';
+
+const SourceLabelButtons = (props: { source: SourceRecord }) => {
+  const { source } = props;
+  const queryClient = useQueryClient();
+  const mutation = useMutation(intelligenceQueries.labelSource());
+
+  const setLabel = (label: SourceRelevanceLabel | null) => {
+    mutation.mutate(
+      {
+        workspaceId: source.workspaceId,
+        sourceRecordId: source.id,
+        label,
+      },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({
+            queryKey: intelligenceQueries.source(source.id).queryKey,
+          });
+        },
+        onError: () => {
+          toast.error('Could not update the source label');
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-muted-foreground">
+        Is this source worth keeping?
+      </span>
+      <Button
+        type="button"
+        variant={source.relevanceLabel === 'keep' ? 'default' : 'secondary'}
+        size="xs"
+        disabled={mutation.isPending}
+        onClick={() =>
+          setLabel(source.relevanceLabel === 'keep' ? null : 'keep')
+        }
+      >
+        <CheckIcon />
+        Keep
+      </Button>
+      <Button
+        type="button"
+        variant={
+          source.relevanceLabel === 'junk'
+            ? 'destructive'
+            : 'destructive-secondary'
+        }
+        size="xs"
+        disabled={mutation.isPending}
+        onClick={() =>
+          setLabel(source.relevanceLabel === 'junk' ? null : 'junk')
+        }
+      >
+        <Trash2Icon />
+        Junk
+      </Button>
+      {source.relevanceLabel === 'junk' ? (
+        <span className="text-xs text-muted-foreground">
+          Junk sources are left out of future reports.
+        </span>
+      ) : null}
+    </div>
+  );
+};
 
 const DiffBlock = (props: { added: string | null; removed: string | null }) => {
   if (!props.added && !props.removed) return null;
@@ -47,10 +117,20 @@ export const SourceDetail = (props: {
         <Badge variant="secondary" size="sm">
           {source.sourceType}
         </Badge>
+        {source.relevanceLabel ? (
+          <Badge
+            variant={source.relevanceLabel === 'keep' ? 'positive' : 'warning'}
+            size="sm"
+          >
+            {source.relevanceLabel === 'keep' ? 'Kept' : 'Junk'}
+          </Badge>
+        ) : null}
         <span className="text-xs text-muted-foreground">
           captured via {source.providerName}
         </span>
       </div>
+
+      <SourceLabelButtons source={source} />
 
       <div className="flex flex-wrap gap-2">
         {externalUrl ? (

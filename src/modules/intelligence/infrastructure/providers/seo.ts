@@ -88,7 +88,11 @@ export const semrushAdapter: ProviderAdapter = {
       if (text.trimStart().startsWith('ERROR:')) {
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
-          details: { provider: 'semrush', domain, error: text },
+          details: {
+            provider: 'semrush',
+            domain,
+            error: 'SEMrush returned an error response',
+          },
         });
         continue;
       }

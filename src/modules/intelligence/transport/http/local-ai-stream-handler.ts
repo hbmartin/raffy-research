@@ -3,12 +3,14 @@ import { z } from 'zod';
 
 import type { AuthUseCases } from '@/modules/auth';
 import {
+  buildEvalPrompt,
   computeWeeklyPeriod,
   generateWeeklyReport,
   handleProviderCallback,
   type IngestionDeps,
   type IngestionRepository,
   type IntelligenceUseCases,
+  type ReportRepository,
   runWorkspaceIngest,
   type SourceRecord,
   type SourceRepository,
@@ -24,49 +26,17 @@ import {
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-type LocalAiProviderName = 'codex-cli' | 'claude-code';
-
-type LocalAiNdjsonEvent = {
-  type: string;
-  runId: string;
-  action: string;
-  at: string;
-  label?: string;
-  provider?: LocalAiProviderName;
-  model?: string;
-  message?: string;
-  data?: JsonObject;
-  event?: JsonObject;
-  artifact?: JsonObject;
-};
-
-type LocalAiConfig = {
-  provider: LocalAiProviderName;
-  model: string;
-  rawOutputDir: string;
-  timeoutMs: number;
-};
-
-type LocalTextGenerator = (input: {
-  provider: LocalAiProviderName;
-  model: string;
-  prompt: string;
-  action: string;
-  label: string;
-  runId: string;
-  rawOutputDir: string;
-  abortSignal?: AbortSignal;
-  onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
-}) => Promise<{
-  text: string;
-  modelName: string;
-  modelProvider: LocalAiProviderName;
-  metadata: JsonObject;
-}>;
+import type {
+  LocalAiConfig,
+  LocalAiNdjsonEvent,
+  LocalAiProviderName,
+  LocalTextGenerator,
+} from '../../domain/local-ai';
 
 type LocalAiRepositories = {
   workspaceRepository: WorkspaceRepository;
   sourceRepository: SourceRepository;
+  reportRepository: ReportRepository;
   ingestionRepository: IngestionRepository;
 };
 
@@ -98,6 +68,7 @@ const zLocalAiAction = z.enum([
   'reprocess_callbacks',
   'summarize_sources',
   'generate_report',
+  'evaluate_report',
   'full_workflow',
 ]);
 
@@ -431,6 +402,87 @@ async function reprocessCallbacks(
   };
 }
 
+/**
+ * LLM-judge pass over the workspace's latest published report: claims are
+ * checked against the report period's source records. The verdict is only
+ * streamed back (and captured in raw-output files); nothing is persisted.
+ */
+async function evaluateLatestReport(
+  deps: LocalAiStreamHandlerDeps,
+  input: {
+    data: LocalAiRequest;
+    runId: string;
+    provider: LocalAiProviderName;
+    model: string;
+    rawOutputDir: string;
+    abortSignal: AbortSignal;
+    emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
+  }
+) {
+  const repositories = deps.getRepositories();
+  const latest = await repositories.reportRepository.getLatestPublished(
+    input.data.workspaceId
+  );
+  if (latest.isError()) throw latest.getError();
+  const latestOutcome = latest.get();
+  if (latestOutcome.type === 'report_none') {
+    throw new AppError({
+      code: 'LOCAL_AI_NO_PUBLISHED_REPORT',
+      category: 'not_found',
+      status: 404,
+      message: 'No published report to evaluate for this workspace',
+    });
+  }
+  const report = latestOutcome.report;
+
+  const sources = await repositories.sourceRepository.listForPeriod({
+    workspaceId: input.data.workspaceId,
+    periodStart: report.periodStart,
+    periodEnd: report.periodEnd,
+  });
+  if (sources.isError()) throw sources.getError();
+
+  await input.emit({
+    type: 'step',
+    runId: input.runId,
+    action: input.data.action,
+    label: 'report-eval',
+    message: 'report_evaluation_started',
+    at: nowIso(),
+    data: { reportId: report.id, sources: sources.get().length },
+  });
+
+  const result = await deps.generateLocalText({
+    provider: input.provider,
+    model: input.model,
+    prompt: buildEvalPrompt({ report, sources: sources.get() }),
+    action: input.data.action,
+    label: `report-eval-${report.id}`,
+    runId: input.runId,
+    rawOutputDir: input.rawOutputDir,
+    abortSignal: input.abortSignal,
+    onEvent: input.emit,
+  });
+
+  const verdict = extractJsonObject(result.text);
+  await input.emit({
+    type: 'artifact',
+    runId: input.runId,
+    action: input.data.action,
+    label: 'report-eval',
+    artifact: {
+      kind: 'report_evaluation',
+      reportId: report.id,
+      modelName: result.modelName,
+      modelProvider: result.modelProvider,
+      evaluation: verdict ?? result.text,
+    },
+    at: nowIso(),
+  });
+
+  return { reportId: report.id, parsedVerdict: verdict !== null };
+}
+
 async function runAction(
   deps: LocalAiStreamHandlerDeps,
   input: {
@@ -465,6 +517,10 @@ async function runAction(
       at: nowIso(),
     });
     return { sources: listed.sources.length };
+  }
+
+  if (input.data.action === 'evaluate_report') {
+    return evaluateLatestReport(deps, input);
   }
 
   if (

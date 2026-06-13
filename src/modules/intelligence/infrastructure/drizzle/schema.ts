@@ -169,6 +169,8 @@ export const sourceRecord = pgTable(
     diffRemovedText: text('diffRemovedText'),
     rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
     metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
+    relevanceLabel: text('relevanceLabel').$type<'keep' | 'junk'>(),
+    labeledAt: timestamp('labeledAt', { precision: 3, mode: 'date' }),
   },
   (table) => [
     index('sourceRecord_workspaceId_idx').on(table.workspaceId),
@@ -310,31 +312,31 @@ export const weeklyReportSource = pgTable(
   ]
 );
 
-/** Append-only CEO feedback interactions. */
-export const feedbackEvent = pgTable(
-  'feedbackEvent',
+/** Analyst rubric scores for published reports. One row per report+user, updated on re-score. */
+export const reportRubricScore = pgTable(
+  'reportRubricScore',
   {
     id: idColumn(),
     createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
     workspaceId: text('workspaceId')
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
-    reportId: text('reportId').references(() => weeklyReport.id, {
-      onDelete: 'set null',
-    }),
-    userId: text('userId'),
-    eventType: text('eventType').notNull(),
-    targetType: text('targetType'),
-    targetId: text('targetId'),
-    sourceRecordId: text('sourceRecordId').references(() => sourceRecord.id, {
-      onDelete: 'set null',
-    }),
-    payload: jsonb('payload').$type<JsonMetadata>().notNull().default({}),
+    reportId: text('reportId')
+      .notNull()
+      .references(() => weeklyReport.id, { onDelete: 'cascade' }),
+    userId: text('userId').notNull(),
+    relevance: integer('relevance').notNull(),
+    accuracy: integer('accuracy').notNull(),
+    novelty: integer('novelty').notNull(),
+    note: text('note'),
   },
   (table) => [
-    index('feedbackEvent_workspaceId_idx').on(table.workspaceId),
-    index('feedbackEvent_reportId_idx').on(table.reportId),
-    index('feedbackEvent_sourceRecordId_idx').on(table.sourceRecordId),
+    index('reportRubricScore_workspaceId_idx').on(table.workspaceId),
+    uniqueIndex('reportRubricScore_report_user_idx').on(
+      table.reportId,
+      table.userId
+    ),
   ]
 );
 

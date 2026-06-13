@@ -206,8 +206,8 @@ const DevAiConsole = (props: {
       } finally {
         if (abortControllerRef.current === abortController) {
           abortControllerRef.current = null;
+          setRunningAction(null);
         }
-        setRunningAction(null);
       }
     },
     [
@@ -367,6 +367,14 @@ const DevAiConsole = (props: {
             onClick={() => void runAction('full_workflow')}
           >
             Full workflow
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isRunning}
+            onClick={() => void runAction('evaluate_report')}
+          >
+            Evaluate report
           </Button>
           {isRunning ? (
             <Button

@@ -16,8 +16,8 @@ export const permissionStatements = {
   session: ['list', 'revoke', 'delete'],
   account: ['read', 'update'],
   apps: ['app', 'manager'],
-  report: ['read'],
-  feedback: ['create'],
+  report: ['read', 'score'],
+  source: ['label'],
   workspace: ['read', 'create', 'update'],
 } as const;
 
@@ -33,8 +33,8 @@ export const rolePermissions = {
     session: [],
     account: ['update'],
     apps: ['app'],
-    report: ['read'],
-    feedback: ['create'],
+    report: ['read', 'score'],
+    source: ['label'],
     workspace: ['read'],
   },
   admin: {
@@ -50,8 +50,8 @@ export const rolePermissions = {
     session: ['list', 'revoke', 'delete'],
     account: ['update'],
     apps: ['app', 'manager'],
-    report: ['read'],
-    feedback: ['create'],
+    report: ['read', 'score'],
+    source: ['label'],
     workspace: ['read', 'create', 'update'],
   },
 } as const satisfies Record<UserRole, Permission>;
@@ -86,7 +86,7 @@ export const hasRolePermission = (role: Role, permissions: Permission) => {
 export const defaultUserPermissions = {
   account: ['update'],
   apps: ['app'],
-  report: ['read'],
-  feedback: ['create'],
+  report: ['read', 'score'],
+  source: ['label'],
   workspace: ['read'],
 } as const satisfies Permission;

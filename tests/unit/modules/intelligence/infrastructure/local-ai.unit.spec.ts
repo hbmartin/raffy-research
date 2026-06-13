@@ -107,6 +107,47 @@ describe('local AI text generation', () => {
     });
   });
 
+  it('preserves abort errors instead of wrapping them as generation failures', async () => {
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+    const abortController = new AbortController();
+    const events: Array<{ type: string; message?: string }> = [];
+    abortController.abort('cancelled by user');
+
+    await expect(
+      generateLocalText({
+        provider: 'codex-cli',
+        model: 'gpt-5-codex',
+        prompt: 'Return JSON',
+        action: 'summarize_sources',
+        label: 'source-summary',
+        runId: 'run-aborted',
+        rawOutputDir,
+        abortSignal: abortController.signal,
+        onEvent: (event) => {
+          events.push({
+            type: event.type,
+            message: 'message' in event ? event.message : undefined,
+          });
+        },
+      })
+    ).rejects.toMatchObject({
+      code: 'LOCAL_AI_GENERATION_ABORTED',
+      status: 499,
+      message: 'cancelled by user',
+    });
+
+    expect(mocks.streamText).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'error',
+          message: 'cancelled by user',
+        }),
+      ])
+    );
+  });
+
   it('configures claude code with no write, bash, read, or web tools', async () => {
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');

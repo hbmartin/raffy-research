@@ -312,7 +312,12 @@ export const pageWithUtils: CustomFixture<Page & PageUtils> = async (
       emailInputMatches: (await emailInput.inputValue()) === input.email,
     });
 
-    const password = input.password ?? process.env.DEMO_SEED_PASSWORD ?? '';
+    const password = input.password ?? process.env.DEMO_SEED_PASSWORD;
+    if (!password) {
+      throw new Error(
+        'page.login requires a password or DEMO_SEED_PASSWORD to be set.'
+      );
+    }
     const passwordInput = page.getByPlaceholder(
       locales[DEFAULT_LANGUAGE_KEY].auth.common.password.label
     );

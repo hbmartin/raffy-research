@@ -23,7 +23,9 @@ export type IntelligenceQueryFacade = ServerFunctionFacade<
     | 'intelligenceListReports'
     | 'intelligenceListWorkspaces'
     | 'intelligenceListProviderCallbacks'
-    | 'intelligenceRecordFeedback'
+    | 'intelligenceScoreReport'
+    | 'intelligenceGetReportScore'
+    | 'intelligenceLabelSource'
   >
 >;
 
@@ -100,10 +102,25 @@ export const createIntelligenceQueries = <
           data: { workspaceId, limit },
         }),
     }),
-  recordFeedback: () =>
+  reportScore: (reportId: WeeklyReportId) =>
+    queryOptions({
+      queryKey: [
+        'intelligence',
+        intelligenceQueryVersion,
+        'reportScore',
+        reportId,
+      ],
+      queryFn: () => facade.intelligenceGetReportScore({ data: { reportId } }),
+    }),
+  scoreReport: () =>
     serverMutationOptions({
-      mutationKey: ['intelligence', intelligenceQueryVersion, 'recordFeedback'],
-      mutationFn: facade.intelligenceRecordFeedback,
+      mutationKey: ['intelligence', intelligenceQueryVersion, 'scoreReport'],
+      mutationFn: facade.intelligenceScoreReport,
+    }),
+  labelSource: () =>
+    serverMutationOptions({
+      mutationKey: ['intelligence', intelligenceQueryVersion, 'labelSource'],
+      mutationFn: facade.intelligenceLabelSource,
     }),
 });
 

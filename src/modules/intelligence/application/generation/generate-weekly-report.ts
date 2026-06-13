@@ -92,12 +92,24 @@ export async function generateWeeklyReport(
   if (sources.isError()) return Result.Error(sources.getError());
   if (priorReports.isError()) return Result.Error(priorReports.getError());
 
+  // Analyst-labelled junk never reaches the prompt or the citation link map.
+  const usableSources = sources
+    .get()
+    .filter((source) => source.relevanceLabel !== 'junk');
+  const junkCount = sources.get().length - usableSources.length;
+  if (junkCount > 0) {
+    deps.logger.info({
+      event: 'intelligence.report.junk_sources_excluded',
+      details: { workspaceId: workspace.id, junkCount },
+    });
+  }
+
   let sourceSummaries: SourceSummary[] = [];
-  if (input.includeSourceSummaries && sources.get().length > 0) {
+  if (input.includeSourceSummaries && usableSources.length > 0) {
     const sourceSummariesResult =
       await deps.sourceRepository.listLatestSummariesForSources({
         workspaceId: workspace.id,
-        sourceRecordIds: sources.get().map((source) => source.id),
+        sourceRecordIds: usableSources.map((source) => source.id),
       });
     if (sourceSummariesResult.isError()) {
       return Result.Error(sourceSummariesResult.getError());
@@ -116,7 +128,7 @@ export async function generateWeeklyReport(
     keywords: keywords.get(),
     competitors: competitors.get(),
     socialAccounts: social.get(),
-    sources: sources.get(),
+    sources: usableSources,
     sourceSummaries,
     priorReports: priorReports.get(),
     periodStartLabel,
@@ -236,7 +248,7 @@ export async function generateWeeklyReport(
 
   // Link cited / relevant-but-unused sources that exist in this period.
   const sourceById = new Map(
-    sources.get().map((source) => [source.id as string, source.id])
+    usableSources.map((source) => [source.id as string, source.id])
   );
   const links = reportData.source_library
     .map((item) => {
@@ -346,6 +358,8 @@ async function findReusableFailedReport(
   const reports = await deps.reportRepository.listByWorkspace(
     input.workspace.id,
     {
+      // Best-effort reuse keeps failure recording bounded; older failed rows may
+      // fall outside this recent window.
       limit: 20,
     }
   );
