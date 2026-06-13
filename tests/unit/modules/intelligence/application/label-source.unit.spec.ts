@@ -3,25 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createIntelligenceUseCases,
-  type FeedbackEvent,
   type IntelligenceUseCaseDeps,
   type SourceRecord,
-  type WeeklyReport,
 } from '@/modules/intelligence';
-import {
-  toFeedbackEventId,
-  toSourceRecordId,
-  toUserId,
-  toWeeklyReportId,
-  toWorkspaceId,
-} from '@/modules/kernel';
+import { toSourceRecordId, toUserId, toWorkspaceId } from '@/modules/kernel';
 import type { Logger } from '@/modules/kernel/application/ports/logger';
 
 const now = new Date('2026-06-01T00:00:00.000Z');
 const workspaceId = toWorkspaceId('ws-1');
 const otherWorkspaceId = toWorkspaceId('ws-2');
 const userId = toUserId('user-1');
-const reportId = toWeeklyReportId('report-1');
 const sourceRecordId = toSourceRecordId('source-1');
 
 const makeLogger = (): Logger => ({
@@ -30,23 +21,6 @@ const makeLogger = (): Logger => ({
   warn: vi.fn<Logger['warn']>(),
   error: vi.fn<Logger['error']>(),
 });
-
-const report = {
-  id: reportId,
-  workspaceId,
-  periodStart: now,
-  periodEnd: now,
-  timezone: 'UTC',
-  status: 'published',
-  generatedAt: now,
-  publishedAt: now,
-  title: 'Report',
-  reportData: null,
-  modelMetadata: null,
-  failureReason: null,
-  createdAt: now,
-  updatedAt: now,
-} satisfies WeeklyReport;
 
 const sourceRecord = {
   id: sourceRecordId,
@@ -68,52 +42,34 @@ const sourceRecord = {
   diffRemovedText: null,
   rawPayload: null,
   metadata: null,
+  relevanceLabel: null,
+  labeledAt: null,
   createdAt: now,
   updatedAt: now,
 } satisfies SourceRecord;
-
-const feedbackEvent = {
-  id: toFeedbackEventId('feedback-1'),
-  workspaceId,
-  reportId,
-  userId,
-  eventType: 'copy_excerpt',
-  targetType: 'evidence',
-  targetId: null,
-  sourceRecordId,
-  payload: null,
-  createdAt: now,
-} satisfies FeedbackEvent;
-
-function expectOkType(
-  result: Awaited<
-    ReturnType<ReturnType<typeof createIntelligenceUseCases>['recordFeedback']>
-  >
-) {
-  if (result.isError()) throw result.getError();
-  return result.get().type;
-}
 
 function makeDeps(
   overrides: Partial<IntelligenceUseCaseDeps> = {}
 ): IntelligenceUseCaseDeps {
   const deps = {
-    workspaceRepository: {
-      setCompetitorState: vi.fn(),
-    },
+    workspaceRepository: {},
     sourceRepository: {
       getById: vi.fn(async () =>
         Result.Ok({ type: 'source_record_found' as const, sourceRecord })
       ),
-    },
-    reportRepository: {
-      getById: vi.fn(async () =>
-        Result.Ok({ type: 'report_found' as const, report })
+      setRelevanceLabel: vi.fn(async () =>
+        Result.Ok({
+          type: 'source_labeled' as const,
+          sourceRecord: {
+            ...sourceRecord,
+            relevanceLabel: 'junk' as const,
+            labeledAt: now,
+          },
+        })
       ),
     },
-    feedbackRepository: {
-      create: vi.fn(async () => Result.Ok(feedbackEvent)),
-    },
+    reportRepository: {},
+    rubricScoreRepository: {},
     ingestionRepository: {},
     permissionChecker: {
       hasPermission: vi.fn(async () =>
@@ -128,46 +84,75 @@ function makeDeps(
   return { ...deps, ...overrides };
 }
 
-describe('recordFeedback', () => {
-  it('does not record feedback when the report belongs to another workspace', async () => {
+function expectOkType(
+  result: Awaited<
+    ReturnType<ReturnType<typeof createIntelligenceUseCases>['labelSource']>
+  >
+) {
+  if (result.isError()) throw result.getError();
+  return result.get().type;
+}
+
+describe('labelSource', () => {
+  it('labels a source in the requested workspace', async () => {
+    const deps = makeDeps();
+    const useCases = createIntelligenceUseCases(deps);
+
+    const result = await useCases.labelSource({
+      currentUserId: userId,
+      workspaceId,
+      sourceRecordId,
+      label: 'junk',
+    });
+
+    expect(expectOkType(result)).toBe('source_labeled');
+    expect(deps.sourceRepository.setRelevanceLabel).toHaveBeenCalledWith({
+      workspaceId,
+      sourceRecordId,
+      label: 'junk',
+      labeledAt: now,
+    });
+  });
+
+  it('does not label a source from another workspace', async () => {
     const deps = makeDeps({
-      reportRepository: {
-        ...makeDeps().reportRepository,
+      sourceRepository: {
+        ...makeDeps().sourceRepository,
         getById: vi.fn(async () =>
           Result.Ok({
-            type: 'report_found' as const,
-            report: { ...report, workspaceId: otherWorkspaceId },
+            type: 'source_record_found' as const,
+            sourceRecord: { ...sourceRecord, workspaceId: otherWorkspaceId },
           })
         ),
       },
     });
     const useCases = createIntelligenceUseCases(deps);
 
-    const result = await useCases.recordFeedback({
+    const result = await useCases.labelSource({
       currentUserId: userId,
       workspaceId,
-      reportId,
-      eventType: 'copy_excerpt',
+      sourceRecordId,
+      label: 'keep',
     });
 
     expect(expectOkType(result)).toBe('forbidden');
-    expect(deps.feedbackRepository.create).not.toHaveBeenCalled();
+    expect(deps.sourceRepository.setRelevanceLabel).not.toHaveBeenCalled();
   });
 
-  it('records feedback when report and source are in the requested workspace', async () => {
+  it('clears a label with null', async () => {
     const deps = makeDeps();
     const useCases = createIntelligenceUseCases(deps);
 
-    const result = await useCases.recordFeedback({
+    const result = await useCases.labelSource({
       currentUserId: userId,
       workspaceId,
-      reportId,
       sourceRecordId,
-      eventType: 'copy_excerpt',
-      targetType: 'evidence',
+      label: null,
     });
 
-    expect(expectOkType(result)).toBe('feedback_recorded');
-    expect(deps.feedbackRepository.create).toHaveBeenCalledOnce();
+    expect(expectOkType(result)).toBe('source_labeled');
+    expect(deps.sourceRepository.setRelevanceLabel).toHaveBeenCalledWith(
+      expect.objectContaining({ label: null })
+    );
   });
 });

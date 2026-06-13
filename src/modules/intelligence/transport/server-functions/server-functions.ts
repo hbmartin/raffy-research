@@ -10,10 +10,12 @@ import type { ProtectedContext } from '@/modules/auth/backend';
 import {
   createIntelligenceHandlers,
   type IntelligenceHandlers,
+  zLabelSourceInput,
   zListProviderCallbacksInput,
-  zRecordFeedbackInput,
   zReportByIdInput,
+  zReportScoreInput,
   zReportSourcesInput,
+  zScoreReportInput,
   zSourceByIdInput,
   zWorkspaceConfigInput,
 } from '../http/intelligence-handlers';
@@ -135,12 +137,30 @@ export const intelligenceListProviderCallbacks = createServerFn({
     )
   );
 
-export const intelligenceRecordFeedback = createServerFn({ method: 'POST' })
-  .inputValidator(zRecordFeedbackInput())
+export const intelligenceScoreReport = createServerFn({ method: 'POST' })
+  .inputValidator(zScoreReportInput())
   .handler(async ({ data }) =>
-    runMutation.withOperation('intelligence.recordFeedback')(
+    runMutation.withOperation('intelligence.scoreReport')(
       data,
-      ({ handlers }, ctx, input) => handlers.recordFeedback(ctx, input)
+      ({ handlers }, ctx, input) => handlers.scoreReport(ctx, input)
+    )
+  );
+
+export const intelligenceGetReportScore = createServerFn({ method: 'GET' })
+  .inputValidator(zReportScoreInput())
+  .handler(async ({ data }) =>
+    runProtected.withOperation('intelligence.getReportScore')(
+      data,
+      ({ handlers }, ctx, input) => handlers.getReportScore(ctx, input)
+    )
+  );
+
+export const intelligenceLabelSource = createServerFn({ method: 'POST' })
+  .inputValidator(zLabelSourceInput())
+  .handler(async ({ data }) =>
+    runMutation.withOperation('intelligence.labelSource')(
+      data,
+      ({ handlers }, ctx, input) => handlers.labelSource(ctx, input)
     )
   );
 
@@ -153,5 +173,7 @@ export type IntelligenceServerFunctions = {
   intelligenceGetWorkspaceConfig: typeof intelligenceGetWorkspaceConfig;
   intelligenceListReports: typeof intelligenceListReports;
   intelligenceListProviderCallbacks: typeof intelligenceListProviderCallbacks;
-  intelligenceRecordFeedback: typeof intelligenceRecordFeedback;
+  intelligenceScoreReport: typeof intelligenceScoreReport;
+  intelligenceGetReportScore: typeof intelligenceGetReportScore;
+  intelligenceLabelSource: typeof intelligenceLabelSource;
 };

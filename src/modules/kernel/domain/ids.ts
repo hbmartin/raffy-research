@@ -45,8 +45,7 @@ export const zSourceSummaryIdSchema =
   zBrandedNonEmptyString<'SourceSummaryId'>();
 export const zWeeklyReportIdSchema = zBrandedNonEmptyString<'WeeklyReportId'>();
 export const zReportSourceIdSchema = zBrandedNonEmptyString<'ReportSourceId'>();
-export const zFeedbackEventIdSchema =
-  zBrandedNonEmptyString<'FeedbackEventId'>();
+export const zRubricScoreIdSchema = zBrandedNonEmptyString<'RubricScoreId'>();
 export const zIngestionRunIdSchema = zBrandedNonEmptyString<'IngestionRunId'>();
 export const zProviderCallbackEventIdSchema =
   zBrandedNonEmptyString<'ProviderCallbackEventId'>();
@@ -77,7 +76,7 @@ export type SearchResultId = z.infer<typeof zSearchResultIdSchema>;
 export type SourceSummaryId = z.infer<typeof zSourceSummaryIdSchema>;
 export type WeeklyReportId = z.infer<typeof zWeeklyReportIdSchema>;
 export type ReportSourceId = z.infer<typeof zReportSourceIdSchema>;
-export type FeedbackEventId = z.infer<typeof zFeedbackEventIdSchema>;
+export type RubricScoreId = z.infer<typeof zRubricScoreIdSchema>;
 export type IngestionRunId = z.infer<typeof zIngestionRunIdSchema>;
 export type ProviderCallbackEventId = z.infer<
   typeof zProviderCallbackEventIdSchema
@@ -169,8 +168,8 @@ export const toWeeklyReportId = (value: string): WeeklyReportId =>
   parseBrandedString(zWeeklyReportIdSchema, value, 'WeeklyReportId');
 export const toReportSourceId = (value: string): ReportSourceId =>
   parseBrandedString(zReportSourceIdSchema, value, 'ReportSourceId');
-export const toFeedbackEventId = (value: string): FeedbackEventId =>
-  parseBrandedString(zFeedbackEventIdSchema, value, 'FeedbackEventId');
+export const toRubricScoreId = (value: string): RubricScoreId =>
+  parseBrandedString(zRubricScoreIdSchema, value, 'RubricScoreId');
 export const toIngestionRunId = (value: string): IngestionRunId =>
   parseBrandedString(zIngestionRunIdSchema, value, 'IngestionRunId');
 export const toProviderCallbackEventId = (
@@ -214,6 +213,6 @@ export const zSearchResultId = () => zSearchResultIdSchema;
 export const zSourceSummaryId = () => zSourceSummaryIdSchema;
 export const zWeeklyReportId = () => zWeeklyReportIdSchema;
 export const zReportSourceId = () => zReportSourceIdSchema;
-export const zFeedbackEventId = () => zFeedbackEventIdSchema;
+export const zRubricScoreId = () => zRubricScoreIdSchema;
 export const zIngestionRunId = () => zIngestionRunIdSchema;
 export const zProviderCallbackEventId = () => zProviderCallbackEventIdSchema;

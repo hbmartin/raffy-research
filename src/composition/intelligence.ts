@@ -1,16 +1,16 @@
 import {
   createIntelligenceUseCases,
-  type FeedbackRepository,
   type IngestionRepository,
   type IntelligenceUseCases,
   type ReportRepository,
+  type RubricScoreRepository,
   type SourceRepository,
   type WorkspaceRepository,
 } from '@/modules/intelligence';
 import {
-  createFeedbackRepository,
   createIngestionRepository,
   createReportRepository,
+  createRubricScoreRepository,
   createSourceRepository,
   createWorkspaceRepository,
 } from '@/modules/intelligence/backend';
@@ -23,7 +23,7 @@ export type IntelligenceRepositories = {
   workspaceRepository: WorkspaceRepository;
   sourceRepository: SourceRepository;
   reportRepository: ReportRepository;
-  feedbackRepository: FeedbackRepository;
+  rubricScoreRepository: RubricScoreRepository;
   ingestionRepository: IngestionRepository;
 };
 
@@ -41,8 +41,8 @@ const buildRepositories = (
     overrides?.sourceRepository ?? createSourceRepository({ db }),
   reportRepository:
     overrides?.reportRepository ?? createReportRepository({ db }),
-  feedbackRepository:
-    overrides?.feedbackRepository ?? createFeedbackRepository({ db }),
+  rubricScoreRepository:
+    overrides?.rubricScoreRepository ?? createRubricScoreRepository({ db }),
   ingestionRepository:
     overrides?.ingestionRepository ?? createIngestionRepository({ db }),
 });

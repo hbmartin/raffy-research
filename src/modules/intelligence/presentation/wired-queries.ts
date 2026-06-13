@@ -5,13 +5,15 @@ import {
 import {
   intelligenceGetLatestReport,
   intelligenceGetReport,
+  intelligenceGetReportScore,
   intelligenceGetReportSources,
   intelligenceGetSource,
   intelligenceGetWorkspaceConfig,
+  intelligenceLabelSource,
   intelligenceListProviderCallbacks,
   intelligenceListReports,
   intelligenceListWorkspaces,
-  intelligenceRecordFeedback,
+  intelligenceScoreReport,
 } from '../server';
 
 export const intelligenceQueries = createIntelligenceQueries({
@@ -23,5 +25,7 @@ export const intelligenceQueries = createIntelligenceQueries({
   intelligenceListReports,
   intelligenceListWorkspaces,
   intelligenceListProviderCallbacks,
-  intelligenceRecordFeedback,
+  intelligenceScoreReport,
+  intelligenceGetReportScore,
+  intelligenceLabelSource,
 } satisfies IntelligenceQueryFacade);

@@ -1,102 +1,12 @@
-import {
-  CopyIcon,
-  ExternalLinkIcon,
-  FlagIcon,
-  StarIcon,
-  ThumbsDownIcon,
-  ThumbsUpIcon,
-} from 'lucide-react';
+import { CopyIcon, ExternalLinkIcon } from 'lucide-react';
 
 import { Button } from '@/platform/components/ui/button';
 
-import { toSourceRecordId } from '@/modules/kernel/domain/ids';
-
-import type { RecordFeedbackArgs } from './use-report-feedback';
 import type { EvidenceItem } from '../domain/report-data';
 
 export type EvidenceActions = {
-  record: (args: RecordFeedbackArgs) => void;
-  copyExcerpt: (
-    text: string,
-    sourceRecordId?: ReturnType<typeof toSourceRecordId>
-  ) => void;
+  copyExcerpt: (text: string) => void;
   onOpenSource: (sourceId: string) => void;
-};
-
-const FeedbackButtons = (props: {
-  actions: EvidenceActions;
-  targetType: string;
-  targetId: string;
-  sourceId?: string;
-  allowFlag?: boolean;
-}) => {
-  const sourceRecordId = props.sourceId
-    ? toSourceRecordId(props.sourceId)
-    : undefined;
-  const base = {
-    targetType: props.targetType,
-    targetId: props.targetId,
-    sourceRecordId,
-  };
-  return (
-    <div className="flex items-center gap-0.5">
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Useful"
-        title="Useful"
-        onClick={() => props.actions.record({ ...base, eventType: 'useful' })}
-      >
-        <ThumbsUpIcon />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Not useful"
-        title="Not useful"
-        onClick={() =>
-          props.actions.record({ ...base, eventType: 'not_useful' })
-        }
-      >
-        <ThumbsDownIcon />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="More like this"
-        title="More like this"
-        onClick={() =>
-          props.actions.record({ ...base, eventType: 'more_like_this' })
-        }
-      >
-        <StarIcon />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label="Less like this"
-        title="Less like this"
-        onClick={() =>
-          props.actions.record({ ...base, eventType: 'less_like_this' })
-        }
-      >
-        <ThumbsDownIcon className="opacity-50" />
-      </Button>
-      {props.allowFlag ? (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Flag bad synthesis"
-          title="Flag bad synthesis"
-          onClick={() =>
-            props.actions.record({ ...base, eventType: 'flag_bad_synthesis' })
-          }
-        >
-          <FlagIcon />
-        </Button>
-      ) : null}
-    </div>
-  );
 };
 
 const EvidenceRow = (props: {
@@ -136,22 +46,10 @@ const EvidenceRow = (props: {
             size="icon-xs"
             aria-label="Copy excerpt"
             title="Copy excerpt"
-            onClick={() =>
-              actions.copyExcerpt(
-                evidence.excerpt,
-                primarySourceId ? toSourceRecordId(primarySourceId) : undefined
-              )
-            }
+            onClick={() => actions.copyExcerpt(evidence.excerpt)}
           >
             <CopyIcon />
           </Button>
-          <FeedbackButtons
-            actions={actions}
-            targetType="evidence"
-            targetId={evidence.id}
-            sourceId={primarySourceId}
-            allowFlag
-          />
         </div>
       </div>
     </li>
@@ -175,5 +73,3 @@ export const EvidenceList = (props: {
     </ul>
   );
 };
-
-export { FeedbackButtons };

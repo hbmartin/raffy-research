@@ -31,6 +31,7 @@ import type {
   SearchResultWriteInput,
   SourceRecord,
   SourceRecordWriteInput,
+  SourceRelevanceLabel,
   SourceSummary,
 } from '../../domain/source';
 import { normalizeHttpUrl } from '../../domain/url';
@@ -98,6 +99,8 @@ const toSourceRecord = (row: SourceRow): SourceRecord => ({
   diffRemovedText: row.diffRemovedText,
   rawPayload: row.rawPayload,
   metadata: row.metadata ?? null,
+  relevanceLabel: row.relevanceLabel,
+  labeledAt: row.labeledAt,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
@@ -303,6 +306,39 @@ export class SourceRepositoryDrizzle implements SourceRepository {
       return Result.Error(
         mapIntelligenceDbError(error, 'SOURCE_LIST_PERIOD_ERROR')
       );
+    }
+  }
+
+  async setRelevanceLabel(input: {
+    workspaceId: WorkspaceId;
+    sourceRecordId: SourceRecordId;
+    label: SourceRelevanceLabel | null;
+    labeledAt: Date;
+  }) {
+    try {
+      const [updated] = await this.db
+        .update(sourceRecordTable)
+        .set({
+          relevanceLabel: input.label,
+          labeledAt: input.label === null ? null : input.labeledAt,
+        })
+        .where(
+          and(
+            eq(sourceRecordTable.id, input.sourceRecordId),
+            eq(sourceRecordTable.workspaceId, input.workspaceId)
+          )
+        )
+        .returning();
+      return Result.Ok(
+        updated
+          ? ({
+              type: 'source_labeled',
+              sourceRecord: toSourceRecord(updated),
+            } as const)
+          : ({ type: 'source_record_not_found' } as const)
+      );
+    } catch (error) {
+      return Result.Error(mapIntelligenceDbError(error, 'SOURCE_LABEL_ERROR'));
     }
   }
 

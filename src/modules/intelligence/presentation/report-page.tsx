@@ -1,5 +1,6 @@
-import { ChevronDownIcon, PlusIcon } from 'lucide-react';
+import { ChevronDownIcon } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { toast } from 'sonner';
 
 import { Badge } from '@/platform/components/ui/badge';
 import { Button } from '@/platform/components/ui/button';
@@ -13,8 +14,8 @@ import {
 import { Separator } from '@/platform/components/ui/separator';
 
 import { type EvidenceActions, EvidenceList } from './report-evidence';
+import { RubricScorePanel } from './rubric-score-panel';
 import { SourcePanel } from './source-panel';
-import { useReportFeedback } from './use-report-feedback';
 import type { WeeklyReport } from '../domain/report';
 import type {
   NewnessLabelValue,
@@ -137,29 +138,19 @@ const TopicClusterCard = (props: {
 const SuggestedCompetitorCard = (props: {
   competitor: SuggestedCompetitor;
   actions: EvidenceActions;
-  onAdd: (competitorId: string) => void;
 }) => {
   const { competitor } = props;
-  const competitorId = competitor.competitor_id;
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            {competitor.name}
-            {competitor.domain ? (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {competitor.domain}
-              </span>
-            ) : null}
-          </CardTitle>
-          {competitorId ? (
-            <Button size="sm" onClick={() => props.onAdd(competitorId)}>
-              <PlusIcon />
-              Add to watchlist
-            </Button>
+        <CardTitle className="text-base">
+          {competitor.name}
+          {competitor.domain ? (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              {competitor.domain}
+            </span>
           ) : null}
-        </div>
+        </CardTitle>
         <CardDescription>{competitor.why_suggested}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -181,16 +172,15 @@ export type ReportPageBodyProps = {
 
 export const ReportPageBody = (props: ReportPageBodyProps) => {
   const { report } = props;
-  const feedback = useReportFeedback({
-    workspaceId: report.workspaceId,
-    reportId: report.id,
-  });
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
 
   const actions: EvidenceActions = {
-    record: feedback.record,
-    copyExcerpt: (text, sourceRecordId) =>
-      void feedback.copyExcerpt(text, sourceRecordId),
+    copyExcerpt: (text) => {
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => toast.success('Excerpt copied'))
+        .catch(() => toast.error('Could not copy excerpt'));
+    },
     onOpenSource: (id) => setSelectedSourceId(id),
   };
 
@@ -329,13 +319,6 @@ export const ReportPageBody = (props: ReportPageBodyProps) => {
                   key={competitor.id}
                   competitor={competitor}
                   actions={actions}
-                  onAdd={(competitorId) =>
-                    feedback.record({
-                      eventType: 'add_competitor_to_watchlist',
-                      targetType: 'competitor',
-                      targetId: competitorId,
-                    })
-                  }
                 />
               ))}
             </>
@@ -449,6 +432,8 @@ export const ReportPageBody = (props: ReportPageBodyProps) => {
           ))}
         </ul>
       </SectionShell>
+
+      <RubricScorePanel workspaceId={report.workspaceId} reportId={report.id} />
 
       <SourcePanel
         sourceId={selectedSourceId}

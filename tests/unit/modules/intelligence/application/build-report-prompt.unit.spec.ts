@@ -45,6 +45,8 @@ const source = {
   diffRemovedText: null,
   rawPayload: null,
   metadata: null,
+  relevanceLabel: null,
+  labeledAt: null,
   createdAt: now,
   updatedAt: now,
 };
