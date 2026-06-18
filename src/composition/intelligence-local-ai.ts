@@ -60,6 +60,7 @@ function buildGenerationDeps(
       model: input.model,
       rawOutputDir: input.rawOutputDir,
       runId: input.runId,
+      ollamaBaseUrl: input.ollamaBaseUrl,
       action: input.action,
       abortSignal: input.abortSignal,
       onEvent: input.emit,

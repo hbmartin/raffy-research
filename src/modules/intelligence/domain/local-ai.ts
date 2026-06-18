@@ -1,6 +1,10 @@
 import type { JsonObject } from '@/modules/kernel/domain/json';
 
-export const LOCAL_AI_PROVIDERS = ['codex-cli', 'claude-code'] as const;
+export const LOCAL_AI_PROVIDERS = [
+  'codex-cli',
+  'claude-code',
+  'ollama',
+] as const;
 
 export type LocalAiProviderName = (typeof LOCAL_AI_PROVIDERS)[number];
 
@@ -9,6 +13,7 @@ export type LocalAiConfig = {
   model: string;
   rawOutputDir: string;
   timeoutMs: number;
+  ollamaBaseUrl: string;
 };
 
 export type LocalAiNdjsonEvent =
@@ -73,6 +78,7 @@ export type LocalTextGenerationInput = {
   label: string;
   runId: string;
   rawOutputDir: string;
+  ollamaBaseUrl?: string;
   abortSignal?: AbortSignal;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
 };

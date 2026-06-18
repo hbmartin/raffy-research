@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   codexModel: { id: 'codex-model' },
+  ollamaModel: { id: 'ollama-model' },
   createCodexCli: vi.fn(),
   createClaudeCode: vi.fn(),
+  createOllama: vi.fn(),
   streamText: vi.fn(),
 }));
 
@@ -15,6 +17,10 @@ vi.mock('ai-sdk-provider-codex-cli', () => ({
 
 vi.mock('ai-sdk-provider-claude-code', () => ({
   createClaudeCode: mocks.createClaudeCode,
+}));
+
+vi.mock('ollama-ai-provider-v2', () => ({
+  createOllama: mocks.createOllama,
 }));
 
 vi.mock('ai', () => ({
@@ -47,6 +53,7 @@ describe('local AI text generation', () => {
     await mkdir(rawOutputDir, { recursive: true });
     mocks.createCodexCli.mockReturnValue(() => mocks.codexModel);
     mocks.createClaudeCode.mockReturnValue(() => mocks.codexModel);
+    mocks.createOllama.mockReturnValue(() => mocks.ollamaModel);
     mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
   });
 
@@ -184,6 +191,53 @@ describe('local AI text generation', () => {
         logger: false,
         streamingInput: 'auto',
       },
+    });
+  });
+
+  it('configures ollama with custom base URL', async () => {
+    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'ollama',
+      model: 'llama3.1',
+      prompt: 'Return JSON',
+      action: 'summarize_sources',
+      label: 'source-summary',
+      runId: 'run-ollama',
+      rawOutputDir,
+      ollamaBaseUrl: 'http://custom-host:11434/api',
+    });
+
+    expect(mocks.createOllama).toHaveBeenCalledWith({
+      baseURL: 'http://custom-host:11434/api',
+    });
+    expect(mocks.streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: mocks.ollamaModel,
+        prompt: 'Return JSON',
+      })
+    );
+  });
+
+  it('uses default ollama base URL when none provided', async () => {
+    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'ollama',
+      model: 'llama3.1',
+      prompt: 'Return JSON',
+      action: 'summarize_sources',
+      label: 'source-summary',
+      runId: 'run-ollama-default',
+      rawOutputDir,
+    });
+
+    expect(mocks.createOllama).toHaveBeenCalledWith({
+      baseURL: 'http://localhost:11434/api',
     });
   });
 });

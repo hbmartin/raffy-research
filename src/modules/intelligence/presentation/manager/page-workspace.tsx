@@ -18,6 +18,10 @@ import {
 } from '@/platform/components/ui/card';
 
 import type { ProviderCallbackEvent } from '@/modules/intelligence/domain/ingestion';
+import {
+  LOCAL_AI_PROVIDERS,
+  type LocalAiProviderName,
+} from '@/modules/intelligence/domain/local-ai';
 import type { SourceRecord } from '@/modules/intelligence/domain/source';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 import { envClient } from '@/platform/env/client';
@@ -57,6 +61,12 @@ type LocalAiEvent = {
 
 const toDateInputValue = (date: Date) => date.toISOString().slice(0, 10);
 
+const PROVIDER_LABELS: Record<LocalAiProviderName, string> = {
+  'codex-cli': 'Codex CLI',
+  'claude-code': 'Claude Code',
+  ollama: 'Ollama',
+};
+
 const DevAiConsole = (props: {
   workspaceId: WorkspaceId;
   callbacks: ProviderCallbackEvent[];
@@ -64,9 +74,7 @@ const DevAiConsole = (props: {
   const [periodDate, setPeriodDate] = useState(() =>
     toDateInputValue(new Date())
   );
-  const [provider, setProvider] = useState<'codex-cli' | 'claude-code'>(
-    'codex-cli'
-  );
+  const [provider, setProvider] = useState<LocalAiProviderName>('codex-cli');
   const [model, setModel] = useState('');
   const [includeSourceSummaries, setIncludeSourceSummaries] = useState(true);
   const [sources, setSources] = useState<SourceRecord[]>([]);
@@ -289,12 +297,15 @@ const DevAiConsole = (props: {
             <select
               value={provider}
               onChange={(event) =>
-                setProvider(event.target.value as 'codex-cli' | 'claude-code')
+                setProvider(event.target.value as LocalAiProviderName)
               }
               className="h-9 rounded-md border bg-background px-3"
             >
-              <option value="codex-cli">Codex CLI</option>
-              <option value="claude-code">Claude Code</option>
+              {LOCAL_AI_PROVIDERS.map((p) => (
+                <option key={p} value={p}>
+                  {PROVIDER_LABELS[p]}
+                </option>
+              ))}
             </select>
           </label>
           <label className="grid gap-1 md:col-span-2">
