@@ -14,6 +14,7 @@ export function createLocalAiReportGenerator(input: {
   model: string;
   rawOutputDir: string;
   runId: string;
+  ollamaBaseUrl?: string;
   abortSignal?: AbortSignal;
   action?: string;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
@@ -33,6 +34,7 @@ export function createLocalAiReportGenerator(input: {
             callCount === 1 ? 'weekly-report' : `weekly-report-${callCount}`,
           runId: input.runId,
           rawOutputDir: input.rawOutputDir,
+          ollamaBaseUrl: input.ollamaBaseUrl,
           abortSignal: input.abortSignal,
           onEvent: input.onEvent,
         });

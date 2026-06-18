@@ -4,6 +4,7 @@ import { createCodexCli } from 'ai-sdk-provider-codex-cli';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createOllama } from 'ollama-ai-provider-v2';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
@@ -37,7 +38,11 @@ function toJsonObject(value: unknown): JsonObject {
     : { value: json };
 }
 
-function createModel(provider: LocalAiProviderName, model: string) {
+function createModel(
+  provider: LocalAiProviderName,
+  model: string,
+  options?: { ollamaBaseUrl?: string }
+) {
   if (provider === 'codex-cli') {
     const codex = createCodexCli({
       defaultSettings: {
@@ -50,6 +55,13 @@ function createModel(provider: LocalAiProviderName, model: string) {
       },
     });
     return codex(model);
+  }
+
+  if (provider === 'ollama') {
+    const ollama = createOllama({
+      baseURL: options?.ollamaBaseUrl ?? 'http://localhost:11434/api',
+    });
+    return ollama(model);
   }
 
   const claude = createClaudeCode({
@@ -148,7 +160,9 @@ export async function generateLocalText(
     throwIfAborted(input.abortSignal);
 
     const result = streamText({
-      model: createModel(input.provider, input.model),
+      model: createModel(input.provider, input.model, {
+        ollamaBaseUrl: input.ollamaBaseUrl,
+      }),
       prompt: input.prompt,
       includeRawChunks: true,
       abortSignal: input.abortSignal,

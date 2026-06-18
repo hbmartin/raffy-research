@@ -26,11 +26,12 @@ import {
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-import type {
-  LocalAiConfig,
-  LocalAiNdjsonEvent,
-  LocalAiProviderName,
-  LocalTextGenerator,
+import {
+  LOCAL_AI_PROVIDERS,
+  type LocalAiConfig,
+  type LocalAiNdjsonEvent,
+  type LocalAiProviderName,
+  type LocalTextGenerator,
 } from '../../domain/local-ai';
 
 type LocalAiRepositories = {
@@ -55,6 +56,7 @@ export type LocalAiStreamHandlerDeps = {
     model: string;
     rawOutputDir: string;
     runId: string;
+    ollamaBaseUrl?: string;
     action: string;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
@@ -79,7 +81,7 @@ const zLocalAiRequest = z
     periodDate: z.string().optional(),
     sourceRecordIds: z.array(zSourceRecordId()).default([]),
     callbackEventIds: z.array(zProviderCallbackEventId()).default([]),
-    provider: z.enum(['codex-cli', 'claude-code']).optional(),
+    provider: z.enum(LOCAL_AI_PROVIDERS).optional(),
     model: z.string().trim().min(1).optional(),
     includeSourceSummaries: z.boolean().default(true),
   })
@@ -284,6 +286,7 @@ async function summarizeSources(
     model: string;
     rawOutputDir: string;
     runId: string;
+    ollamaBaseUrl?: string;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -306,6 +309,7 @@ async function summarizeSources(
       label: `source-summary-${source.id}`,
       runId: input.runId,
       rawOutputDir: input.rawOutputDir,
+      ollamaBaseUrl: input.ollamaBaseUrl,
       abortSignal: input.abortSignal,
       onEvent: input.emit,
     });
@@ -415,6 +419,7 @@ async function evaluateLatestReport(
     provider: LocalAiProviderName;
     model: string;
     rawOutputDir: string;
+    ollamaBaseUrl?: string;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -460,6 +465,7 @@ async function evaluateLatestReport(
     label: `report-eval-${report.id}`,
     runId: input.runId,
     rawOutputDir: input.rawOutputDir,
+    ollamaBaseUrl: input.ollamaBaseUrl,
     abortSignal: input.abortSignal,
     onEvent: input.emit,
   });
@@ -491,6 +497,7 @@ async function runAction(
     provider: LocalAiProviderName;
     model: string;
     rawOutputDir: string;
+    ollamaBaseUrl?: string;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -588,6 +595,7 @@ async function runAction(
       model: input.model,
       rawOutputDir: input.rawOutputDir,
       runId: input.runId,
+      ollamaBaseUrl: input.ollamaBaseUrl,
       abortSignal: input.abortSignal,
       emit: input.emit,
     });
@@ -626,6 +634,7 @@ async function runAction(
         model: input.model,
         rawOutputDir: input.rawOutputDir,
         runId: input.runId,
+        ollamaBaseUrl: input.ollamaBaseUrl,
         action: input.data.action,
         abortSignal: input.abortSignal,
         emit: input.emit,
@@ -778,6 +787,7 @@ export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
               provider,
               model,
               rawOutputDir: config.rawOutputDir,
+              ollamaBaseUrl: config.ollamaBaseUrl,
               abortSignal: abortController.signal,
               emit,
             });
