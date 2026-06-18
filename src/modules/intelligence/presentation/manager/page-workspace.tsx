@@ -296,9 +296,12 @@ const DevAiConsole = (props: {
             </span>
             <select
               value={provider}
-              onChange={(event) =>
-                setProvider(event.target.value as LocalAiProviderName)
-              }
+              onChange={(event) => {
+                const value = event.target.value;
+                if (LOCAL_AI_PROVIDERS.includes(value as LocalAiProviderName)) {
+                  setProvider(value as LocalAiProviderName);
+                }
+              }}
               className="h-9 rounded-md border bg-background px-3"
             >
               {LOCAL_AI_PROVIDERS.map((p) => (
