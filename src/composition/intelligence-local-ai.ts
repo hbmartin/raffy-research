@@ -8,21 +8,36 @@ import {
 import { getKernel } from '@/composition/kernel';
 import {
   type AlertPort,
+  type EvalExperimentPort,
   type IngestionDeps,
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
   createLocalAiReportGenerator,
   createLocalAiStreamHandler,
+  createNoopEvalAdapter,
+  createPhoenixEvalAdapter,
   createProviderRegistry,
   generateLocalText,
   getLocalAiConfig,
+  getPhoenixConfig,
   getProviderCredential,
   type LocalAiStreamHandlerDeps,
 } from '@/modules/intelligence/backend';
 import { envClient } from '@/platform/env/client';
 
 const providerRegistry = createProviderRegistry();
+
+function getEvalExperiment(): EvalExperimentPort {
+  const config = getPhoenixConfig();
+  if (config.enabled) {
+    return createPhoenixEvalAdapter({
+      appUrl: config.appUrl,
+      apiKey: config.apiKey,
+    });
+  }
+  return createNoopEvalAdapter();
+}
 
 const noOpAlert: AlertPort = {
   async sendAlert() {
@@ -80,4 +95,5 @@ export const handleLocalAiStreamRequest = createLocalAiStreamHandler({
   buildIngestionDeps,
   buildGenerationDeps,
   generateLocalText,
+  evalExperiment: getEvalExperiment(),
 });

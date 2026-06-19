@@ -28,6 +28,8 @@ const telemetryEnvSchema = baseEnvSchema.extend({
   OTEL_LOCAL_SQLITE_PATH: z.string().optional(),
   TELEMETRY_PROXY_MAX_BYTES: z.coerce.number().int().positive().optional(),
   TELEMETRY_LOG_MAX_EVENTS: z.coerce.number().int().positive().optional(),
+  PHOENIX_COLLECTOR_URL: z.string().url().optional(),
+  PHOENIX_API_KEY: z.string().optional(),
 });
 
 export type TelemetryConfig = {
@@ -48,6 +50,8 @@ export type TelemetryConfig = {
   localSqlitePath: string;
   proxyMaxBytes: number;
   logMaxEvents: number;
+  phoenixCollectorUrl?: string;
+  phoenixApiKey?: string;
 };
 
 let cachedTelemetryConfig: TelemetryConfig | undefined;
@@ -85,6 +89,8 @@ export function getTelemetryConfig(): TelemetryConfig {
       env.OTEL_LOCAL_SQLITE_PATH ?? '.telemetry/telemetry.sqlite',
     proxyMaxBytes: env.TELEMETRY_PROXY_MAX_BYTES ?? 1_000_000,
     logMaxEvents: env.TELEMETRY_LOG_MAX_EVENTS ?? 50,
+    phoenixCollectorUrl: env.PHOENIX_COLLECTOR_URL,
+    phoenixApiKey: env.PHOENIX_API_KEY,
   };
   return cachedTelemetryConfig;
 }

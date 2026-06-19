@@ -166,6 +166,7 @@ export async function generateLocalText(
       prompt: input.prompt,
       includeRawChunks: true,
       abortSignal: input.abortSignal,
+      experimental_telemetry: { isEnabled: true },
     });
 
     for await (const part of result.fullStream) {
