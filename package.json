@@ -163,7 +163,7 @@
     "@opentelemetry/sdk-trace-web": "^2.8.0",
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@paralleldrive/cuid2": "^3.3.0",
-    "@sentry/tanstackstart-react": "^10.56.0",
+    "@sentry/tanstackstart-react": "^10.59.0",
     "@swan-io/boxed": "3.2.1",
     "@t3-oss/env-core": "0.13.11",
     "@tanstack/react-devtools": "0.10.5",
