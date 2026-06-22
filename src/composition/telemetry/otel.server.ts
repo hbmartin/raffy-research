@@ -67,25 +67,45 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   initialized = true;
 
   const config = getTelemetryConfig();
-  if (!config.collectorUrl) {
+  if (!config.collectorUrl && !config.phoenixCollectorUrl) {
     return undefined;
   }
 
   const resource = createResource();
   const headers = exporterHeaders();
-  const tracerProvider = new NodeTracerProvider({
-    resource,
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(config.otelTracesSampleRate),
-    }),
-    spanProcessors: [
+
+  const spanProcessors: BatchSpanProcessor[] = [];
+
+  if (config.collectorUrl) {
+    spanProcessors.push(
       new BatchSpanProcessor(
         new OTLPTraceExporter({
           headers,
           url: signalUrl(config.collectorUrl, 'traces'),
         })
-      ),
-    ],
+      )
+    );
+  }
+
+  if (config.phoenixCollectorUrl) {
+    spanProcessors.push(
+      new BatchSpanProcessor(
+        new OTLPTraceExporter({
+          headers: config.phoenixApiKey
+            ? { Authorization: `Bearer ${config.phoenixApiKey}` }
+            : undefined,
+          url: signalUrl(config.phoenixCollectorUrl, 'traces'),
+        })
+      )
+    );
+  }
+
+  const tracerProvider = new NodeTracerProvider({
+    resource,
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(config.otelTracesSampleRate),
+    }),
+    spanProcessors,
   });
 
   tracerProvider.register({
@@ -97,32 +117,34 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     }),
   });
 
-  const meterProvider = new MeterProvider({
-    readers: [
-      new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({
-          headers,
-          url: signalUrl(config.collectorUrl, 'metrics'),
+  if (config.collectorUrl) {
+    const meterProvider = new MeterProvider({
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter({
+            headers,
+            url: signalUrl(config.collectorUrl, 'metrics'),
+          }),
+          exportIntervalMillis: 30_000,
         }),
-        exportIntervalMillis: 30_000,
-      }),
-    ],
-    resource,
-  });
-  metrics.setGlobalMeterProvider(meterProvider);
+      ],
+      resource,
+    });
+    metrics.setGlobalMeterProvider(meterProvider);
 
-  const loggerProvider = new LoggerProvider({
-    processors: [
-      new BatchLogRecordProcessor(
-        new OTLPLogExporter({
-          headers,
-          url: signalUrl(config.collectorUrl, 'logs'),
-        })
-      ),
-    ],
-    resource,
-  });
-  logs.setGlobalLoggerProvider(loggerProvider);
+    const loggerProvider = new LoggerProvider({
+      processors: [
+        new BatchLogRecordProcessor(
+          new OTLPLogExporter({
+            headers,
+            url: signalUrl(config.collectorUrl, 'logs'),
+          })
+        ),
+      ],
+      resource,
+    });
+    logs.setGlobalLoggerProvider(loggerProvider);
+  }
 
   adapter = createOpenTelemetryAdapter();
   return adapter;

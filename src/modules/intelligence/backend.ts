@@ -5,6 +5,7 @@ export type {
 export { LOCAL_AI_PROVIDERS } from './domain/local-ai';
 export {
   getCronSecret,
+  getPhoenixConfig,
   getProviderCredential,
   getProviderWebhookSecret,
 } from './infrastructure/config/runtime';
@@ -17,6 +18,8 @@ export { getLocalAiConfig } from './infrastructure/local-ai/config';
 export { generateLocalText } from './infrastructure/local-ai/local-text-generator';
 export { createLocalAiReportGenerator } from './infrastructure/local-ai/report-generator-local-ai';
 export { createOpenAiReportGenerator } from './infrastructure/openai/report-generator-openai';
+export { createNoopEvalAdapter } from './infrastructure/phoenix/eval-experiment-noop';
+export { createPhoenixEvalAdapter } from './infrastructure/phoenix/eval-experiment-phoenix';
 export { createProviderRegistry } from './infrastructure/providers/registry';
 export { createSlackAlert } from './infrastructure/slack/slack-alert';
 export { createIntelligenceJobRequestHandlers } from './transport/http/job-request-handlers';
