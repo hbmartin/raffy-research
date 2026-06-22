@@ -504,16 +504,29 @@ async function evaluateLatestReport(
     await deps.evalExperiment.recordReportEvaluation({
       workspaceId: input.data.workspaceId,
       reportId: report.id,
-      reportData: verdict,
+      reportData: (report.reportData ?? {}) as JsonObject,
       sources: sources.get().map((s) => ({
         id: s.id,
         title: s.title,
         provider: s.providerName,
+        contentText: s.contentText,
       })),
       evaluation: {
-        claim_support: Number(verdict.claim_support ?? 0),
-        coverage: Number(verdict.coverage ?? 0),
-        noise: Number(verdict.noise ?? 0),
+        claim_support: Number(
+          (verdict.scores as JsonObject | undefined)?.claim_support ??
+            verdict.claim_support ??
+            0
+        ),
+        coverage: Number(
+          (verdict.scores as JsonObject | undefined)?.coverage ??
+            verdict.coverage ??
+            0
+        ),
+        noise: Number(
+          (verdict.scores as JsonObject | undefined)?.noise ??
+            verdict.noise ??
+            0
+        ),
         violations: Array.isArray(verdict.violations)
           ? (verdict.violations as JsonObject[])
           : [],

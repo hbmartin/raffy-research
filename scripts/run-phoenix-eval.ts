@@ -14,8 +14,11 @@ import { getIntelligenceRepositories } from '@/composition/intelligence';
 import { getKernel } from '@/composition/kernel';
 import {
   buildEvalPrompt,
+  buildReportPrompt,
   computeWeeklyPeriod,
+  formatPeriodDate,
   generateWeeklyReport,
+  parseGeneratedReportJson,
   type EvalExperimentPort,
   type LocalAiProviderName,
   type WeeklyReportGenerationDeps,
@@ -30,7 +33,7 @@ import {
 import { toWorkspaceId, type WorkspaceId } from '@/modules/kernel';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-type Command = 'summarize' | 'generate' | 'evaluate' | 'full';
+type Command = 'summarize' | 'generate' | 'evaluate' | 'compare' | 'full';
 
 type CliArgs = {
   command: Command;
@@ -44,9 +47,11 @@ function parseArgs(argv: string[]): CliArgs {
   const allArgs = argv.slice(2);
   const args = allArgs.filter((a) => !a.endsWith('.ts'));
   const command = args[0] as Command;
-  if (!['summarize', 'generate', 'evaluate', 'full'].includes(command)) {
+  if (
+    !['summarize', 'generate', 'evaluate', 'compare', 'full'].includes(command)
+  ) {
     console.error(
-      'Usage: run-phoenix-eval.ts <summarize|generate|evaluate|full> --workspace <id> [--period <date>]'
+      'Usage: run-phoenix-eval.ts <summarize|generate|evaluate|compare|full> --workspace <id> [--period <date>]'
     );
     process.exit(1);
   }
@@ -369,14 +374,27 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
   const evalResult = await evalAdapter.recordReportEvaluation({
     workspaceId: args.workspaceId,
     reportId: report.id,
-    reportData: verdict,
-    sources: sources
-      .get()
-      .map((s) => ({ id: s.id, title: s.title, provider: s.providerName })),
+    reportData: (toJsonValue(report.reportData) ?? {}) as JsonObject,
+    sources: sources.get().map((s) => ({
+      id: s.id,
+      title: s.title,
+      provider: s.providerName,
+      contentText: s.contentText,
+    })),
     evaluation: {
-      claim_support: Number(verdict.claim_support ?? 0),
-      coverage: Number(verdict.coverage ?? 0),
-      noise: Number(verdict.noise ?? 0),
+      claim_support: Number(
+        (verdict.scores as JsonObject | undefined)?.claim_support ??
+          verdict.claim_support ??
+          0
+      ),
+      coverage: Number(
+        (verdict.scores as JsonObject | undefined)?.coverage ??
+          verdict.coverage ??
+          0
+      ),
+      noise: Number(
+        (verdict.scores as JsonObject | undefined)?.noise ?? verdict.noise ?? 0
+      ),
       violations: Array.isArray(verdict.violations)
         ? (verdict.violations as JsonObject[])
         : [],
@@ -396,6 +414,244 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
   }
 }
 
+async function runCompare(args: CliArgs) {
+  const repositories = getIntelligenceRepositories();
+  const config = getLocalAiConfig();
+  const provider = (args.provider ?? config.provider) as LocalAiProviderName;
+  const model = args.model ?? config.model;
+  const runId = randomUUID();
+
+  const latest = await repositories.reportRepository.getLatestPublished(
+    args.workspaceId
+  );
+  if (latest.isError()) throw latest.getError();
+  const latestOutcome = latest.get();
+  if (latestOutcome.type === 'report_none') {
+    log('No published report found');
+    return;
+  }
+  const report = latestOutcome.report;
+
+  const workspace = await repositories.workspaceRepository.getById(
+    args.workspaceId
+  );
+  if (workspace.isError()) throw workspace.getError();
+  const wsOutcome = workspace.get();
+  if (wsOutcome.type === 'workspace_not_found')
+    throw new Error('Workspace not found');
+
+  const [sources, keywords, competitors, social, priorReports] =
+    await Promise.all([
+      repositories.sourceRepository.listForPeriod({
+        workspaceId: args.workspaceId,
+        periodStart: report.periodStart,
+        periodEnd: report.periodEnd,
+      }),
+      repositories.workspaceRepository.listKeywords(args.workspaceId, {
+        activeOnly: true,
+      }),
+      repositories.workspaceRepository.listCompetitors(args.workspaceId),
+      repositories.workspaceRepository.listSocialAccounts(args.workspaceId),
+      repositories.reportRepository.listByWorkspace(args.workspaceId, {
+        limit: 4,
+      }),
+    ]);
+  if (sources.isError()) throw sources.getError();
+  if (keywords.isError()) throw keywords.getError();
+  if (competitors.isError()) throw competitors.getError();
+  if (social.isError()) throw social.getError();
+  if (priorReports.isError()) throw priorReports.getError();
+
+  const usableSources = sources
+    .get()
+    .filter((s) => s.relevanceLabel !== 'junk');
+
+  const prompt = buildReportPrompt({
+    workspace: wsOutcome.workspace,
+    keywords: keywords.get(),
+    competitors: competitors.get(),
+    socialAccounts: social.get(),
+    sources: usableSources,
+    priorReports: priorReports.get(),
+    periodStartLabel: formatPeriodDate(
+      report.periodStart,
+      wsOutcome.workspace.timezone
+    ),
+    periodEndLabel: formatPeriodDate(
+      report.periodEnd,
+      wsOutcome.workspace.timezone
+    ),
+  });
+
+  log('Starting report generation comparison', {
+    referenceReportId: report.id,
+    sources: usableSources.length,
+    provider,
+    model,
+  });
+
+  const phoenixConfig = getPhoenixConfig();
+  if (!phoenixConfig.enabled) {
+    console.error('PHOENIX_APP_URL and PHOENIX_API_KEY must be set');
+    process.exit(1);
+  }
+
+  const { createClient } = await import('@arizeai/phoenix-client');
+  const { createDataset } = await import('@arizeai/phoenix-client/datasets');
+  const { runExperiment, asEvaluator } =
+    await import('@arizeai/phoenix-client/experiments');
+
+  const client = createClient({
+    options: {
+      baseUrl: phoenixConfig.appUrl,
+      headers: { Authorization: `Bearer ${phoenixConfig.apiKey}` },
+    },
+  });
+
+  const datasetName = `report-generation-${args.workspaceId}`;
+  const { datasetId } = await createDataset({
+    client,
+    name: datasetName,
+    description: `Report generation comparison for workspace ${args.workspaceId}`,
+    examples: [
+      {
+        input: {
+          workspaceId: args.workspaceId,
+          reportId: report.id,
+          periodStart: report.periodStart.toISOString(),
+          periodEnd: report.periodEnd.toISOString(),
+          sourceCount: usableSources.length,
+          sources: usableSources.map((s) => ({
+            id: s.id,
+            title: s.title,
+            provider: s.providerName,
+            contentText: s.contentText?.slice(0, 2000),
+          })),
+        },
+        output: (report.reportData ?? {}) as Record<string, unknown>,
+        metadata: {
+          referenceModel: (report.modelMetadata as Record<string, unknown>)
+            ?.modelName,
+        },
+      },
+    ],
+  });
+
+  const experiment = await runExperiment({
+    client,
+    dataset: { datasetId },
+    experimentName: `compare-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    experimentDescription: `Generate report with ${provider}/${model} and compare to published report ${report.id}`,
+    experimentMetadata: { provider, model, referenceReportId: report.id },
+    task: async () => {
+      const result = await generateLocalText({
+        provider,
+        model,
+        prompt,
+        action: 'compare_report',
+        label: `compare-${report.id}`,
+        runId,
+        rawOutputDir: config.rawOutputDir,
+      });
+      const parsed = parseGeneratedReportJson(result.text);
+      if (parsed.type === 'generated_report_data_valid') {
+        return parsed.data as unknown as Record<string, unknown>;
+      }
+      return { rawText: result.text.slice(0, 8000), parseError: true };
+    },
+    evaluators: [
+      asEvaluator({
+        name: 'source_overlap',
+        kind: 'CODE',
+        evaluate: ({ output, expected }) => {
+          const refData = expected as Record<string, unknown> | undefined;
+          const genData = output as Record<string, unknown> | null;
+          if (!refData || !genData) return { score: null };
+
+          const extractSourceIds = (
+            data: Record<string, unknown>
+          ): Set<string> => {
+            const ids = new Set<string>();
+            const walk = (obj: unknown) => {
+              if (!obj || typeof obj !== 'object') return;
+              if (Array.isArray(obj)) {
+                obj.forEach(walk);
+                return;
+              }
+              const record = obj as Record<string, unknown>;
+              if ('source_ids' in record && Array.isArray(record.source_ids)) {
+                record.source_ids.forEach((id) => {
+                  if (typeof id === 'string') ids.add(id);
+                });
+              }
+              Object.values(record).forEach(walk);
+            };
+            walk(data);
+            return ids;
+          };
+
+          const refIds = extractSourceIds(refData);
+          const genIds = extractSourceIds(genData);
+          if (refIds.size === 0) return { score: null };
+          const overlap = [...refIds].filter((id) => genIds.has(id)).length;
+          const score = overlap / refIds.size;
+          return {
+            score,
+            label: `${overlap}/${refIds.size}`,
+            metadata: {
+              referenceSourceCount: refIds.size,
+              generatedSourceCount: genIds.size,
+              overlapCount: overlap,
+            },
+          };
+        },
+      }),
+      asEvaluator({
+        name: 'cluster_count',
+        kind: 'CODE',
+        evaluate: ({ output, expected }) => {
+          const refData = expected as Record<string, unknown> | undefined;
+          const genData = output as Record<string, unknown> | null;
+          if (!refData || !genData) return { score: null };
+          const refClusters = Array.isArray(refData.topic_clusters)
+            ? refData.topic_clusters.length
+            : 0;
+          const genClusters = Array.isArray(genData.topic_clusters)
+            ? genData.topic_clusters.length
+            : 0;
+          const match = refClusters === genClusters ? 1 : 0;
+          return {
+            score: match,
+            label: `${genClusters}/${refClusters}`,
+            metadata: {
+              referenceClusters: refClusters,
+              generatedClusters: genClusters,
+            },
+          };
+        },
+      }),
+      asEvaluator({
+        name: 'valid_json',
+        kind: 'CODE',
+        evaluate: ({ output }) => {
+          const data = output as Record<string, unknown> | null;
+          const isValid = data !== null && !data?.parseError;
+          return {
+            score: isValid ? 1 : 0,
+            label: isValid ? 'valid' : 'invalid',
+          };
+        },
+      }),
+    ],
+    setGlobalTracerProvider: false,
+  });
+
+  log('Report generation comparison complete', {
+    experimentId: experiment.id,
+    experimentName: experiment.metadata?.experimentName,
+  });
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const evalAdapter = getEvalAdapter();
@@ -409,6 +665,9 @@ async function main() {
     }
     if (args.command === 'evaluate' || args.command === 'full') {
       await runEvaluate(args, evalAdapter);
+    }
+    if (args.command === 'compare') {
+      await runCompare(args);
     }
     log('Done');
   } catch (error) {

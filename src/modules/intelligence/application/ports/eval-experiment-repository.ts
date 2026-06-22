@@ -10,7 +10,12 @@ export type ReportEvalInput = {
   workspaceId: WorkspaceId;
   reportId: WeeklyReportId;
   reportData: JsonObject;
-  sources: { id: SourceRecordId; title?: string | null; provider: string }[];
+  sources: {
+    id: SourceRecordId;
+    title?: string | null;
+    provider: string;
+    contentText?: string | null;
+  }[];
   evaluation: {
     claim_support: number;
     coverage: number;

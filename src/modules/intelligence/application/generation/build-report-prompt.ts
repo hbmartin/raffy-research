@@ -31,7 +31,10 @@ export const UNTRUSTED_SOURCE_GUIDANCE = [
 const truncate = (value: string | null | undefined, max: number): string => {
   if (!value) return '';
   if (value.length <= max) return value;
-  return `${value.slice(0, max)}…`;
+  let end = max;
+  const code = value.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return `${value.slice(0, end)}…`;
 };
 
 const renderCompetitor = (competitor: Competitor): string => {

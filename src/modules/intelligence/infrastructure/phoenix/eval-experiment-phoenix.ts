@@ -22,13 +22,14 @@ async function getPhoenixSdk() {
   const { createClient } = await import('@arizeai/phoenix-client');
   const { createDataset, appendDatasetExamples } =
     await import('@arizeai/phoenix-client/datasets');
-  const { createExperiment } =
+  const { runExperiment, asEvaluator } =
     await import('@arizeai/phoenix-client/experiments');
   return {
     createClient,
     createDataset,
     appendDatasetExamples,
-    createExperiment,
+    runExperiment,
+    asEvaluator,
   };
 }
 
@@ -52,6 +53,22 @@ function wrapError(error: unknown): AppError {
     message:
       error instanceof Error ? error.message : 'Phoenix eval tracking failed',
     cause: error,
+  });
+}
+
+function scoreEvaluator(
+  sdk: Awaited<ReturnType<typeof getPhoenixSdk>>,
+  name: string,
+  extract: (output: Record<string, unknown>) => number | null
+) {
+  return sdk.asEvaluator({
+    name,
+    kind: 'CODE',
+    evaluate: ({ output }) => {
+      const obj = output as Record<string, unknown> | null;
+      const score = obj ? extract(obj) : null;
+      return { score, label: name };
+    },
   });
 }
 
@@ -105,6 +122,7 @@ export function createPhoenixEvalAdapter(
         const sdk = await getPhoenixSdk();
         const client = makeClient(config, sdk.createClient);
         const datasetName = `report-evals-${input.workspaceId}`;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
         const { datasetId } = await sdk.createDataset({
           client,
@@ -119,6 +137,7 @@ export function createPhoenixEvalAdapter(
                   id: s.id,
                   title: s.title,
                   provider: s.provider,
+                  contentText: s.contentText?.slice(0, 4000),
                 })),
               },
               output: input.reportData,
@@ -130,10 +149,9 @@ export function createPhoenixEvalAdapter(
           ],
         });
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const experiment = await sdk.createExperiment({
+        const experiment = await sdk.runExperiment({
           client,
-          datasetId,
+          dataset: { datasetId },
           experimentName: `eval-${input.reportId}-${timestamp}`,
           experimentDescription: `LLM-as-judge evaluation for report ${input.reportId}`,
           experimentMetadata: {
@@ -141,13 +159,36 @@ export function createPhoenixEvalAdapter(
             reportId: input.reportId,
             modelName: input.modelName,
             modelProvider: input.modelProvider,
-            claim_support: input.evaluation.claim_support,
-            coverage: input.evaluation.coverage,
-            noise: input.evaluation.noise,
+          },
+          task: () => ({
+            scores: {
+              claim_support: input.evaluation.claim_support,
+              coverage: input.evaluation.coverage,
+              noise: input.evaluation.noise,
+            },
             violations: input.evaluation.violations,
             missed_signals: input.evaluation.missed_signals,
             summary: input.evaluation.summary,
-          },
+          }),
+          evaluators: [
+            scoreEvaluator(sdk, 'claim_support', (o) => {
+              const scores = o.scores as Record<string, unknown> | undefined;
+              return typeof scores?.claim_support === 'number'
+                ? scores.claim_support
+                : null;
+            }),
+            scoreEvaluator(sdk, 'coverage', (o) => {
+              const scores = o.scores as Record<string, unknown> | undefined;
+              return typeof scores?.coverage === 'number'
+                ? scores.coverage
+                : null;
+            }),
+            scoreEvaluator(sdk, 'noise', (o) => {
+              const scores = o.scores as Record<string, unknown> | undefined;
+              return typeof scores?.noise === 'number' ? scores.noise : null;
+            }),
+          ],
+          setGlobalTracerProvider: false,
         });
 
         return Result.Ok({ experimentId: experiment.id });
@@ -161,6 +202,7 @@ export function createPhoenixEvalAdapter(
         const sdk = await getPhoenixSdk();
         const client = makeClient(config, sdk.createClient);
         const datasetName = `summary-evals-${input.workspaceId}`;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
         const { datasetId } = await sdk.createDataset({
           client,
@@ -187,10 +229,9 @@ export function createPhoenixEvalAdapter(
           ],
         });
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const experiment = await sdk.createExperiment({
+        const experiment = await sdk.runExperiment({
           client,
-          datasetId,
+          dataset: { datasetId },
           experimentName: `summary-eval-${input.sourceRecordId}-${timestamp}`,
           experimentDescription: `Summary evaluation for source ${input.sourceRecordId}`,
           experimentMetadata: {
@@ -200,6 +241,11 @@ export function createPhoenixEvalAdapter(
             modelProvider: input.modelProvider,
             sourceProvider: input.sourceContent.provider,
           },
+          task: () => ({
+            summaryText: input.summary.summaryText,
+            evidenceCandidateText: input.summary.evidenceCandidateText,
+          }),
+          setGlobalTracerProvider: false,
         });
 
         return Result.Ok({ experimentId: experiment.id });
