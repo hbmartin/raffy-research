@@ -205,6 +205,7 @@ async function runSummarize(args: CliArgs, evalAdapter: EvalExperimentPort) {
       label: `source-summary-${source.id}`,
       runId,
       rawOutputDir: config.rawOutputDir,
+      ollamaBaseUrl: config.ollamaBaseUrl,
     });
 
     const parsed = extractJsonObject(result.text);
@@ -265,6 +266,7 @@ async function runGenerate(args: CliArgs, evalAdapter: EvalExperimentPort) {
           runId,
           action: 'generate_report',
           abortSignal: abortController.signal,
+          ollamaBaseUrl: config.ollamaBaseUrl,
           onEvent: (event) => {
             log(
               'generation-event',
@@ -361,6 +363,7 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
     label: `report-eval-${report.id}`,
     runId,
     rawOutputDir: config.rawOutputDir,
+    ollamaBaseUrl: config.ollamaBaseUrl,
   });
 
   const verdict = extractJsonObject(result.text);
@@ -552,6 +555,7 @@ async function runCompare(args: CliArgs) {
         label: `compare-${report.id}`,
         runId,
         rawOutputDir: config.rawOutputDir,
+        ollamaBaseUrl: config.ollamaBaseUrl,
       });
       const parsed = parseGeneratedReportJson(result.text);
       if (parsed.type === 'generated_report_data_valid') {
