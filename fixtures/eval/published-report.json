@@ -1,0 +1,348 @@
+{
+  "title": "AI and Digital Solutions in Healthcare and Dentistry",
+  "timezone": "America/Los_Angeles",
+  "report_id": "sywwll5eir4uzcrmguy7jjti",
+  "period_end": "2026-06-21",
+  "generated_at": "2026-06-24T00:00:00.000Z",
+  "period_start": "2026-06-15",
+  "workspace_id": "x27hidcxs7envs8nsjsv1r7j",
+  "contradictions": [],
+  "possible_leads": [
+    {
+      "id": "smile_brands",
+      "evidence": [
+        {
+          "id": "l4dwgk86iqmalha86jefdwbe",
+          "excerpt": "The more important signal in this rollout is not simply that another dental organisation is adopting artificial intelligence. It is that Smile Brands is trying to operationalise diagnostic consistency across a large and distributed care network...",
+          "source_ids": [
+            "l4dwgk86iqmalha86jefdwbe",
+            "w0v1rfl8d1r2mja705aj26hr"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Pearl AI Adoption",
+          "provider_name": "ollama"
+        }
+      ],
+      "why_relevant": "Smile Brands is adopting Pearl's AI platform to enhance diagnostic consistency and communication in a large, distributed care network.",
+      "source_excerpt": "Smile Brands is deploying Pearl's FDA-cleared dental radiograph AI platform across affiliated dental offices to improve diagnostic consistency, communication, and treatment decision-making at scale.",
+      "matched_keyword": "dental AI",
+      "person_or_company": "Smile Brands"
+    }
+  ],
+  "source_library": [
+    {
+      "source_id": "a7h74t3i7t1gs4y7nif6rojd",
+      "source_type": "article",
+      "external_url": "https://example.com/",
+      "source_title": "AI Medical Scheduling",
+      "provider_name": "ollama",
+      "relation_type": "cited",
+      "topic_cluster_id": "ai_medical_scheduling"
+    },
+    {
+      "source_id": "ajrj9mmr6l3yndh1azlcqm1u",
+      "source_type": "article",
+      "external_url": "https://example.com/",
+      "source_title": "Dental Analytics Platforms",
+      "provider_name": "ollama",
+      "relation_type": "cited",
+      "topic_cluster_id": "digital_dentistry_training"
+    },
+    {
+      "source_id": "aokgrn3j1wvadqrg1pp6v9cm",
+      "source_type": "article",
+      "external_url": "https://example.com/",
+      "source_title": "Digital Implant Planning Training",
+      "provider_name": "ollama",
+      "relation_type": "cited",
+      "topic_cluster_id": "digital_dentistry_training"
+    }
+  ],
+  "topic_clusters": [
+    {
+      "id": "ai_medical_scheduling",
+      "title": "AI Medical Scheduling",
+      "labels": {
+        "trend": "rising",
+        "newness": "existing"
+      },
+      "summary": "AI-driven scheduling systems are reducing no-show rates through natural language interactions and capturing patient intent.",
+      "observation": "These systems are being widely adopted in healthcare settings to improve efficiency and reduce financial losses.",
+      "all_evidence": [
+        {
+          "id": "a7h74t3i7t1gs4y7nif6rojd",
+          "excerpt": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+          "source_ids": [
+            "a7h74t3i7t1gs4y7nif6rojd",
+            "duo38qaglnyxgjojrlj9lgyg",
+            "q9iqca0b00nmuq43wik797o2",
+            "w5sfk1qbyfkjyak7femproo0"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "AI Medical Scheduling",
+          "provider_name": "ollama"
+        }
+      ],
+      "related_keywords": [
+        "AI scheduling",
+        "no-show reduction",
+        "healthcare efficiency"
+      ],
+      "related_competitors": ["Automaziot AI", "Five9", "ScribeEMR"],
+      "why_this_may_matter": "They have the potential to transform how healthcare providers manage appointments and patient engagement.",
+      "representative_evidence": [
+        {
+          "id": "a7h74t3i7t1gs4y7nif6rojd",
+          "excerpt": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+          "source_ids": [
+            "a7h74t3i7t1gs4y7nif6rojd",
+            "duo38qaglnyxgjojrlj9lgyg",
+            "q9iqca0b00nmuq43wik797o2",
+            "w5sfk1qbyfkjyak7femproo0"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "AI Medical Scheduling",
+          "provider_name": "ollama"
+        }
+      ],
+      "related_internal_sources": []
+    },
+    {
+      "id": "digital_dentistry_training",
+      "title": "Digital Dentistry Training Programs",
+      "labels": {
+        "trend": "rising",
+        "newness": "existing"
+      },
+      "summary": "Training programs on digital implant planning and guided surgery using the coDiagnostiX® system are gaining traction in the dental industry.",
+      "observation": "These programs are being offered to dental professionals to adopt modern technology and improve clinical outcomes.",
+      "all_evidence": [
+        {
+          "id": "aokgrn3j1wvadqrg1pp6v9cm",
+          "excerpt": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+          "source_ids": [
+            "aokgrn3j1wvadqrg1pp6v9cm",
+            "cpnx99xk7yi3v1b7id98z7nd",
+            "gx0dnnzfyargw2l78iry44gd",
+            "s72jbg4w9c94mcr6r3jbpfd6",
+            "v8wcxzu950fudxm0gmk2o35w",
+            "yxe842lm4gtdemh2dh3he25x"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Digital Implant Planning Training",
+          "provider_name": "ollama"
+        }
+      ],
+      "related_keywords": [
+        "digital implant planning",
+        "guided surgery",
+        "dental training"
+      ],
+      "related_competitors": [
+        "coDiagnostiX®",
+        "Henry Schein",
+        "Dentrix Ascend"
+      ],
+      "why_this_may_matter": "They are essential for the adoption of digital tools in dental practices, enhancing precision and efficiency.",
+      "representative_evidence": [
+        {
+          "id": "aokgrn3j1wvadqrg1pp6v9cm",
+          "excerpt": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+          "source_ids": [
+            "aokgrn3j1wvadqrg1pp6v9cm",
+            "cpnx99xk7yi3v1b7id98z7nd",
+            "gx0dnnzfyargw2l78iry44gd",
+            "s72jbg4w9c94mcr6r3jbpfd6",
+            "v8wcxzu950fudxm0gmk2o35w",
+            "yxe842lm4gtdemh2dh3he25x"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Digital Implant Planning Training",
+          "provider_name": "ollama"
+        }
+      ],
+      "related_internal_sources": []
+    }
+  ],
+  "competitor_watch": [
+    {
+      "id": "automaziot_ai",
+      "domain": "automaziot.ai",
+      "evidence": [
+        {
+          "id": "jv9mvynqtk7csts6vtio4fj1",
+          "excerpt": "Automatic appointment scheduling lets customers book, change, and cancel appointments on their own via WhatsApp or an online form, with automatic Google/Outlook calendar sync and WhatsApp reminders.",
+          "source_ids": [
+            "jv9mvynqtk7csts6vtio4fj1",
+            "nc30m09bx6qdk5eto8iuibj8",
+            "ntd9nhjcjswgnymhnn8r8bgd"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Automaziot AI",
+          "provider_name": "ollama"
+        }
+      ],
+      "change_type": "new_product",
+      "observation": "Automaziot AI is expanding its automated appointment scheduling services to more businesses, offering real-time calendar sync and automated reminders.",
+      "competitor_name": "Automaziot AI"
+    }
+  ],
+  "market_questions": [],
+  "executive_summary": {
+    "bullets": [
+      "AI-driven scheduling systems are significantly reducing no-show rates in healthcare, improving operational efficiency and revenue.",
+      "Dedicated dental analytics platforms are helping practices identify revenue gaps and improve KPI tracking more efficiently than traditional methods.",
+      "Digital implant planning and guided surgery training programs are gaining traction, emphasizing the importance of modern technology in dental workflows."
+    ]
+  },
+  "suggested_competitors": [
+    {
+      "id": "pearl_ai",
+      "name": "Pearl AI",
+      "domain": "pearl.ai",
+      "evidence": [
+        {
+          "id": "l4dwgk86iqmalha86jefdwbe",
+          "excerpt": "The more important signal in this rollout is not simply that another dental organisation is adopting artificial intelligence. It is that Smile Brands is trying to operationalise diagnostic consistency across a large and distributed care network...",
+          "source_ids": [
+            "l4dwgk86iqmalha86jefdwbe",
+            "w0v1rfl8d1r2mja705aj26hr"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Pearl AI Adoption",
+          "provider_name": "ollama"
+        }
+      ],
+      "similarity": "high",
+      "why_suggested": "Pearl AI is being adopted by large dental support organizations to improve diagnostic consistency and treatment decision-making.",
+      "related_keywords": [
+        "dental AI",
+        "diagnostic consistency",
+        "treatment decision-making"
+      ]
+    }
+  ],
+  "social_product_feedback": [
+    {
+      "id": "direct_product",
+      "label": "direct_product",
+      "summary": "AI-driven scheduling systems are being directly adopted by healthcare providers to reduce no-show rates and improve patient engagement.",
+      "evidence": [
+        {
+          "id": "a7h74t3i7t1gs4y7nif6rojd",
+          "excerpt": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+          "source_ids": [
+            "a7h74t3i7t1gs4y7nif6rojd",
+            "duo38qaglnyxgjojrlj9lgyg",
+            "q9iqca0b00nmuq43wik797o2",
+            "w5sfk1qbyfkjyak7femproo0"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "AI Medical Scheduling",
+          "provider_name": "ollama"
+        }
+      ]
+    },
+    {
+      "id": "digital_dentistry_training",
+      "label": "direct_product",
+      "summary": "Training programs on digital implant planning and guided surgery are being adopted by dental professionals to improve clinical outcomes.",
+      "evidence": [
+        {
+          "id": "aokgrn3j1wvadqrg1pp6v9cm",
+          "excerpt": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+          "source_ids": [
+            "aokgrn3j1wvadqrg1pp6v9cm",
+            "cpnx99xk7yi3v1b7id98z7nd",
+            "gx0dnnzfyargw2l78iry44gd",
+            "s72jbg4w9c94mcr6r3jbpfd6",
+            "v8wcxzu950fudxm0gmk2o35w",
+            "yxe842lm4gtdemh2dh3he25x"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Digital Implant Planning Training",
+          "provider_name": "ollama"
+        }
+      ]
+    }
+  ],
+  "what_looks_most_interesting": [
+    {
+      "id": "a7h74t3i7t1gs4y7nif6rojd",
+      "title": "AI Medical Scheduling Reduces No-Shows",
+      "summary": "AI medical scheduling systems are reducing no-show rates by 30-40% through natural language interactions, capturing patient intent and enabling rescheduling within the same thread.",
+      "evidence": [
+        {
+          "id": "a7h74t3i7t1gs4y7nif6rojd",
+          "excerpt": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+          "source_ids": [
+            "a7h74t3i7t1gs4y7nif6rojd",
+            "duo38qaglnyxgjojrlj9lgyg",
+            "q9iqca0b00nmuq43wik797o2",
+            "w5sfk1qbyfkjyak7femproo0"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "AI Medical Scheduling",
+          "provider_name": "ollama"
+        }
+      ],
+      "why_this_may_matter": "This technology can significantly reduce financial losses for healthcare systems and improve patient access."
+    },
+    {
+      "id": "ajrj9mmr6l3yndh1azlcqm1u",
+      "title": "Dental Analytics Platforms Improve Revenue Tracking",
+      "summary": "Dedicated dental analytics platforms help practices identify revenue gaps 40% faster than manual PMS reports, offering live KPI dashboards.",
+      "evidence": [
+        {
+          "id": "ajrj9mmr6l3yndh1azlcqm1u",
+          "excerpt": "Dedicated analytics helps practices find revenue gaps 40% faster than manual PMS reports (ADA Health Policy Institute— cited in industry analyses).",
+          "source_ids": [
+            "ajrj9mmr6l3yndh1azlcqm1u",
+            "k1idseupvk3dg1kgos8nga92",
+            "napm8m6m0jle72dykv7txbbq",
+            "nv2wlceh5m5ohw909ug6ktqi"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Dental Analytics Platforms",
+          "provider_name": "ollama"
+        }
+      ],
+      "why_this_may_matter": "These platforms can help dental practices improve financial performance and operational efficiency."
+    },
+    {
+      "id": "aokgrn3j1wvadqrg1pp6v9cm",
+      "title": "Digital Implant Planning Training Programs",
+      "summary": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system is scheduled for June 25-27, 2026, in Gdańsk.",
+      "evidence": [
+        {
+          "id": "aokgrn3j1wvadqrg1pp6v9cm",
+          "excerpt": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+          "source_ids": [
+            "aokgrn3j1wvadqrg1pp6v9cm",
+            "cpnx99xk7yi3v1b7id98z7nd",
+            "gx0dnnzfyargw2l78iry44gd",
+            "s72jbg4w9c94mcr6r3jbpfd6",
+            "v8wcxzu950fudxm0gmk2o35w",
+            "yxe842lm4gtdemh2dh3he25x"
+          ],
+          "source_type": "article",
+          "external_url": "https://example.com/",
+          "source_title": "Digital Implant Planning Training",
+          "provider_name": "ollama"
+        }
+      ],
+      "why_this_may_matter": "These training programs are essential for dental professionals to adopt modern technology and improve clinical outcomes."
+    }
+  ]
+}
