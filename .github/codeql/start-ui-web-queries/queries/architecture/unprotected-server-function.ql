@@ -37,10 +37,30 @@ private predicate isProtectedRunnerName(string name) {
   name = "runMutation"
 }
 
+private predicate expressionHasAstName(Expr expr, string name) {
+  exists(VarAccess access |
+    access = expr.getUnderlyingReference() and
+    access.getName() = name
+  )
+  or
+  exists(PropAccess access |
+    access = expr.getUnderlyingReference() and
+    access.getPropertyName() = name
+  )
+}
+
 private predicate usesProtectedRunner(Expr expr) {
   exists(CallExpr call |
     call = expr.getAChild*() and
     isProtectedRunnerName(call.getCalleeName())
+  )
+  or
+  exists(CallExpr call, PropAccess access, string runnerName |
+    call = expr.getAChild*() and
+    access = call.getCallee().getUnderlyingReference() and
+    access.getPropertyName() = "withOperation" and
+    expressionHasAstName(access.getBase(), runnerName) and
+    isProtectedRunnerName(runnerName)
   )
 }
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/platform/components/ui/button';
@@ -14,9 +14,10 @@ import {
 import type { WeeklyReportId, WorkspaceId } from '@/modules/kernel/domain/ids';
 
 import { intelligenceQueries } from './wired-queries';
-import type { RubricDimension } from '../domain/rubric';
+import type { ReportRubricScore, RubricDimension } from '../domain/rubric';
 import {
   RUBRIC_DIMENSIONS,
+  RUBRIC_NOTE_MAX_LENGTH,
   RUBRIC_SCORE_MAX,
   RUBRIC_SCORE_MIN,
 } from '../domain/rubric';
@@ -39,6 +40,26 @@ const SCORE_VALUES = Array.from(
 );
 
 type DraftScores = Partial<Record<RubricDimension, number>>;
+type DraftState = {
+  key: string;
+  draft: DraftScores;
+  note: string;
+};
+
+const createDraftState = (
+  key: string,
+  existing: ReportRubricScore | null
+): DraftState => ({
+  key,
+  draft: existing
+    ? {
+        relevance: existing.relevance,
+        accuracy: existing.accuracy,
+        novelty: existing.novelty,
+      }
+    : {},
+  note: existing?.note ?? '',
+});
 
 const DimensionRow = (props: {
   dimension: RubricDimension;
@@ -81,44 +102,58 @@ export const RubricScorePanel = (props: {
   reportId: WeeklyReportId;
 }) => {
   const queryClient = useQueryClient();
-  const scoreQuery = useQuery(intelligenceQueries.reportScore(props.reportId));
+  const scoreQuery = useQuery(
+    intelligenceQueries.reportScore(props.workspaceId, props.reportId)
+  );
   const mutation = useMutation(intelligenceQueries.scoreReport());
 
-  const [draft, setDraft] = useState<DraftScores>({});
-  const [note, setNote] = useState('');
-
-  const existing = scoreQuery.data ?? null;
-
-  useEffect(() => {
-    if (!existing) return;
-    setDraft({
-      relevance: existing.relevance,
-      accuracy: existing.accuracy,
-      novelty: existing.novelty,
-    });
-    setNote(existing.note ?? '');
-  }, [existing]);
+  const existing =
+    scoreQuery.data?.workspaceId === props.workspaceId &&
+    scoreQuery.data.reportId === props.reportId
+      ? scoreQuery.data
+      : null;
+  const scoreStateKey = existing
+    ? `${props.workspaceId}:${props.reportId}:${existing.id}:${String(existing.updatedAt)}`
+    : `${props.workspaceId}:${props.reportId}:empty`;
+  const [draftState, setDraftState] = useState<DraftState>(() =>
+    createDraftState(scoreStateKey, existing)
+  );
+  const currentDraftState =
+    draftState.key === scoreStateKey
+      ? draftState
+      : createDraftState(scoreStateKey, existing);
+  const { draft, note } = currentDraftState;
 
   const isComplete = RUBRIC_DIMENSIONS.every(
     (dimension) => draft[dimension] !== undefined
   );
 
   const submit = () => {
-    if (!isComplete) return;
+    const { relevance, accuracy, novelty } = draft;
+    if (
+      relevance === undefined ||
+      accuracy === undefined ||
+      novelty === undefined
+    ) {
+      return;
+    }
     mutation.mutate(
       {
         workspaceId: props.workspaceId,
         reportId: props.reportId,
-        relevance: draft.relevance ?? RUBRIC_SCORE_MIN,
-        accuracy: draft.accuracy ?? RUBRIC_SCORE_MIN,
-        novelty: draft.novelty ?? RUBRIC_SCORE_MIN,
+        relevance,
+        accuracy,
+        novelty,
         ...(note.trim() ? { note: note.trim() } : {}),
       },
       {
         onSuccess: () => {
           toast.success('Report score saved');
           void queryClient.invalidateQueries({
-            queryKey: intelligenceQueries.reportScore(props.reportId).queryKey,
+            queryKey: intelligenceQueries.reportScore(
+              props.workspaceId,
+              props.reportId
+            ).queryKey,
           });
         },
         onError: () => {
@@ -145,7 +180,16 @@ export const RubricScorePanel = (props: {
             dimension={dimension}
             value={draft[dimension]}
             onChange={(value) =>
-              setDraft((current) => ({ ...current, [dimension]: value }))
+              setDraftState((current) => {
+                const base =
+                  current.key === scoreStateKey
+                    ? current
+                    : createDraftState(scoreStateKey, existing);
+                return {
+                  ...base,
+                  draft: { ...base.draft, [dimension]: value },
+                };
+              })
             }
           />
         ))}
@@ -155,9 +199,18 @@ export const RubricScorePanel = (props: {
           </span>
           <textarea
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              const nextNote = event.target.value;
+              setDraftState((current) => {
+                const base =
+                  current.key === scoreStateKey
+                    ? current
+                    : createDraftState(scoreStateKey, existing);
+                return { ...base, note: nextNote };
+              });
+            }}
             rows={2}
-            maxLength={2000}
+            maxLength={RUBRIC_NOTE_MAX_LENGTH}
             placeholder="What was missing, wrong, or especially useful?"
             className="rounded-md border bg-background px-3 py-2 text-sm"
           />

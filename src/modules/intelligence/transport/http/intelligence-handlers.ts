@@ -39,7 +39,11 @@ import type {
   WeeklyReportSummary,
 } from '../../domain/report';
 import type { ReportRubricScore } from '../../domain/rubric';
-import { RUBRIC_SCORE_MAX, RUBRIC_SCORE_MIN } from '../../domain/rubric';
+import {
+  RUBRIC_NOTE_MAX_LENGTH,
+  RUBRIC_SCORE_MAX,
+  RUBRIC_SCORE_MIN,
+} from '../../domain/rubric';
 import type { SourceRecord } from '../../domain/source';
 import { SOURCE_RELEVANCE_LABELS } from '../../domain/source';
 import type { Workspace } from '../../domain/workspace';
@@ -65,10 +69,10 @@ export const zScoreReportInput = () =>
     relevance: zRubricValue(),
     accuracy: zRubricValue(),
     novelty: zRubricValue(),
-    note: z.string().trim().max(2000).optional(),
+    note: z.string().trim().max(RUBRIC_NOTE_MAX_LENGTH).optional(),
   });
 export const zReportScoreInput = () =>
-  z.object({ reportId: zWeeklyReportId() });
+  z.object({ workspaceId: zWorkspaceId(), reportId: zWeeklyReportId() });
 export const zLabelSourceInput = () =>
   z.object({
     workspaceId: zWorkspaceId(),
@@ -275,6 +279,7 @@ export const createIntelligenceHandlers = ({
     unwrapApplicationResult(
       getUseCases(ctx).getReportRubricScore({
         currentUserId: ctx.scope.userId,
+        workspaceId: data.workspaceId,
         reportId: data.reportId,
       }),
       reportScoreConfig

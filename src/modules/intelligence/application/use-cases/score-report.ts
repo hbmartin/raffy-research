@@ -13,7 +13,12 @@ import type { ForbiddenOutcome, IntelligenceUseCaseDeps } from './types';
 import { reportBelongsToWorkspace } from './workspace-ownership';
 import type { RubricScoreGetOutcome } from '../ports/rubric-score-repository';
 import type { ReportRubricScore } from '../../domain/rubric';
-import { isRubricScoreValue, RUBRIC_DIMENSIONS } from '../../domain/rubric';
+import {
+  isRubricNoteValue,
+  isRubricScoreValue,
+  RUBRIC_DIMENSIONS,
+  RUBRIC_NOTE_MAX_LENGTH,
+} from '../../domain/rubric';
 
 export type ScoreReportInput = {
   currentUserId: UserId;
@@ -58,6 +63,17 @@ export async function scoreReport(
     );
   }
 
+  if (!isRubricNoteValue(input.note)) {
+    return Result.Error(
+      new AppError({
+        code: 'RUBRIC_NOTE_TOO_LONG',
+        category: 'bad_request',
+        status: 400,
+        message: `Rubric note must be at most ${RUBRIC_NOTE_MAX_LENGTH} characters`,
+      })
+    );
+  }
+
   const matchesWorkspace = await reportBelongsToWorkspace(
     deps,
     input.reportId,
@@ -85,6 +101,7 @@ export async function scoreReport(
 
 export type GetReportRubricScoreInput = {
   currentUserId: UserId;
+  workspaceId: WorkspaceId;
   reportId: WeeklyReportId;
 };
 
@@ -97,6 +114,17 @@ export async function getReportRubricScore(
   });
   if (allowed.isError()) return Result.Error(allowed.getError());
   if (!allowed.get()) return Result.Ok({ type: 'forbidden' });
+
+  const matchesWorkspace = await reportBelongsToWorkspace(
+    deps,
+    input.reportId,
+    input.workspaceId
+  );
+  if (matchesWorkspace.isError())
+    return Result.Error(matchesWorkspace.getError());
+  if (matchesWorkspace.get().type === 'not_in_workspace') {
+    return Result.Ok({ type: 'forbidden' });
+  }
 
   return deps.rubricScoreRepository.getForReportAndUser(
     input.reportId,

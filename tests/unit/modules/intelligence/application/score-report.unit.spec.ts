@@ -5,6 +5,7 @@ import {
   createIntelligenceUseCases,
   type IntelligenceUseCaseDeps,
   type ReportRubricScore,
+  RUBRIC_NOTE_MAX_LENGTH,
   type WeeklyReport,
 } from '@/modules/intelligence';
 import {
@@ -175,12 +176,36 @@ describe('scoreReport', () => {
     expect(deps.rubricScoreRepository.upsert).not.toHaveBeenCalled();
   });
 
+  it('rejects a note longer than the allowed maximum', async () => {
+    const deps = makeDeps();
+    const useCases = createIntelligenceUseCases(deps);
+
+    const result = await useCases.scoreReport({
+      currentUserId: userId,
+      workspaceId,
+      reportId,
+      relevance: 4,
+      accuracy: 3,
+      novelty: 5,
+      note: 'x'.repeat(RUBRIC_NOTE_MAX_LENGTH + 1),
+    });
+
+    expect(
+      result.match({
+        Ok: () => null,
+        Error: (error) => error.code,
+      })
+    ).toBe('RUBRIC_NOTE_TOO_LONG');
+    expect(deps.rubricScoreRepository.upsert).not.toHaveBeenCalled();
+  });
+
   it('returns the current user score for a report', async () => {
     const deps = makeDeps();
     const useCases = createIntelligenceUseCases(deps);
 
     const result = await useCases.getReportRubricScore({
       currentUserId: userId,
+      workspaceId,
       reportId,
     });
 
@@ -194,5 +219,36 @@ describe('scoreReport', () => {
       reportId,
       userId
     );
+  });
+
+  it('does not return a score for a report in another workspace', async () => {
+    const deps = makeDeps({
+      reportRepository: {
+        ...makeDeps().reportRepository,
+        getById: vi.fn(async () =>
+          Result.Ok({
+            type: 'report_found' as const,
+            report: { ...report, workspaceId: otherWorkspaceId },
+          })
+        ),
+      },
+    });
+    const useCases = createIntelligenceUseCases(deps);
+
+    const result = await useCases.getReportRubricScore({
+      currentUserId: userId,
+      workspaceId,
+      reportId,
+    });
+
+    expect(
+      result.match({
+        Ok: (outcome) => outcome.type,
+        Error: (error) => error.code,
+      })
+    ).toBe('forbidden');
+    expect(
+      deps.rubricScoreRepository.getForReportAndUser
+    ).not.toHaveBeenCalled();
   });
 });

@@ -130,7 +130,7 @@ On `/manager/workspaces/:id` when `DEV` is true. Controls:
 | **Reprocess callbacks** | Re-runs normalization for selected raw callbacks |
 | **Summarize sources** | One LLM call per selected source → stored `sourceSummary` rows |
 | **Generate report** | Full generation against the selected sources |
-| **Evaluate report** | LLM-judge pass over the latest published report ([details](#the-llm-judge-evaluate_report)) |
+| **Evaluate report** | LLM-judge pass over the latest published report ([details](#signal-3--the-llm-judge-evaluate_report)) |
 | **Full workflow** | Ingest → reprocess → summarize → generate in one run |
 | **Stop** | Aborts the in-flight run (the abort reason is preserved end-to-end) |
 

@@ -102,15 +102,19 @@ export const createIntelligenceQueries = <
           data: { workspaceId, limit },
         }),
     }),
-  reportScore: (reportId: WeeklyReportId) =>
+  reportScore: (workspaceId: WorkspaceId, reportId: WeeklyReportId) =>
     queryOptions({
       queryKey: [
         'intelligence',
         intelligenceQueryVersion,
         'reportScore',
+        workspaceId,
         reportId,
       ],
-      queryFn: () => facade.intelligenceGetReportScore({ data: { reportId } }),
+      queryFn: () =>
+        facade.intelligenceGetReportScore({
+          data: { workspaceId, reportId },
+        }),
     }),
   scoreReport: () =>
     serverMutationOptions({

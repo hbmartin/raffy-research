@@ -5,9 +5,15 @@ export const unsafeMutation = createServerFn({ method: 'POST' }).handler(
 );
 
 const runMutation = async (_data: unknown, fn: () => unknown) => fn();
+runMutation.withOperation = (_operationName: string) => runMutation;
 
 export const safeMutation = createServerFn({ method: 'POST' }).handler(
   async ({ data }) => runMutation(data, () => data)
+);
+
+export const safeOperationMutation = createServerFn({ method: 'POST' }).handler(
+  async ({ data }) =>
+    runMutation.withOperation('safe.operation')(data, () => data)
 );
 
 export const wrapperOnlyMutation = createServerFn({ method: 'POST' }).handler(
