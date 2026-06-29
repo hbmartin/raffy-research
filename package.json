@@ -137,7 +137,7 @@
     "auth:set-credential": "dotenv -e .env -e .env.local -e .env.ai.local -- node ./run-jiti ./scripts/auth-set-credential.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.73",
+    "@ai-sdk/openai": "^4.0.2",
     "@base-ui/react": "1.6.0",
     "@bearstudio/ui-state": "1.1.0",
     "@better-upload/client": "3.0.19",
