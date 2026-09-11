@@ -525,6 +525,16 @@ version set, then run the authenticated SSR browser tests and verify that a
 fresh `curl --max-time 10 http://localhost:3000/login` completes without the
 serialization timeout.
 
+Sentry's TanStack Start SDK is also pinned to `10.54.0`. Version `10.55.0`
+added automatic server-to-browser trace propagation by injecting
+`sentry-trace` and `baggage` meta tags into the completed HTML response. That
+post-render mutation is not represented in this app's React head tree and
+causes React error 418 during production hydration. Sentry remains enabled for
+server and browser error reporting at `10.54.0`; OpenTelemetry remains the
+single owner of traces. Before raising the Sentry SDK version, confirm a hard
+reload hydrates without console errors at desktop and mobile widths and that
+the server-rendered and hydrated `<head>` elements match.
+
 ### IDE setup
 
 ```bash
