@@ -158,6 +158,7 @@ const forwardToCollector = async (
 
   const headers: Record<string, string> = {
     'Content-Type': requestContentType,
+    ...config.collectorHeaders,
     ...(config.collectorBearerToken
       ? { Authorization: `Bearer ${config.collectorBearerToken}` }
       : {}),

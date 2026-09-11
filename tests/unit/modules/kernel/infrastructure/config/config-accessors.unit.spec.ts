@@ -319,4 +319,18 @@ describe('server config accessors', () => {
       'https://collector.example/v1'
     );
   });
+
+  it('parses standard OTLP exporter headers without truncating values', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'x-sentry-auth=Sentry%20sentry_key%3Dpublic-key'
+    );
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+
+    expect(getTelemetryConfig().collectorHeaders).toEqual({
+      'x-sentry-auth': 'Sentry sentry_key=public-key',
+    });
+  });
 });

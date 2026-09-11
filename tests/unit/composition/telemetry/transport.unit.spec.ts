@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const configMock = vi.hoisted(() => ({
   browserDsn: undefined as string | undefined,
   collectorBearerToken: undefined as string | undefined,
+  collectorHeaders: {} as Readonly<Record<string, string>>,
   collectorUrl: undefined as string | undefined,
   logMaxEvents: 2,
   proxyMaxBytes: 1_000,
@@ -56,6 +57,7 @@ describe('telemetry transport handlers', () => {
     vi.clearAllMocks();
     configMock.browserDsn = undefined;
     configMock.collectorBearerToken = undefined;
+    configMock.collectorHeaders = {};
     configMock.collectorUrl = undefined;
     configMock.logMaxEvents = 2;
     configMock.proxyMaxBytes = 1_000;
@@ -111,6 +113,35 @@ describe('telemetry transport handlers', () => {
           'Content-Type': 'application/x-protobuf',
         }),
         method: 'POST',
+      })
+    );
+  });
+
+  it('forwards standard OTLP exporter headers to the Collector', async () => {
+    configMock.collectorHeaders = {
+      'x-sentry-auth': 'Sentry sentry_key=public-key',
+    };
+    configMock.collectorUrl = 'https://collector.example';
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const { handleOtlpProxyRequest } =
+      await import('@/composition/telemetry/transport');
+
+    const response = await handleOtlpProxyRequest(
+      request(
+        '/api/telemetry/otel/v1/traces',
+        'application/x-protobuf',
+        new Uint8Array([1])
+      ),
+      'traces'
+    );
+
+    expect(response.status).toBe(202);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://collector.example/v1/traces',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-sentry-auth': 'Sentry sentry_key=public-key',
+        }),
       })
     );
   });

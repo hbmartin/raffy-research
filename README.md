@@ -535,6 +535,15 @@ single owner of traces. Before raising the Sentry SDK version, confirm a hard
 reload hydrates without console errors at desktop and mobile widths and that
 the server-rendered and hydrated `<head>` elements match.
 
+Sentry's project OTLP integration accepts traces and logs at `/v1/traces` and
+`/v1/logs`. The app reads authentication from the standard
+`OTEL_EXPORTER_OTLP_HEADERS` format (including percent-encoded values). As of
+this setup, the same Sentry integration returns HTTP 404 for `/v1/metrics`, so
+native OTLP metrics cannot be treated as delivered until Sentry exposes that
+signal for the project. Keep the metrics exporter configured for a compatible
+collector, or verify Sentry adds project-level OTLP metrics support before
+making it the metrics destination.
+
 ### IDE setup
 
 ```bash

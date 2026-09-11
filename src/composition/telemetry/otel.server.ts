@@ -56,10 +56,14 @@ const createResource = () => {
 };
 
 const exporterHeaders = () => {
-  const { collectorBearerToken } = getTelemetryConfig();
-  return collectorBearerToken
-    ? { Authorization: `Bearer ${collectorBearerToken}` }
-    : undefined;
+  const { collectorBearerToken, collectorHeaders } = getTelemetryConfig();
+  const headers = {
+    ...collectorHeaders,
+    ...(collectorBearerToken
+      ? { Authorization: `Bearer ${collectorBearerToken}` }
+      : {}),
+  };
+  return Object.keys(headers).length > 0 ? headers : undefined;
 };
 
 export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
