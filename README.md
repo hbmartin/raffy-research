@@ -505,6 +505,26 @@ Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStu
 
 * Node.js 24.x, pnpm, Docker (or a PostgreSQL database)
 
+### TanStack SSR compatibility
+
+The TanStack SSR packages are intentionally held at a coordinated pre-regression
+set: `@tanstack/react-start@1.168.15`,
+`@tanstack/react-router@1.170.8`, and the `@tanstack/router-core@1.171.6`
+override in `pnpm-workspace.yaml`. Router Core releases `1.171.7` and newer can
+reserve the SSR stream fast path before `@tanstack/react-router-ssr-query`
+registers its render-finished listener. The HTML paints, but the query
+serialization stream never closes; requests then fail after 60 seconds with
+`Serialization timeout after app render finished`. This affects local SSR and
+Vercel functions alike.
+
+The behavior is tracked upstream in
+[TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529).
+Do not remove or raise the override based only on a successful build. First
+confirm the upstream issue is fixed for the complete Router/Start/SSR Query
+version set, then run the authenticated SSR browser tests and verify that a
+fresh `curl --max-time 10 http://localhost:3000/login` completes without the
+serialization timeout.
+
 ### IDE setup
 
 ```bash
