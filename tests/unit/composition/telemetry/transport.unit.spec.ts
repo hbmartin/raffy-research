@@ -105,13 +105,13 @@ describe('telemetry transport handlers', () => {
     );
 
     expect(response.status).toBe(202);
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+    expect(headers.get('authorization')).toBe('Bearer collector-token');
+    expect(headers.get('content-type')).toBe('application/x-protobuf');
     expect(fetch).toHaveBeenCalledWith(
       'https://collector.example/v1/metrics',
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer collector-token',
-          'Content-Type': 'application/x-protobuf',
-        }),
+        headers: expect.any(Headers),
         method: 'POST',
       })
     );
@@ -136,15 +136,66 @@ describe('telemetry transport handlers', () => {
     );
 
     expect(response.status).toBe(202);
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+    expect(headers.get('x-sentry-auth')).toBe('Sentry sentry_key=public-key');
     expect(fetch).toHaveBeenCalledWith(
       'https://collector.example/v1/traces',
       expect.objectContaining({
-        headers: expect.objectContaining({
-          'x-sentry-auth': 'Sentry sentry_key=public-key',
-        }),
+        headers: expect.any(Headers),
       })
     );
   });
+
+  it.each(['authorization', 'Authorization', 'AUTHORIZATION'])(
+    'replaces configured %s with the explicit bearer token',
+    async (name) => {
+      configMock.collectorHeaders = { [name]: 'Basic configured' };
+      configMock.collectorBearerToken = 'collector-token';
+      configMock.collectorUrl = 'https://collector.example';
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+
+      await handleOtlpProxyRequest(
+        request(
+          '/api/telemetry/otel/v1/traces',
+          'application/x-protobuf',
+          new Uint8Array([1])
+        ),
+        'traces'
+      );
+
+      const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+      expect(headers.get('authorization')).toBe('Bearer collector-token');
+    }
+  );
+
+  it.each([
+    ['Content-Type', 'application/json'],
+    ['content-type', 'application/json'],
+    ['content-type', 'application/x-protobuf'],
+  ])(
+    'preserves protobuf content type with configured %s=%s',
+    async (name, value) => {
+      configMock.collectorHeaders = { [name]: value };
+      configMock.collectorUrl = 'https://collector.example';
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+
+      await handleOtlpProxyRequest(
+        request(
+          '/api/telemetry/otel/v1/metrics',
+          'application/x-protobuf',
+          new Uint8Array([1])
+        ),
+        'metrics'
+      );
+
+      const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+      expect(headers.get('content-type')).toBe('application/x-protobuf');
+    }
+  );
 
   it('rejects telemetry mutations with unsupported content types', async () => {
     const { handleOtlpProxyRequest } =

@@ -56,14 +56,12 @@ const createResource = () => {
 };
 
 const exporterHeaders = () => {
-  const { collectorBearerToken, collectorHeaders } = getTelemetryConfig();
-  const headers = {
-    ...collectorHeaders,
-    ...(collectorBearerToken
-      ? { Authorization: `Bearer ${collectorBearerToken}` }
-      : {}),
-  };
-  return Object.keys(headers).length > 0 ? headers : undefined;
+  const { collectorBearerToken } = getTelemetryConfig();
+  // The SDK merges general and signal-specific environment headers itself.
+  // Passing general headers here would override the signal-specific values.
+  return collectorBearerToken
+    ? { Authorization: `Bearer ${collectorBearerToken}` }
+    : undefined;
 };
 
 export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {

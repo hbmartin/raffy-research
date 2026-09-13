@@ -1,3 +1,4 @@
+import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { z } from 'zod';
 
 import {
@@ -72,7 +73,19 @@ const parseCollectorHeaders = (value: string | undefined) =>
       const headerValue = decodeHeaderPart(
         entry.slice(separatorIndex + 1).trim()
       );
-      return name && headerValue ? [[name, headerValue]] : [];
+      if (!name || !headerValue) return [];
+
+      try {
+        validateHeaderName(name);
+        validateHeaderValue(name, headerValue);
+      } catch {
+        // Do not include the rejected value or cause: headers can contain secrets.
+        throw new ConfigurationError(
+          'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected valid HTTP header names and values.'
+        );
+      }
+
+      return [[name.toLowerCase(), headerValue]];
     })
   );
 

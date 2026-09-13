@@ -156,13 +156,11 @@ const forwardToCollector = async (
     return noContent();
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': requestContentType,
-    ...config.collectorHeaders,
-    ...(config.collectorBearerToken
-      ? { Authorization: `Bearer ${config.collectorBearerToken}` }
-      : {}),
-  };
+  const headers = new Headers(config.collectorHeaders);
+  headers.set('Content-Type', requestContentType);
+  if (config.collectorBearerToken) {
+    headers.set('Authorization', `Bearer ${config.collectorBearerToken}`);
+  }
   const collectorResponse = await fetch(
     signalUrl(config.collectorUrl, signal),
     {

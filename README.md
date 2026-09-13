@@ -525,6 +525,14 @@ version set, then run the authenticated SSR browser tests and verify that a
 fresh `curl --max-time 10 http://localhost:3000/login` completes without the
 serialization timeout.
 
+Run `pnpm test:e2e:ssr` for the automated production regression gate. It builds
+and serves the app against a disposable, seeded PGlite database with Sentry
+enabled and a local telemetry receiver. Desktop and mobile Chromium checks
+consume complete login and authenticated SSR responses within ten seconds,
+exercise sign-in, compare login head metadata, and check hard reloads for
+hydration errors. Screenshots and failure traces are saved under
+`test-results/ssr/`. This gate runs separately from the Docker-backed E2E matrix.
+
 Sentry's TanStack Start SDK is also pinned to `10.54.0`. Version `10.55.0`
 added automatic server-to-browser trace propagation by injecting
 `sentry-trace` and `baggage` meta tags into the completed HTML response. That
@@ -543,6 +551,14 @@ native OTLP metrics cannot be treated as delivered until Sentry exposes that
 signal for the project. Keep the metrics exporter configured for a compatible
 collector, or verify Sentry adds project-level OTLP metrics support before
 making it the metrics destination.
+
+Server exporters let the OpenTelemetry SDK resolve the general headers and
+`OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`, preserving signal-specific
+overrides. The browser proxy uses the general headers. An explicit
+`OTEL_COLLECTOR_BEARER_TOKEN` takes precedence over configured authorization;
+the proxy preserves the validated payload content type. Header names are
+case-insensitive, and invalid decoded names or values fail configuration
+validation without exposing their values.
 
 ### IDE setup
 
