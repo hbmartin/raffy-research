@@ -104,7 +104,7 @@ export default defineConfig(({ mode }) => {
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
       tanstackStart(),
-      nitro(),
+      nitro({ plugins: ['./src/composition/telemetry/bootstrap.ts'] }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),
       babel({ presets: [reactCompilerPreset()] }),

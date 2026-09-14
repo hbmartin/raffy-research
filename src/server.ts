@@ -6,7 +6,10 @@ import handler, {
 import { randomUUID } from 'node:crypto';
 import '../instrument.server.mjs';
 
+import { initTelemetryServer } from './composition/telemetry/sentry.server';
 import type { AppStartRequestContext } from './start';
+
+initTelemetryServer();
 
 const requestHandler: ServerEntry = wrapFetchWithSentry({
   fetch(request) {

@@ -29,7 +29,10 @@ import {
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
 
-import { getTelemetryConfig } from '@/modules/kernel/infrastructure/config/telemetry';
+import {
+  getTelemetryConfig,
+  resolveCollectorHeaders,
+} from '@/modules/kernel/infrastructure/config/telemetry';
 import type { TelemetryAdapter } from '@/platform/telemetry';
 
 import { createOpenTelemetryAdapter } from './otel-adapter';
@@ -55,18 +58,8 @@ const createResource = () => {
   });
 };
 
-const exporterHeaders = () => {
-  const { collectorBearerToken } = getTelemetryConfig();
-  // The SDK merges general and signal-specific environment headers itself.
-  // Passing general headers here would override the signal-specific values.
-  return collectorBearerToken
-    ? { Authorization: `Bearer ${collectorBearerToken}` }
-    : undefined;
-};
-
 export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   if (initialized) return adapter;
-  initialized = true;
 
   const config = getTelemetryConfig();
   if (!config.collectorUrl) {
@@ -74,7 +67,6 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   }
 
   const resource = createResource();
-  const headers = exporterHeaders();
   const tracerProvider = new NodeTracerProvider({
     resource,
     sampler: new ParentBasedSampler({
@@ -83,7 +75,7 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     spanProcessors: [
       new BatchSpanProcessor(
         new OTLPTraceExporter({
-          headers,
+          headers: resolveCollectorHeaders(config, 'traces'),
           url: signalUrl(config.collectorUrl, 'traces'),
         })
       ),
@@ -103,7 +95,7 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     readers: [
       new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter({
-          headers,
+          headers: resolveCollectorHeaders(config, 'metrics'),
           url: signalUrl(config.collectorUrl, 'metrics'),
         }),
         exportIntervalMillis: 30_000,
@@ -117,7 +109,7 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     processors: [
       new BatchLogRecordProcessor(
         new OTLPLogExporter({
-          headers,
+          headers: resolveCollectorHeaders(config, 'logs'),
           url: signalUrl(config.collectorUrl, 'logs'),
         })
       ),
@@ -127,5 +119,6 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   logs.setGlobalLoggerProvider(loggerProvider);
 
   adapter = createOpenTelemetryAdapter();
+  initialized = true;
   return adapter;
 };

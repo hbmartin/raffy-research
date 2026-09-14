@@ -1,3 +1,4 @@
+import { parseKeyPairsIntoRecord } from '@opentelemetry/core';
 import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { z } from 'zod';
 
@@ -19,6 +20,9 @@ const telemetryEnvSchema = baseEnvSchema.extend({
   OTEL_COLLECTOR_URL: z.string().url().optional(),
   OTEL_COLLECTOR_BEARER_TOKEN: z.string().optional(),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS: z.string().optional(),
+  OTEL_EXPORTER_OTLP_METRICS_HEADERS: z.string().optional(),
+  OTEL_EXPORTER_OTLP_LOGS_HEADERS: z.string().optional(),
   OTEL_SERVICE_NAME: z.string().optional(),
   OTEL_SERVICE_VERSION: z.string().optional(),
   OTEL_ENVIRONMENT: z.string().optional(),
@@ -43,6 +47,9 @@ export type TelemetryConfig = {
   collectorUrl?: string;
   collectorBearerToken?: string;
   collectorHeaders: Readonly<Record<string, string>>;
+  signalHeaders: Readonly<
+    Record<'traces' | 'metrics' | 'logs', Readonly<Record<string, string>>>
+  >;
   serviceName: string;
   serviceVersion?: string;
   otelEnvironment?: string;
@@ -55,39 +62,59 @@ export type TelemetryConfig = {
 
 let cachedTelemetryConfig: TelemetryConfig | undefined;
 
-const decodeHeaderPart = (value: string) => {
+const forbiddenHeaders = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-connection',
+  'transfer-encoding',
+  'upgrade',
+  'expect',
+  'te',
+  'trailer',
+  'host',
+  'content-length',
+]);
+
+const validateCollectorHeader = (
+  variable: string,
+  name: string,
+  value: string
+) => {
+  const message = `Invalid ${variable}: expected supported HTTP header names and values.`;
+  if (forbiddenHeaders.has(name.toLowerCase()))
+    throw new ConfigurationError(message);
   try {
-    return decodeURIComponent(value);
+    validateHeaderName(name);
+    validateHeaderValue(name, value);
   } catch {
-    return value;
+    throw new ConfigurationError(message);
   }
 };
 
-const parseCollectorHeaders = (value: string | undefined) =>
+const parseCollectorHeaders = (variable: string, value: string | undefined) =>
   Object.fromEntries(
-    (value?.split(',') ?? []).flatMap((entry) => {
-      const separatorIndex = entry.indexOf('=');
-      if (separatorIndex <= 0) return [];
-
-      const name = decodeHeaderPart(entry.slice(0, separatorIndex).trim());
-      const headerValue = decodeHeaderPart(
-        entry.slice(separatorIndex + 1).trim()
-      );
-      if (!name || !headerValue) return [];
-
-      try {
-        validateHeaderName(name);
-        validateHeaderValue(name, headerValue);
-      } catch {
-        // Do not include the rejected value or cause: headers can contain secrets.
-        throw new ConfigurationError(
-          'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected valid HTTP header names and values.'
-        );
-      }
-
-      return [[name.toLowerCase(), headerValue]];
-    })
+    // Normalize each SDK-parsed entry before resolving duplicates. Parsing the
+    // entire record first loses source order when exact and mixed-case names
+    // are interleaved (X-Key=first,x-key=second,X-Key=last).
+    (value ?? '').split(',').flatMap((entry) =>
+      Object.entries(parseKeyPairsIntoRecord(entry)).map(([name, value]) => {
+        validateCollectorHeader(variable, name, value);
+        return [name.toLowerCase(), value];
+      })
+    )
   );
+
+export const resolveCollectorHeaders = (
+  config: TelemetryConfig,
+  signal: 'traces' | 'metrics' | 'logs'
+) => {
+  const headers = new Headers(config.collectorHeaders);
+  for (const [name, value] of Object.entries(config.signalHeaders[signal]))
+    headers.set(name, value);
+  if (config.collectorBearerToken)
+    headers.set('authorization', `Bearer ${config.collectorBearerToken}`);
+  return Object.fromEntries(headers.entries());
+};
 
 export function getTelemetryConfig(): TelemetryConfig {
   if (cachedTelemetryConfig) return cachedTelemetryConfig;
@@ -97,6 +124,40 @@ export function getTelemetryConfig(): TelemetryConfig {
   if (isProduction && !env.OTEL_COLLECTOR_URL) {
     throw new ConfigurationError(
       'OTEL_COLLECTOR_URL is required in production telemetry configuration.'
+    );
+  }
+
+  const collectorHeaders = env.OTEL_COLLECTOR_URL
+    ? parseCollectorHeaders(
+        'OTEL_EXPORTER_OTLP_HEADERS',
+        env.OTEL_EXPORTER_OTLP_HEADERS
+      )
+    : {};
+  const signalHeaders = {
+    traces: env.OTEL_COLLECTOR_URL
+      ? parseCollectorHeaders(
+          'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
+          env.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+        )
+      : {},
+    metrics: env.OTEL_COLLECTOR_URL
+      ? parseCollectorHeaders(
+          'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
+          env.OTEL_EXPORTER_OTLP_METRICS_HEADERS
+        )
+      : {},
+    logs: env.OTEL_COLLECTOR_URL
+      ? parseCollectorHeaders(
+          'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+          env.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+        )
+      : {},
+  };
+  if (env.OTEL_COLLECTOR_URL && env.OTEL_COLLECTOR_BEARER_TOKEN) {
+    validateCollectorHeader(
+      'OTEL_COLLECTOR_BEARER_TOKEN',
+      'authorization',
+      `Bearer ${env.OTEL_COLLECTOR_BEARER_TOKEN}`
     );
   }
 
@@ -110,7 +171,8 @@ export function getTelemetryConfig(): TelemetryConfig {
     authToken: env.SENTRY_AUTH_TOKEN,
     collectorUrl: env.OTEL_COLLECTOR_URL,
     collectorBearerToken: env.OTEL_COLLECTOR_BEARER_TOKEN,
-    collectorHeaders: parseCollectorHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
+    collectorHeaders,
+    signalHeaders,
     serviceName: env.OTEL_SERVICE_NAME ?? 'start-ui-web',
     serviceVersion: env.OTEL_SERVICE_VERSION,
     otelEnvironment:
