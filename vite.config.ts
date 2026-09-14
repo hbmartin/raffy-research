@@ -68,23 +68,29 @@ function srcJsonImportPlugin(): Plugin {
 
 export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
-  const env = loadEnv(mode, process.cwd(), 'VITE_');
-  const privateEnv = loadEnv(mode, process.cwd(), '');
+  const envDirectory = process.env.SSR_FIXTURE_ENV_DIR ?? process.cwd();
+  const env = loadEnv(mode, envDirectory, 'VITE_');
+  const privateEnv = loadEnv(mode, envDirectory, '');
   const envName = env.VITE_ENV_NAME?.toLowerCase();
   const isTestRuntime = envName === 'test' || envName === 'tests';
-  const sentryPlugins =
-    env.VITE_SENTRY_DSN &&
+  const canUpload = Boolean(
     privateEnv.SENTRY_ORG &&
     privateEnv.SENTRY_PROJECT &&
     privateEnv.SENTRY_AUTH_TOKEN
-      ? sentryTanstackStart({
-          org: privateEnv.SENTRY_ORG,
-          project: privateEnv.SENTRY_PROJECT,
-          authToken: privateEnv.SENTRY_AUTH_TOKEN,
-        })
-      : [];
+  );
+  const sentryPlugins = env.VITE_SENTRY_DSN
+    ? sentryTanstackStart({
+        org: privateEnv.SENTRY_ORG || undefined,
+        project: privateEnv.SENTRY_PROJECT || undefined,
+        authToken: privateEnv.SENTRY_AUTH_TOKEN || undefined,
+        telemetry: false,
+        sourcemaps: { disable: !canUpload },
+        release: { create: canUpload, finalize: canUpload },
+      })
+    : [];
 
   return {
+    envDir: envDirectory,
     build: {
       target: 'baseline-widely-available',
     },

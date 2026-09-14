@@ -507,41 +507,54 @@ Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStu
 
 ### TanStack SSR compatibility
 
-The TanStack SSR packages are intentionally held at a coordinated pre-regression
-set: `@tanstack/react-start@1.168.15`,
-`@tanstack/react-router@1.170.8`, and the `@tanstack/router-core@1.171.6`
-override in `pnpm-workspace.yaml`. Router Core releases `1.171.7` and newer can
-reserve the SSR stream fast path before `@tanstack/react-router-ssr-query`
-registers its render-finished listener. The HTML paints, but the query
-serialization stream never closes; requests then fail after 60 seconds with
-`Serialization timeout after app render finished`. This affects local SSR and
-Vercel functions alike.
+The tested compatibility set is `@tanstack/react-start@1.168.16`,
+`@tanstack/react-router@1.170.9`, and `@tanstack/react-router-ssr-query@1.167.1`.
+Router Core follows Router's declared dependency; there is no global override.
+`@tanstack/start-client-core@1.170.5` is a direct dependency for its public
+hydration API, matching Start's requirement. `pnpm check:ssr-compatibility`
+checks these installed dependency relationships.
 
-The behavior is tracked upstream in
-[TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529).
-Do not remove or raise the override based only on a successful build. First
-confirm the upstream issue is fixed for the complete Router/Start/SSR Query
-version set, then run the authenticated SSR browser tests and verify that a
-fresh `curl --max-time 10 http://localhost:3000/login` completes without the
-serialization timeout.
+Start's response stream owns SSR cleanup. Request middleware preserves the
+original response body; replacing it with a transformed body can dispose the
+underlying stream before serialization completes. Nonces are supplied during
+rendering through the router and theme provider. Base UI's scrollbar CSS lives
+in the external app stylesheet because React hoists those style resources
+without preserving their element nonce. The browser entry disables Zod JIT
+probing so Firefox can validate forms without triggering unsafe-eval violations.
+Client hydration also retains the original document and bootstrap state while
+route chunks load. Completion after a hard reload must not clear the replacement
+document's state through a reused WebKit window. The core hydration API lets
+the app check ownership before signaling completion.
+The corrected cleanup discussion is in
+[TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529);
+the earlier explanation about dropped fast-path listeners was not established.
 
-Run `pnpm test:e2e:ssr` for the automated production regression gate. It builds
-and serves the app against a disposable, seeded PGlite database with Sentry
-enabled and a local telemetry receiver. Desktop and mobile Chromium checks
-consume complete login and authenticated SSR responses within ten seconds,
-exercise sign-in, compare login head metadata, and check hard reloads for
-hydration errors. Screenshots and failure traces are saved under
-`test-results/ssr/`. This gate runs separately from the Docker-backed E2E matrix.
+Sentry `10.55.0` reports errors only. The server entry observes stream failures
+and preserves SDK serverless flushing without the fetch wrapper that injects
+trace metadata into HTML. OpenTelemetry remains the sole owner of tracing.
+The Sentry Vite plugin runs whenever a browser DSN is present; upload credentials
+control source-map uploads and release publishing separately. Plugin telemetry
+is disabled. Local SSR tests exercise build instrumentation and runtime SDKs
+against a local receiver, without uploads or external Sentry credentials.
 
-Sentry's TanStack Start SDK is also pinned to `10.54.0`. Version `10.55.0`
-added automatic server-to-browser trace propagation by injecting
-`sentry-trace` and `baggage` meta tags into the completed HTML response. That
-post-render mutation is not represented in this app's React head tree and
-causes React error 418 during production hydration. Sentry remains enabled for
-server and browser error reporting at `10.54.0`; OpenTelemetry remains the
-single owner of traces. Before raising the Sentry SDK version, confirm a hard
-reload hydrates without console errors at desktop and mobile widths and that
-the server-rendered and hydrated `<head>` elements match.
+Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
+`pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages
+separately: the build has a ten-minute budget; database initialization and server
+readiness have two minutes. Both use the same generated fixture manifest under
+`test-results/ssr-fixture/`, an explicit environment, and an empty Vite env
+directory. Developer `.env` files and application credentials are not inherited.
+The fixture reserves local ports 3011 (app), 54331 (database), and 43191 (receiver).
+
+Desktop/mobile Chromium, Firefox, and mobile WebKit checks consume complete
+login and authenticated SSR responses within ten seconds, exercise sign-in,
+compare head metadata and nonces, and check browser proxy authentication and
+CSP/hydration errors. A server-only case verifies invalid headers stop startup
+before readiness. Integration tests cover immediate and delayed query streams,
+cleanup, error propagation, cancellation, and backpressure. Chromium/Firefox
+screenshots and failure traces are saved under `test-results/ssr/`. WebKit runs
+the same behavior and CSP assertions without success screenshots because its
+screenshot helper injects a stylesheet that violates the strict CSP. This gate is independent of
+the Docker-backed E2E matrix. Dependency PRs must pass it before merging.
 
 Sentry's project OTLP integration accepts traces and logs at `/v1/traces` and
 `/v1/logs`. The app reads authentication from the standard
@@ -552,13 +565,26 @@ signal for the project. Keep the metrics exporter configured for a compatible
 collector, or verify Sentry adds project-level OTLP metrics support before
 making it the metrics destination.
 
-Server exporters let the OpenTelemetry SDK resolve the general headers and
-`OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`, preserving signal-specific
-overrides. The browser proxy uses the general headers. An explicit
-`OTEL_COLLECTOR_BEARER_TOKEN` takes precedence over configured authorization;
-the proxy preserves the validated payload content type. Header names are
-case-insensitive, and invalid decoded names or values fail configuration
-validation without exposing their values.
+Server exporters and the browser proxy resolve headers identically: general
+`OTEL_EXPORTER_OTLP_HEADERS`, then the matching
+`OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`, then explicit
+`OTEL_COLLECTOR_BEARER_TOKEN` authorization. Names are case-insensitive, and
+the last entry for a name wins within each variable. The
+proxy preserves its validated payload Content-Type. Parsing uses OpenTelemetry's
+SDK helper: percent escapes are decoded, malformed entries are dropped, and
+semicolon metadata is discarded.
+
+For an active collector, invalid decoded HTTP headers, invalid bearer values,
+and transport-controlled headers fail build/runtime configuration validation.
+The prohibited names are `connection`, `keep-alive`, `proxy-connection`,
+`transfer-encoding`, `upgrade`, `expect`, `te`, `trailer`, `host`, and
+`content-length`.
+Errors identify the variable without exposing credentials. Production requires
+a collector and refuses startup on invalid active configuration. Outside
+production, unused collector header settings are ignored when no collector URL
+is configured, preserving independent Sentry reporting. Upstream transport
+failures return a sanitized 502 and a fixed-field stderr diagnostic that bypasses
+telemetry exporters. The optional local SQLite sink also records the failure.
 
 ### IDE setup
 
