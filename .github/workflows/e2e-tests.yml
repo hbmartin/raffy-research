@@ -17,6 +17,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  SSR:
+    name: Production SSR and hydration
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: ./.github/actions/setup-pnpm
+        with:
+          node-version: 24
+      - name: Setup Playwright
+        uses: ./.github/actions/setup-playwright
+        with:
+          browsers: chromium
+      - name: Verify production SSR and hydration
+        run: pnpm test:e2e:ssr
+      - name: Upload SSR report and evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: production-ssr-report
+          path: |
+            playwright-report/ssr/
+            test-results/ssr/
+          retention-days: 30
+
   E2E:
     name: E2E (${{ matrix.browser }})
     if: github.event.pull_request.draft == false

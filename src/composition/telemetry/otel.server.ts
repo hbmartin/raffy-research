@@ -57,6 +57,8 @@ const createResource = () => {
 
 const exporterHeaders = () => {
   const { collectorBearerToken } = getTelemetryConfig();
+  // The SDK merges general and signal-specific environment headers itself.
+  // Passing general headers here would override the signal-specific values.
   return collectorBearerToken
     ? { Authorization: `Bearer ${collectorBearerToken}` }
     : undefined;

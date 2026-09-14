@@ -319,4 +319,49 @@ describe('server config accessors', () => {
       'https://collector.example/v1'
     );
   });
+
+  it('parses standard OTLP exporter headers without truncating values', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'x-sentry-auth=Sentry%20sentry_key%3Dpublic-key'
+    );
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+
+    expect(getTelemetryConfig().collectorHeaders).toEqual({
+      'x-sentry-auth': 'Sentry sentry_key=public-key',
+    });
+  });
+  it('normalizes names and preserves encoded delimiters and malformed percent literals', async () => {
+    vi.stubEnv(
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'X-Key=old,x-key=new,x-value=a%2Cb%3Dc,x-percent=literal%ZZ,missing,=empty-name,empty-value='
+    );
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig().collectorHeaders).toEqual({
+      'x-key': 'new',
+      'x-value': 'a,b=c',
+      'x-percent': 'literal%ZZ',
+    });
+  });
+
+  it.each([
+    'bad%0Aname=value',
+    'bad%20name=value',
+    'x-token=private%0D%0Avalue',
+    'x-token=private%00value',
+  ])(
+    'rejects invalid decoded HTTP headers without exposing their values: %s',
+    async (value) => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', value);
+      const { getTelemetryConfig } =
+        await import('@/modules/kernel/infrastructure/config/telemetry');
+      expect(getTelemetryConfig).toThrow(
+        'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected valid HTTP header names and values.'
+      );
+      expect(getTelemetryConfig).not.toThrow(value);
+    }
+  );
 });

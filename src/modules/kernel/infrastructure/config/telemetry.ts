@@ -1,3 +1,4 @@
+import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { z } from 'zod';
 
 import {
@@ -17,6 +18,7 @@ const telemetryEnvSchema = baseEnvSchema.extend({
   SENTRY_AUTH_TOKEN: z.string().optional(),
   OTEL_COLLECTOR_URL: z.string().url().optional(),
   OTEL_COLLECTOR_BEARER_TOKEN: z.string().optional(),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
   OTEL_SERVICE_NAME: z.string().optional(),
   OTEL_SERVICE_VERSION: z.string().optional(),
   OTEL_ENVIRONMENT: z.string().optional(),
@@ -40,6 +42,7 @@ export type TelemetryConfig = {
   authToken?: string;
   collectorUrl?: string;
   collectorBearerToken?: string;
+  collectorHeaders: Readonly<Record<string, string>>;
   serviceName: string;
   serviceVersion?: string;
   otelEnvironment?: string;
@@ -51,6 +54,40 @@ export type TelemetryConfig = {
 };
 
 let cachedTelemetryConfig: TelemetryConfig | undefined;
+
+const decodeHeaderPart = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const parseCollectorHeaders = (value: string | undefined) =>
+  Object.fromEntries(
+    (value?.split(',') ?? []).flatMap((entry) => {
+      const separatorIndex = entry.indexOf('=');
+      if (separatorIndex <= 0) return [];
+
+      const name = decodeHeaderPart(entry.slice(0, separatorIndex).trim());
+      const headerValue = decodeHeaderPart(
+        entry.slice(separatorIndex + 1).trim()
+      );
+      if (!name || !headerValue) return [];
+
+      try {
+        validateHeaderName(name);
+        validateHeaderValue(name, headerValue);
+      } catch {
+        // Do not include the rejected value or cause: headers can contain secrets.
+        throw new ConfigurationError(
+          'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected valid HTTP header names and values.'
+        );
+      }
+
+      return [[name.toLowerCase(), headerValue]];
+    })
+  );
 
 export function getTelemetryConfig(): TelemetryConfig {
   if (cachedTelemetryConfig) return cachedTelemetryConfig;
@@ -73,6 +110,7 @@ export function getTelemetryConfig(): TelemetryConfig {
     authToken: env.SENTRY_AUTH_TOKEN,
     collectorUrl: env.OTEL_COLLECTOR_URL,
     collectorBearerToken: env.OTEL_COLLECTOR_BEARER_TOKEN,
+    collectorHeaders: parseCollectorHeaders(env.OTEL_EXPORTER_OTLP_HEADERS),
     serviceName: env.OTEL_SERVICE_NAME ?? 'start-ui-web',
     serviceVersion: env.OTEL_SERVICE_VERSION,
     otelEnvironment:
