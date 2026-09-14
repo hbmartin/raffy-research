@@ -367,11 +367,26 @@ module.exports = {
     {
       name: 'opentelemetry-sdk-confined',
       severity: 'error',
-      comment: 'OpenTelemetry SDK imports stay in telemetry composition.',
+      comment:
+        'OpenTelemetry SDK imports stay in telemetry composition; kernel configuration may use the core header parser.',
       from: {
-        pathNot: '^src/composition/telemetry/',
+        pathNot: [
+          '^src/composition/telemetry/',
+          '^src/modules/kernel/infrastructure/config/telemetry\\.ts$',
+        ],
       },
       to: { path: 'node_modules/@opentelemetry/' },
+    },
+    {
+      name: 'telemetry-config-only-imports-otel-core',
+      severity: 'error',
+      from: {
+        path: '^src/modules/kernel/infrastructure/config/telemetry\\.ts$',
+      },
+      to: {
+        path: 'node_modules/@opentelemetry/',
+        pathNot: 'node_modules/@opentelemetry/core/',
+      },
     },
     {
       name: 'pino-confined-to-kernel-logger',

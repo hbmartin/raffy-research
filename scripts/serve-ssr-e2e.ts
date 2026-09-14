@@ -3,22 +3,36 @@ import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 
-import { SSR_BASE_URL, SSR_SEED_PASSWORD } from '../tests/support/ssr-e2e';
+import {
+  readFixtureEnvironment,
+  SSR_DATABASE_PORT,
+  SSR_COLLECTOR_PORT,
+} from './ssr-fixture-env';
+
+const env = await readFixtureEnvironment();
 
 const database = new PGlite('memory://', { extensions: { pgcrypto } });
 const socket = new PGLiteSocketServer({
   db: database,
   host: '127.0.0.1',
-  port: 0,
+  port: SSR_DATABASE_PORT,
   maxConnections: 16,
 });
 const collector = createServer((request, response) => {
   request.resume();
-  response.writeHead(200, { 'Content-Type': 'application/x-protobuf' });
+  const expected =
+    request.url === '/v1/traces'
+      ? 'trace-fixture'
+      : request.url === '/v1/metrics'
+        ? 'metric-fixture'
+        : undefined;
+  response.writeHead(
+    expected && request.headers['x-fixture-auth'] !== expected ? 401 : 200,
+    { 'Content-Type': 'application/x-protobuf' }
+  );
   response.end();
 });
 let child: ChildProcess | undefined;
@@ -58,49 +72,9 @@ try {
   await database.waitReady;
   await database.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
   await socket.start();
-  collector.listen(0, '127.0.0.1');
+  collector.listen(SSR_COLLECTOR_PORT, '127.0.0.1');
   await once(collector, 'listening');
-  const address = collector.address();
-  if (!address || typeof address === 'string')
-    throw new Error('Missing collector port');
-  const collectorUrl = `http://127.0.0.1:${address.port}`;
-  const sentryDsn = `http://public@127.0.0.1:${address.port}/1`;
-  const env = {
-    ...process.env,
-    ALLOW_DEMO_SEED: 'true',
-    AUTH_SECRET: randomBytes(32).toString('hex'),
-    AUTH_PROVIDER: 'better-auth',
-    DATABASE_URL: `postgresql://postgres:postgres@${socket.getServerConn()}/postgres`,
-    DATABASE_MIGRATION_URL: `postgresql://postgres:postgres@${socket.getServerConn()}/postgres`,
-    DATABASE_DRIVER: 'node-pg',
-    DATABASE_MIGRATION_DRIVER: 'node-pg',
-    DEMO_SEED_PASSWORD: SSR_SEED_PASSWORD,
-    GITHUB_CLIENT_ID: '',
-    GITHUB_CLIENT_SECRET: '',
-    HOST: '127.0.0.1',
-    NODE_ENV: 'production',
-    PORT: new URL(SSR_BASE_URL).port,
-    VITE_PORT: new URL(SSR_BASE_URL).port,
-    VITE_BASE_URL: SSR_BASE_URL,
-    VITE_ENV_NAME: 'tests',
-    VITE_IS_DEMO: 'false',
-    VITE_VISUAL_TEST: 'false',
-    VITE_SENTRY_DSN: sentryDsn,
-    SENTRY_DSN: sentryDsn,
-    SENTRY_AUTH_TOKEN: '',
-    SENTRY_ORG: '',
-    SENTRY_PROJECT: '',
-    OTEL_COLLECTOR_URL: collectorUrl,
-    OTEL_COLLECTOR_BEARER_TOKEN: '',
-    OTEL_EXPORTER_OTLP_HEADERS: '',
-    OTEL_EXPORTER_OTLP_TRACES_HEADERS: '',
-    OTEL_EXPORTER_OTLP_METRICS_HEADERS: '',
-    OTEL_EXPORTER_OTLP_LOGS_HEADERS: '',
-    OTEL_LOCAL_SQLITE_ENABLED: 'false',
-    SKIP_ENV_VALIDATION: 'false',
-    LOGGER_PRETTY: 'false',
-  };
-  for (const command of ['e2e:db:init', 'build', 'start']) {
+  for (const command of ['e2e:ssr:db:init', 'start']) {
     if (stopping) break;
     // Launch the built server directly so shutdown targets the process that
     // owns database connections, rather than an intermediate package runner.

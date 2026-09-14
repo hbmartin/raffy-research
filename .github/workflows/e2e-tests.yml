@@ -20,7 +20,7 @@ jobs:
   SSR:
     name: Production SSR and hydration
     if: github.event.pull_request.draft == false
-    timeout-minutes: 10
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -33,9 +33,14 @@ jobs:
       - name: Setup Playwright
         uses: ./.github/actions/setup-playwright
         with:
-          browsers: chromium
+          browsers: chromium firefox webkit
+      - name: Check SSR dependency compatibility
+        run: pnpm check:ssr-compatibility
+      - name: Build production SSR fixture
+        timeout-minutes: 10
+        run: pnpm build:e2e:ssr
       - name: Verify production SSR and hydration
-        run: pnpm test:e2e:ssr
+        run: pnpm test:e2e:ssr:built
       - name: Upload SSR report and evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

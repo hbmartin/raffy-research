@@ -32,7 +32,6 @@ const isTelemetryAdapter = (
  */
 export const initTelemetryServer = () => {
   if (initialized) return;
-  initialized = true;
 
   const telemetryConfig = getTelemetryConfig();
   const adapters = [initOpenTelemetryServer()].filter(isTelemetryAdapter);
@@ -40,6 +39,7 @@ export const initTelemetryServer = () => {
     if (adapters.length > 0) {
       setTelemetry(createTelemetryAdapterChain(adapters));
     }
+    initialized = true;
     return;
   }
 
@@ -57,4 +57,5 @@ export const initTelemetryServer = () => {
       adapters.length > 0 ? adapters : [createNoOpTelemetry()]
     )
   );
+  initialized = true;
 };

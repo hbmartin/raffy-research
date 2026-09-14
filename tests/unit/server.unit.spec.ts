@@ -3,11 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   createServerEntry: vi.fn((entry: unknown) => entry),
   handlerFetch: vi.fn(async () => new Response('ok')),
-  wrapFetchWithSentry: vi.fn((entry: unknown) => entry),
+  captureException: vi.fn(),
+  initialize: vi.fn(),
 }));
 
 vi.mock('@sentry/tanstackstart-react', () => ({
-  wrapFetchWithSentry: mocks.wrapFetchWithSentry,
+  captureException: mocks.captureException,
+}));
+
+vi.mock('@/composition/telemetry/sentry.server', () => ({
+  initTelemetryServer: mocks.initialize,
 }));
 
 vi.mock('@tanstack/react-start/server-entry', () => ({
@@ -24,7 +29,9 @@ describe('server entry', () => {
     };
     const request = new Request('https://app.example/');
 
-    await server.fetch(request);
+    const response = await server.fetch(request);
+    expect(await response.text()).toBe('ok');
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
 
     expect(mocks.handlerFetch).toHaveBeenCalledWith(
       request,

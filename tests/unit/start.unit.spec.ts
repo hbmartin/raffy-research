@@ -1,8 +1,6 @@
 import { mockLogger } from '@tests/server/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
-import { CSP_NONCE_PLACEHOLDER } from '@/platform/http/csp-nonce';
-
 const sentryMiddleware = vi.hoisted(() => ({
   function: { type: 'sentry-function' },
   request: { type: 'sentry-request' },
@@ -124,9 +122,9 @@ describe('TanStack Start instance', () => {
   it('applies security headers to successful responses', async () => {
     const { securityHeadersMiddleware } = await import('@/start');
     type NextOptions = { context: { cspNonce: string; requestId: string } };
-    const next = vi.fn(async (_options: NextOptions) => ({
+    const next = vi.fn(async (options: NextOptions) => ({
       response: new Response(
-        `<meta property="csp-nonce" content="${CSP_NONCE_PLACEHOLDER}" nonce="${CSP_NONCE_PLACEHOLDER}"><script nonce="${CSP_NONCE_PLACEHOLDER}">window.__nonce__="${CSP_NONCE_PLACEHOLDER}"</script>`,
+        `<meta property="csp-nonce" content="${options.context.cspNonce}" nonce="${options.context.cspNonce}"><script nonce="${options.context.cspNonce}">window.__nonce__="${options.context.cspNonce}"</script>`,
         {
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
@@ -139,6 +137,7 @@ describe('TanStack Start instance', () => {
       context: { requestId: 'request-1' },
       next,
     });
+    expect(result.response).toBe((await next.mock.results[0]?.value)?.response);
     const nextOptions = next.mock.calls[0]?.[0];
     const cspNonce = nextOptions?.context.cspNonce;
 

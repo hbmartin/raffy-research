@@ -333,35 +333,117 @@ describe('server config accessors', () => {
       'x-sentry-auth': 'Sentry sentry_key=public-key',
     });
   });
-  it('normalizes names and preserves encoded delimiters and malformed percent literals', async () => {
+  it('normalizes names, preserves encoded delimiters, and drops malformed escapes', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
     vi.stubEnv(
       'OTEL_EXPORTER_OTLP_HEADERS',
-      'X-Key=old,x-key=new,x-value=a%2Cb%3Dc,x-percent=literal%ZZ,missing,=empty-name,empty-value='
+      'X-Key=old,x-key=middle,X-Key=new,x-value=a%2Cb%3Dc,x-percent=literal%ZZ,missing,=empty-name,empty-value='
     );
     const { getTelemetryConfig } =
       await import('@/modules/kernel/infrastructure/config/telemetry');
     expect(getTelemetryConfig().collectorHeaders).toEqual({
       'x-key': 'new',
       'x-value': 'a,b=c',
-      'x-percent': 'literal%ZZ',
     });
   });
 
   it.each([
-    'bad%0Aname=value',
-    'bad%20name=value',
-    'x-token=private%0D%0Avalue',
-    'x-token=private%00value',
+    'bad%0Aname=credential-sentinel',
+    'bad%20name=credential-sentinel',
+    'x-token=credential-sentinel%0D%0Avalue',
+    'x-token=credential-sentinel%00value',
   ])(
     'rejects invalid decoded HTTP headers without exposing their values: %s',
     async (value) => {
+      vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
       vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', value);
       const { getTelemetryConfig } =
         await import('@/modules/kernel/infrastructure/config/telemetry');
       expect(getTelemetryConfig).toThrow(
-        'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected valid HTTP header names and values.'
+        'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected supported HTTP header names and values.'
       );
-      expect(getTelemetryConfig).not.toThrow(value);
+      let failure: unknown;
+      try {
+        getTelemetryConfig();
+      } catch (error) {
+        failure = error;
+      }
+      const serialized = JSON.stringify(
+        failure,
+        Object.getOwnPropertyNames(failure)
+      );
+      expect(serialized).not.toContain(value);
+      expect(serialized).not.toContain(decodeURIComponent(value));
+      expect(failure).toHaveProperty('cause', undefined);
+      expect(failure).toHaveProperty('details', undefined);
+      expect((failure as Error).message).not.toContain(
+        decodeURIComponent(value.split('=').slice(1).join('='))
+      );
+      expect(serialized).not.toContain('credential-sentinel');
     }
   );
+  it.each([
+    'OTEL_EXPORTER_OTLP_HEADERS',
+    'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
+    'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
+    'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+  ])('validates %s after SDK parsing', async (variable) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(variable, 'x-token=secret%0Avalue');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow(variable);
+    expect(getTelemetryConfig).not.toThrow('secret');
+  });
+
+  it.each([
+    'connection',
+    'keep-alive',
+    'proxy-connection',
+    'transfer-encoding',
+    'upgrade',
+    'expect',
+    'te',
+    'trailer',
+    'host',
+    'content-length',
+  ])('rejects transport-controlled %s', async (name) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', `${name}=value`);
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_EXPORTER_OTLP_HEADERS');
+  });
+
+  it('rejects invalid explicit bearer credentials', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_COLLECTOR_BEARER_TOKEN', 'secret\nvalue');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_COLLECTOR_BEARER_TOKEN');
+    expect(getTelemetryConfig).not.toThrow('secret');
+  });
+
+  it('ignores unused invalid collector headers in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('OTEL_COLLECTOR_URL', undefined);
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=secret%0Avalue');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_HEADERS', 'host=invalid');
+    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig()).toMatchObject({
+      dsn: 'https://public@sentry.example/1',
+      collectorHeaders: {},
+      signalHeaders: { traces: {}, metrics: {}, logs: {} },
+    });
+  });
+
+  it('drops semicolon metadata using SDK semantics', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=abc;metadata');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig().collectorHeaders).toEqual({ 'x-token': 'abc' });
+  });
 });
