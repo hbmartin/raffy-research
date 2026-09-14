@@ -139,7 +139,7 @@
     "e2e:ssr:webserver": "node ./run-jiti ./scripts/serve-ssr-e2e.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.73",
+    "@ai-sdk/openai": "^4.0.2",
     "@base-ui/react": "1.6.0",
     "@bearstudio/ui-state": "1.1.0",
     "@better-upload/client": "3.0.19",
