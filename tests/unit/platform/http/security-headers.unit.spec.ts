@@ -2,9 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createCspNonceBridgeScript,
-  CSP_NONCE_PLACEHOLDER,
   readCspNonceFromMeta,
-  replaceCspNoncePlaceholderInHtmlResponse,
 } from '@/platform/http/csp-nonce';
 import {
   appendVaryHeader,
@@ -198,194 +196,13 @@ describe('security headers', () => {
     expect(response.headers.get('Vary')).toBe('*');
   });
 
-  it('replaces Vite CSP nonce placeholders in HTML responses', async () => {
-    const response = new Response(
-      `<meta property="csp-nonce" content="${CSP_NONCE_PLACEHOLDER}" nonce="${CSP_NONCE_PLACEHOLDER}"><script nonce="${CSP_NONCE_PLACEHOLDER}"></script>`,
-      {
-        headers: {
-          'Content-Length': '999',
-          'Content-Type': 'text/html; charset=utf-8',
-        },
-      }
-    );
-
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-
-    await expect(replaced.text()).resolves.toBe(
-      '<meta property="csp-nonce" content="request-nonce" nonce="request-nonce"><script nonce="request-nonce"></script>'
-    );
-    expect(replaced.headers.get('Content-Length')).toBe(null);
-    expect(replaced.headers.get('Content-Type')).toBe(
-      'text/html; charset=utf-8'
-    );
-  });
-
-  it('adds the request nonce to SSR style tags without replacing existing style nonces', async () => {
-    const response = new Response(
-      '<style>.base-ui-disable-scrollbar{scrollbar-width:none}</style><style data-test="x" nonce="existing-nonce">.already{color:red}</style>',
-      {
-        headers: {
-          'Content-Type': 'text/html',
-        },
-      }
-    );
-
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-
-    await expect(replaced.text()).resolves.toBe(
-      '<style nonce="request-nonce">.base-ui-disable-scrollbar{scrollbar-width:none}</style><style data-test="x" nonce="existing-nonce">.already{color:red}</style>'
-    );
-  });
-
-  it('does not replace Vite CSP nonce placeholders in non-HTML responses', async () => {
-    const response = new Response(
-      JSON.stringify({ nonce: CSP_NONCE_PLACEHOLDER }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-
-    expect(replaced).toBe(response);
-    await expect(replaced.text()).resolves.toBe(
-      JSON.stringify({ nonce: CSP_NONCE_PLACEHOLDER })
-    );
-  });
-
-  it('replaces split Vite CSP nonce placeholders without reading the whole response first', async () => {
-    const response = new Response(
-      streamTextChunks([
-        `<script nonce="${CSP_NONCE_PLACEHOLDER.slice(0, 8)}`,
-        CSP_NONCE_PLACEHOLDER.slice(8, 19),
-        `${CSP_NONCE_PLACEHOLDER.slice(19)}"></script>`,
-      ]),
-      {
-        headers: {
-          'Content-Length': '999',
-          'Content-Type': 'text/html',
-        },
-      }
-    );
-    const textSpy = vi.spyOn(response, 'text');
-
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-
-    expect(textSpy).not.toHaveBeenCalled();
-    expect(replaced.headers.get('Content-Length')).toBe(null);
-    await expect(replaced.text()).resolves.toBe(
-      '<script nonce="request-nonce"></script>'
-    );
-  });
-
-  it('streams rewritten script chunks before the HTML response closes', async () => {
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const response = new Response(
-      new ReadableStream<Uint8Array>({
-        start(streamController) {
-          controller = streamController;
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/html',
-        },
-      }
-    );
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-    const reader = replaced.body?.getReader();
-
-    controller?.enqueue(
-      encoder.encode(
-        `${'x'.repeat(80)}<script nonce="${CSP_NONCE_PLACEHOLDER}"></script>${'y'.repeat(80)}`
-      )
-    );
-
-    const firstChunk = await reader?.read();
-    expect(firstChunk?.done).toBe(false);
-    expect(decoder.decode(firstChunk?.value)).toContain(
-      '<script nonce="request-nonce"></script>'
-    );
-
-    controller?.close();
-    reader?.releaseLock();
-  });
-
-  it('nonces style tags whose opening tag is split across streamed chunks', async () => {
-    const response = new Response(
-      streamTextChunks(['<sty', 'le data-test="x"', '>.a{color:red}</style>']),
-      {
-        headers: {
-          'Content-Type': 'text/html',
-        },
-      }
-    );
-
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-
-    await expect(replaced.text()).resolves.toBe(
-      '<style nonce="request-nonce" data-test="x">.a{color:red}</style>'
-    );
-  });
-
-  it('does not buffer a complete client entry script while waiting for response close', async () => {
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const response = new Response(
-      new ReadableStream<Uint8Array>({
-        start(streamController) {
-          controller = streamController;
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/html',
-        },
-      }
-    );
-    const replaced = await replaceCspNoncePlaceholderInHtmlResponse(
-      response,
-      'request-nonce'
-    );
-    const reader = replaced.body?.getReader();
-
-    controller?.enqueue(
-      encoder.encode(
-        '<script type="module" async src="/@id/virtual:tanstack-start-dev-client-entry" nonce="request-nonce"></script>'
-      )
-    );
-
-    const firstChunk = await reader?.read();
-    expect(firstChunk?.done).toBe(false);
-    expect(decoder.decode(firstChunk?.value)).toContain(
-      '<script type="module" async src="/@id/virtual:tanstack-start-dev-client-entry" nonce="request-nonce"></script>'
-    );
-
-    controller?.close();
-    reader?.releaseLock();
+  it('preserves response body identity when applying security headers', () => {
+    const body = new ReadableStream();
+    const response = new Response(body);
+    expect(
+      applySecurityHeaders(response, { cspNonce: 'nonce', isProduction: true })
+    ).toBe(response);
+    expect(response.body).toBe(body);
   });
 
   it('reads the CSP nonce from meta content before browser-hidden nonce attributes', () => {
@@ -463,14 +280,3 @@ describe('security headers', () => {
     expect(divElement.getAttribute('nonce')).toBeUndefined();
   });
 });
-
-function streamTextChunks(chunks: string[]) {
-  const encoder = new TextEncoder();
-
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk)));
-      controller.close();
-    },
-  });
-}

@@ -8,8 +8,6 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 
-import { CSP_NONCE_PLACEHOLDER } from './src/platform/http/csp-nonce';
-
 function srcJsonImportPlugin(): Plugin {
   return {
     name: 'start-ui:src-json-import',
@@ -90,9 +88,6 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'baseline-widely-available',
     },
-    html: {
-      cspNonce: CSP_NONCE_PLACEHOLDER,
-    },
     server: {
       port: env.VITE_PORT ? Number(env.VITE_PORT) : 3000,
       strictPort: true,
@@ -100,6 +95,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       tsconfigPaths: true,
     },
+    // The core client entry needs Start's isomorphic/server-function transforms
+    // in development; prebundling it would retain server-only Node imports.
+    optimizeDeps: { exclude: ['@tanstack/start-client-core'] },
     plugins: [
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
