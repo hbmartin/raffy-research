@@ -58,6 +58,7 @@ export type LocalAiStreamHandlerDeps = {
     rawOutputDir: string;
     runId: string;
     ollamaBaseUrl?: string;
+    ollamaNumCtx?: number;
     action: string;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
@@ -289,6 +290,7 @@ async function summarizeSources(
     rawOutputDir: string;
     runId: string;
     ollamaBaseUrl?: string;
+    ollamaNumCtx?: number;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -312,6 +314,7 @@ async function summarizeSources(
       runId: input.runId,
       rawOutputDir: input.rawOutputDir,
       ollamaBaseUrl: input.ollamaBaseUrl,
+      ollamaNumCtx: input.ollamaNumCtx,
       abortSignal: input.abortSignal,
       onEvent: input.emit,
     });
@@ -434,6 +437,7 @@ async function evaluateLatestReport(
     model: string;
     rawOutputDir: string;
     ollamaBaseUrl?: string;
+    ollamaNumCtx?: number;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -480,6 +484,7 @@ async function evaluateLatestReport(
     runId: input.runId,
     rawOutputDir: input.rawOutputDir,
     ollamaBaseUrl: input.ollamaBaseUrl,
+    ollamaNumCtx: input.ollamaNumCtx,
     abortSignal: input.abortSignal,
     onEvent: input.emit,
   });
@@ -552,6 +557,7 @@ async function runAction(
     model: string;
     rawOutputDir: string;
     ollamaBaseUrl?: string;
+    ollamaNumCtx?: number;
     abortSignal: AbortSignal;
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }
@@ -650,6 +656,7 @@ async function runAction(
       rawOutputDir: input.rawOutputDir,
       runId: input.runId,
       ollamaBaseUrl: input.ollamaBaseUrl,
+      ollamaNumCtx: input.ollamaNumCtx,
       abortSignal: input.abortSignal,
       emit: input.emit,
     });
@@ -689,6 +696,7 @@ async function runAction(
         rawOutputDir: input.rawOutputDir,
         runId: input.runId,
         ollamaBaseUrl: input.ollamaBaseUrl,
+        ollamaNumCtx: input.ollamaNumCtx,
         action: input.data.action,
         abortSignal: input.abortSignal,
         emit: input.emit,
@@ -842,6 +850,7 @@ export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
               model,
               rawOutputDir: config.rawOutputDir,
               ollamaBaseUrl: config.ollamaBaseUrl,
+              ollamaNumCtx: config.ollamaNumCtx,
               abortSignal: abortController.signal,
               emit,
             });

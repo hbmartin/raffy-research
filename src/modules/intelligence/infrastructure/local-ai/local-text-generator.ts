@@ -128,6 +128,20 @@ function throwIfAborted(signal: AbortSignal | undefined) {
   });
 }
 
+/**
+ * Ollama sizes the context window per request and silently shifts out the
+ * oldest tokens when a prompt overflows it, so an explicit num_ctx is the only
+ * way to guarantee the whole prompt is evaluated. Other providers ignore this.
+ */
+function ollamaProviderOptions(input: LocalTextGenerationInput) {
+  if (input.provider !== 'ollama' || !input.ollamaNumCtx) return {};
+  return {
+    providerOptions: {
+      ollama: { options: { num_ctx: input.ollamaNumCtx } },
+    },
+  };
+}
+
 export async function generateLocalText(
   input: LocalTextGenerationInput
 ): Promise<LocalTextGenerationResult> {
@@ -167,6 +181,7 @@ export async function generateLocalText(
       includeRawChunks: true,
       abortSignal: input.abortSignal,
       experimental_telemetry: { isEnabled: true },
+      ...ollamaProviderOptions(input),
     });
 
     for await (const part of result.fullStream) {

@@ -14,6 +14,7 @@ export type LocalAiConfig = {
   rawOutputDir: string;
   timeoutMs: number;
   ollamaBaseUrl: string;
+  ollamaNumCtx?: number;
 };
 
 export type LocalAiNdjsonEvent =
@@ -79,6 +80,7 @@ export type LocalTextGenerationInput = {
   runId: string;
   rawOutputDir: string;
   ollamaBaseUrl?: string;
+  ollamaNumCtx?: number;
   abortSignal?: AbortSignal;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
 };

@@ -283,7 +283,7 @@ sequenceDiagram
     participant UI as Dev AI console
     participant H as local-ai-stream-handler<br/>(POST /api/dev/intelligence/local-ai/stream)
     participant DB as Neon / Postgres
-    participant J as Local agent<br/>(Codex CLI or Claude Code)
+    participant J as Local agent<br/>(Codex CLI, Claude Code, or Ollama)
     participant FS as .local-ai-runs/
 
     Op->>UI: click "Evaluate report"
@@ -343,7 +343,7 @@ The intended iteration cadence: change one thing (prompt, provider config, sourc
 Split-brain mode runs **two brains against one production dataset**:
 
 * the **cloud brain** — the deployed Vercel app serving real users, generating production reports through the metered OpenAI API, ingesting via cron and webhooks;
-* the **local brain** — your development machine running the same codebase against the *same* production Neon database, but doing all AI work through **local agent CLIs (Codex CLI or Claude Code)** that are billed by your existing flat-rate subscriptions, not per token.
+* the **local brain** — your development machine running the same codebase against the *same* production Neon database, but doing all AI work through **local providers (Codex CLI, Claude Code, or a self-hosted Ollama model)** that are billed by your existing flat-rate subscriptions, or by nothing at all, rather than per token.
 
 The name is deliberate: the two brains share one memory (the database) but think independently. Provider webhooks and user traffic keep hitting the cloud brain; expensive, exploratory AI work happens on the local brain at zero marginal cost.
 
@@ -363,7 +363,7 @@ flowchart TB
         DEVAPP[Same app, dev mode]
         CONSOLE[Dev AI console]
         STREAM[NDJSON stream handler]
-        AGENTS[Codex CLI / Claude Code<br/>subscription-billed, $0 marginal]
+        AGENTS[Codex CLI / Claude Code / Ollama<br/>subscription-billed or self-hosted, $0 marginal]
         RAW[.local-ai-runs/ raw outputs]
     end
 
@@ -384,11 +384,25 @@ Iterating on synthesis quality is token-hungry. A single full-workflow run (summ
 
 ### Environment layering
 
-Evidence mode is plain dotenv layering — later files override earlier ones:
+Evidence mode is plain dotenv layering, loaded by `dotenv-cli`:
 
 ```
 .env  →  .env.local (pulled from Vercel production)  →  .env.ai.local (your overrides)
 ```
+
+> [!IMPORTANT]
+> `dotenv-cli` keeps the **first** value it sees for a key, so the file listed first on
+> the command line wins. The evidence scripts list `-e .env -e .env.local -e .env.ai.local`,
+> which means `.env.ai.local` can only *add* keys that the earlier files leave undefined —
+> it cannot override one they already set.
+>
+> This matters most for `DATABASE_DRIVER`, which `.env` defines as `node-pg`: setting
+> `DATABASE_DRIVER="neon-http"` in `.env.ai.local` has no effect, and the run silently
+> stays on local Docker Postgres instead of production Neon. `LOCAL_AI_*`, `OLLAMA_BASE_URL`
+> and `PHOENIX_*` are unaffected, because `.env` does not define them.
+>
+> To override a key the earlier layers already set, either edit it in the file that owns it
+> or reorder the `-e` flags so the override layer comes first.
 
 `.env.ai.example` documents the override file:
 
@@ -397,10 +411,11 @@ VITE_BASE_URL="http://localhost:${VITE_PORT}"   # local app URL for dev-only AI 
 DATABASE_DRIVER="neon-http"                     # same Neon DB as the Vercel runtime
 # DATABASE_MIGRATION_URL="postgres://..."       # required for db:migrate:evidence
 # DATABASE_MIGRATION_DRIVER="neon-websocket"
-LOCAL_AI_PROVIDER="codex-cli"                   # codex-cli | claude-code
+LOCAL_AI_PROVIDER="codex-cli"                   # codex-cli | claude-code | ollama
 LOCAL_AI_MODEL="gpt-5-codex"
 LOCAL_AI_RAW_OUTPUT_DIR=".local-ai-runs"
 LOCAL_AI_TIMEOUT_MS=600000
+# OLLAMA_BASE_URL="http://localhost:11434/api"  # only when LOCAL_AI_PROVIDER="ollama"
 ```
 
 ### Operator setup
