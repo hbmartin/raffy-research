@@ -9,14 +9,13 @@ import {
 } from './env-schema';
 import { ConfigurationError } from '../../domain/errors/configuration-error';
 
-const telemetryEnvSchema = baseEnvSchema.extend({
+const sentryEnvSchema = baseEnvSchema.extend({
   SENTRY_DSN: z.string().url().optional(),
   VITE_SENTRY_DSN: z.string().url().optional(),
   SENTRY_ENVIRONMENT: z.string().optional(),
-  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).optional(),
-  SENTRY_ORG: z.string().optional(),
-  SENTRY_PROJECT: z.string().optional(),
-  SENTRY_AUTH_TOKEN: z.string().optional(),
+});
+
+const telemetryEnvSchema = baseEnvSchema.extend({
   OTEL_COLLECTOR_URL: z.string().url().optional(),
   OTEL_COLLECTOR_BEARER_TOKEN: z.string().optional(),
   OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
@@ -40,10 +39,6 @@ export type TelemetryConfig = {
   dsn?: string;
   browserDsn?: string;
   environment?: string;
-  tracesSampleRate: number;
-  org?: string;
-  project?: string;
-  authToken?: string;
   collectorUrl?: string;
   collectorBearerToken?: string;
   collectorHeaders: Readonly<Record<string, string>>;
@@ -63,7 +58,26 @@ export type TelemetryConfig = {
   logMaxEvents: number;
 };
 
+export type SentryServerConfig = Pick<
+  TelemetryConfig,
+  'browserDsn' | 'dsn' | 'environment'
+>;
+
 let cachedTelemetryConfig: TelemetryConfig | undefined;
+let cachedSentryServerConfig: SentryServerConfig | undefined;
+const reportedInvalidConfig = new Set<'otel' | 'sentry'>();
+
+const reportInvalidConfigFallback = (component: 'otel' | 'sentry') => {
+  if (reportedInvalidConfig.has(component)) return;
+  reportedInvalidConfig.add(component);
+  process.stderr.write(
+    `${JSON.stringify({
+      component,
+      event: 'telemetry.config_invalid',
+      fallback: 'disabled',
+    })}\n`
+  );
+};
 
 const forbiddenHeaders = new Set([
   'connection',
@@ -140,18 +154,41 @@ export const resolveCollectorHeaders = (
   signal: 'traces' | 'metrics' | 'logs'
 ) => config.resolvedHeaders[signal];
 
+export function getSentryServerConfig(): SentryServerConfig {
+  if (cachedSentryServerConfig) return cachedSentryServerConfig;
+
+  try {
+    const env = parseEnv(sentryEnvSchema);
+    cachedSentryServerConfig = {
+      dsn: env.SENTRY_DSN ?? env.VITE_SENTRY_DSN,
+      browserDsn: env.VITE_SENTRY_DSN ?? env.SENTRY_DSN,
+      environment: env.SENTRY_ENVIRONMENT,
+    };
+  } catch (error) {
+    if (!shouldSkipEnvValidation() || !(error instanceof ConfigurationError))
+      throw error;
+    reportInvalidConfigFallback('sentry');
+    cachedSentryServerConfig = {};
+  }
+
+  return cachedSentryServerConfig;
+}
+
 export function getTelemetryConfig(): TelemetryConfig {
   if (cachedTelemetryConfig) return cachedTelemetryConfig;
 
+  const sentryConfig = getSentryServerConfig();
+
   try {
-    cachedTelemetryConfig = buildTelemetryConfig();
+    cachedTelemetryConfig = buildTelemetryConfig(sentryConfig);
   } catch (error) {
     if (!shouldSkipEnvValidation() || !(error instanceof ConfigurationError))
       throw error;
     // An explicit validation bypass must never export with partially parsed
     // credentials. Keep the app available with telemetry disabled instead.
+    reportInvalidConfigFallback('otel');
     cachedTelemetryConfig = {
-      tracesSampleRate: 0,
+      ...sentryConfig,
       collectorHeaders: {},
       signalHeaders: { traces: {}, metrics: {}, logs: {} },
       resolvedHeaders: { traces: {}, metrics: {}, logs: {} },
@@ -166,7 +203,9 @@ export function getTelemetryConfig(): TelemetryConfig {
   return cachedTelemetryConfig;
 }
 
-function buildTelemetryConfig(): TelemetryConfig {
+function buildTelemetryConfig(
+  sentryConfig: SentryServerConfig
+): TelemetryConfig {
   const env = parseEnv(telemetryEnvSchema);
   const isProduction = isProdRuntimeEnvironment(env);
   if (
@@ -208,13 +247,7 @@ function buildTelemetryConfig(): TelemetryConfig {
   }
 
   return {
-    dsn: env.SENTRY_DSN,
-    browserDsn: env.VITE_SENTRY_DSN ?? env.SENTRY_DSN,
-    environment: env.SENTRY_ENVIRONMENT,
-    tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE ?? (isProduction ? 0.1 : 1),
-    org: env.SENTRY_ORG,
-    project: env.SENTRY_PROJECT,
-    authToken: env.SENTRY_AUTH_TOKEN,
+    ...sentryConfig,
     collectorUrl: env.OTEL_COLLECTOR_URL,
     collectorBearerToken: env.OTEL_COLLECTOR_BEARER_TOKEN,
     collectorHeaders,
@@ -240,7 +273,7 @@ function buildTelemetryConfig(): TelemetryConfig {
     serviceVersion: env.OTEL_SERVICE_VERSION,
     otelEnvironment:
       env.OTEL_ENVIRONMENT ??
-      env.SENTRY_ENVIRONMENT ??
+      sentryConfig.environment ??
       (isProduction ? 'production' : 'local'),
     otelTracesSampleRate: env.OTEL_TRACES_SAMPLE_RATE ?? 1,
     localSqliteEnabled: env.OTEL_LOCAL_SQLITE_ENABLED ?? !isProduction,

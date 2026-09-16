@@ -1,3 +1,8 @@
+import {
+  flushFrontendLogs,
+  frontendLogger,
+} from '@/platform/telemetry/frontend-logger';
+
 export const reportHydrationFailure = (document: Document, error: unknown) => {
   const view = document.defaultView;
   if (view?.document !== document) return;
@@ -7,23 +12,16 @@ export const reportHydrationFailure = (document: Document, error: unknown) => {
   } catch {
     // The visible recovery control still works when browser reporting fails.
   }
-  const record = {
-    records: [
-      {
-        level: 'error',
-        event: 'client.hydration_failed',
-        error: failure.message.slice(0, 256),
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
-  void fetch('/api/telemetry/logs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(record),
-    credentials: 'same-origin',
-    keepalive: true,
-  }).catch(() => {});
+  try {
+    frontendLogger.error('client.hydration_failed', {
+      error: failure.message.slice(0, 256),
+    });
+    // The document is still active for genuine hydration failures. Prefer a
+    // directly observable fetch here; lifecycle flushes continue using beacon.
+    void flushFrontendLogs({ preferBeacon: false });
+  } catch {
+    // The visible recovery control still works when logging fails.
+  }
 
   if (document.getElementById('hydration-failure')) return;
   const notice = document.createElement('aside');

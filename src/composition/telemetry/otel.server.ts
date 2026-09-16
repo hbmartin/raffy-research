@@ -1,4 +1,4 @@
-import { metrics, ProxyTracerProvider, trace } from '@opentelemetry/api';
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import {
   CompositePropagator,
@@ -28,17 +28,28 @@ import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
+import * as Sentry from '@sentry/tanstackstart-react';
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
   getTelemetryConfig,
   resolveCollectorHeaders,
 } from '@/modules/kernel/infrastructure/config/telemetry';
-import type { TelemetryAdapter } from '@/platform/telemetry';
+import type { TelemetryAdapter, TelemetryUser } from '@/platform/telemetry';
 
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
+export const createServerTelemetryUserContext = () => {
+  const users = new AsyncLocalStorage<TelemetryUser | null>();
+  return {
+    getUser: () => users.getStore() ?? null,
+    setUser: (user: TelemetryUser | null) => users.enterWith(user),
+  };
+};
+
 let state: 'new' | 'ready' | 'failed' = 'new';
 let adapter: TelemetryAdapter | undefined;
+const userContext = createServerTelemetryUserContext();
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -61,15 +72,34 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
 
   // Configuration errors are deliberately outside the SDK failure boundary.
   const config = getTelemetryConfig();
-  if (!config.collectorUrl) {
-    state = 'ready';
-    return undefined;
-  }
 
   let tracerProvider: NodeTracerProvider | undefined;
   let meterProvider: MeterProvider | undefined;
   let loggerProvider: LoggerProvider | undefined;
   try {
+    const contextManager = new Sentry.SentryContextManager();
+    contextManager.enable();
+    if (!context.setGlobalContextManager(contextManager)) {
+      contextManager.disable();
+      throw new Error('OpenTelemetry context manager was already registered');
+    }
+    if (
+      !propagation.setGlobalPropagator(
+        new CompositePropagator({
+          propagators: [
+            new W3CTraceContextPropagator(),
+            new W3CBaggagePropagator(),
+          ],
+        })
+      )
+    )
+      throw new Error('OpenTelemetry propagator was already registered');
+
+    if (!config.collectorUrl) {
+      state = 'ready';
+      return undefined;
+    }
+
     const resource = createResource(config);
     tracerProvider = new NodeTracerProvider({
       resource,
@@ -111,26 +141,13 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     });
     // Build every timer-owning provider before mutating process globals. Any
     // failure after this point is terminal for the process, never retried.
-    tracerProvider.register({
-      propagator: new CompositePropagator({
-        propagators: [
-          new W3CTraceContextPropagator(),
-          new W3CBaggagePropagator(),
-        ],
-      }),
-    });
-    const globalTracer = trace.getTracerProvider();
-    if (
-      globalTracer instanceof ProxyTracerProvider
-        ? globalTracer.getDelegate() !== tracerProvider
-        : globalTracer !== tracerProvider
-    )
+    if (!trace.setGlobalTracerProvider(tracerProvider))
       throw new Error('OpenTelemetry tracer provider was already registered');
     if (!metrics.setGlobalMeterProvider(meterProvider))
       throw new Error('OpenTelemetry meter provider was already registered');
     if (!logs.setGlobalLoggerProvider(loggerProvider))
       throw new Error('OpenTelemetry logger provider was already registered');
-    adapter = createOpenTelemetryAdapter();
+    adapter = createOpenTelemetryAdapter(userContext);
     state = 'ready';
     return adapter;
   } catch {

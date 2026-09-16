@@ -1,11 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  init: vi.fn(),
+  initSentry: vi.fn(() => false),
   otel: vi.fn(),
   set: vi.fn(),
 }));
-vi.mock('@sentry/tanstackstart-react', () => ({ init: mocks.init }));
+vi.mock('@/composition/telemetry/sentry-bootstrap.server', () => ({
+  initSentryServer: mocks.initSentry,
+}));
 vi.mock('@/composition/telemetry/otel.server', () => ({
   initOpenTelemetryServer: mocks.otel,
 }));
@@ -14,60 +16,39 @@ vi.mock('@/composition/telemetry/index', () => ({ setTelemetry: mocks.set }));
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
-});
-afterEach(() => {
-  vi.unstubAllEnvs();
+  mocks.initSentry.mockReturnValue(false);
+  mocks.otel.mockReturnValue(undefined);
 });
 
 describe('server telemetry initialization', () => {
-  it('does not mark a rejected configuration initialized', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
-    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=private%0Avalue');
+  it('composes the initialized adapters only once', async () => {
+    const adapter = { flush: vi.fn() };
+    mocks.otel.mockReturnValue(adapter);
     const { initTelemetryServer } =
       await import('@/composition/telemetry/sentry.server');
-    expect(initTelemetryServer).toThrow('OTEL_EXPORTER_OTLP_HEADERS');
-    expect(mocks.otel).not.toHaveBeenCalled();
-    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=valid');
-    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
+
     initTelemetryServer();
     initTelemetryServer();
+
+    expect(mocks.initSentry).toHaveBeenCalledOnce();
     expect(mocks.otel).toHaveBeenCalledTimes(1);
-    expect(mocks.init).toHaveBeenCalledTimes(1);
+    expect(mocks.set).toHaveBeenCalledOnce();
   });
 
-  it('initializes Sentry with an inactive malformed collector configuration', async () => {
-    vi.stubEnv('NODE_ENV', 'development');
-    vi.stubEnv('OTEL_COLLECTOR_URL', undefined);
-    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=private%0Avalue');
-    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
-    const { initTelemetryServer } =
-      await import('@/composition/telemetry/sentry.server');
-    initTelemetryServer();
-    expect(mocks.init).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dsn: 'https://public@sentry.example/1',
-        tracesSampleRate: 0,
-      })
-    );
-  });
-
-  it('keeps serving and does not retry an unexpected SDK initialization failure', async () => {
-    vi.stubEnv('NODE_ENV', 'development');
-    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
-    mocks.otel.mockImplementation(() => {
-      throw new Error('SDK setup failed');
+  it('lets configuration errors fail startup and remains retryable', async () => {
+    const configurationError = new Error('invalid collector configuration');
+    mocks.otel.mockImplementationOnce(() => {
+      throw configurationError;
     });
-    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const { initTelemetryServer } =
       await import('@/composition/telemetry/sentry.server');
-    expect(initTelemetryServer).not.toThrow();
+
+    expect(initTelemetryServer).toThrow(configurationError);
+    expect(mocks.set).not.toHaveBeenCalled();
+
+    mocks.otel.mockReturnValue(undefined);
     initTelemetryServer();
-    expect(mocks.otel).toHaveBeenCalledTimes(1);
-    expect(diagnostic).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
-      'SDK setup failed'
-    );
-    diagnostic.mockRestore();
+    expect(mocks.otel).toHaveBeenCalledTimes(2);
+    expect(mocks.set).toHaveBeenCalledOnce();
   });
 });

@@ -18,6 +18,7 @@ describe('error-only server entry', () => {
       report
     );
     const result = await fetch(request, { context: { requestId: 'test' } });
+    expect(report.flush).not.toHaveBeenCalled();
     expect(await result.text()).toBe(html);
     expect(result.status).toBe(201);
     expect(result.headers.get('x-test')).toBe('value');
@@ -25,27 +26,34 @@ describe('error-only server entry', () => {
     expect(report.captureException).not.toHaveBeenCalled();
   });
 
-  it('returns a known-length HTML response untouched', async () => {
+  it('rewraps a known-length response and removes Content-Length', async () => {
     const report = reporter();
     const original = new Response('<html>ready</html>', {
       headers: { 'Content-Length': '18', 'Content-Type': 'text/html' },
     });
     const fetch = createErrorOnlyFetch(async () => original, report);
-    expect(await fetch(request, { context: { requestId: 'test' } })).toBe(
-      original
-    );
-    expect(original.headers.get('Content-Length')).toBe('18');
+    const response = await fetch(request, {
+      context: { requestId: 'test' },
+    });
+    expect(response).not.toBe(original);
+    expect(response.headers.get('Content-Length')).toBeNull();
+    expect(await response.text()).toBe('<html>ready</html>');
+    expect(report.flush).toHaveBeenCalledOnce();
   });
 
-  it('returns a non-HTML response untouched', async () => {
+  it('observes non-HTML response bodies too', async () => {
     const report = reporter();
     const original = new Response(JSON.stringify({ ready: true }), {
       headers: { 'Content-Type': 'application/json' },
     });
     const fetch = createErrorOnlyFetch(async () => original, report);
-    expect(await fetch(request, { context: { requestId: 'test' } })).toBe(
-      original
-    );
+    const response = await fetch(request, {
+      context: { requestId: 'test' },
+    });
+    expect(response).not.toBe(original);
+    expect(report.flush).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({ ready: true });
+    expect(report.flush).toHaveBeenCalledOnce();
   });
 
   it('captures handler exceptions and flushes before rethrowing', async () => {
@@ -63,26 +71,32 @@ describe('error-only server entry', () => {
     expect(report.flush).toHaveBeenCalledTimes(1);
   });
 
-  it('captures a delayed stream error without swallowing it', async () => {
-    const report = reporter();
-    const failure = new Error('stream failure');
-    const stream = new ReadableStream({
-      pull(controller) {
-        controller.error(failure);
-      },
-    });
-    const fetch = createErrorOnlyFetch(
-      async () =>
-        new Response(stream, { headers: { 'Content-Type': 'text/html' } }),
-      report
-    );
-    const response = await fetch(request, { context: { requestId: 'test' } });
-    await expect(response.text()).rejects.toBe(failure);
-    expect(report.captureException).toHaveBeenCalledWith(failure, {
-      mechanism: { type: 'auto.http.tanstackstart', handled: false },
-    });
-    expect(report.flush).toHaveBeenCalledTimes(1);
-  });
+  it.each(['text/html', 'application/x-ndjson', 'text/event-stream'])(
+    'captures a delayed %s stream error without swallowing it',
+    async (contentType) => {
+      const report = reporter();
+      const failure = new Error('stream failure');
+      const stream = new ReadableStream({
+        pull(controller) {
+          controller.error(failure);
+        },
+      });
+      const fetch = createErrorOnlyFetch(
+        async () =>
+          new Response(stream, {
+            headers: { 'Content-Type': contentType },
+          }),
+        report
+      );
+      const response = await fetch(request, { context: { requestId: 'test' } });
+      expect(report.flush).not.toHaveBeenCalled();
+      await expect(response.text()).rejects.toBe(failure);
+      expect(report.captureException).toHaveBeenCalledWith(failure, {
+        mechanism: { type: 'auto.http.tanstackstart', handled: false },
+      });
+      expect(report.flush).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('propagates cancellation without reporting it as an error', async () => {
     const report = reporter();

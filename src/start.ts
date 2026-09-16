@@ -24,6 +24,7 @@ import { createNoOpTelemetry } from '@/platform/telemetry';
 export type AppStartRequestContext = {
   requestId: string;
   cspNonce?: string;
+  allowPlaywrightScreenshotStyles?: boolean;
   auth?: {
     getSession: () => Promise<AuthSession | null>;
   };
@@ -43,6 +44,7 @@ let browserMutationGuardLoggerPromise:
   | undefined;
 
 type RequestContextWithCspNonce = {
+  allowPlaywrightScreenshotStyles?: unknown;
   cspNonce?: unknown;
 };
 
@@ -74,10 +76,15 @@ const mergeRequestContext = (
 
 const getSecurityHeaderOptions = (context?: unknown) => {
   const isTestRuntime = envClient.VITE_ENV_NAME === 'tests';
+  const requestContext =
+    typeof context === 'object' && context !== null
+      ? (context as RequestContextWithCspNonce)
+      : undefined;
 
   return {
     allowDevServerCspRelaxations: isTestRuntime,
-    allowPlaywrightScreenshotStyles: isTestRuntime,
+    allowPlaywrightScreenshotStyles:
+      isTestRuntime || requestContext?.allowPlaywrightScreenshotStyles === true,
     baseUrl: envClient.VITE_BASE_URL,
     cspNonce: getCspNonceFromContext(context),
     isProduction: import.meta.env.PROD,

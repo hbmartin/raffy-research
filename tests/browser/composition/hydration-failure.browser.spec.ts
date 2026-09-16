@@ -3,6 +3,16 @@ import { afterEach, expect, test, vi } from 'vitest';
 
 import { reportHydrationFailure } from '@/composition/hydration-failure';
 
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  flush: vi.fn(async () => undefined),
+}));
+
+vi.mock('@/platform/telemetry/frontend-logger', () => ({
+  flushFrontendLogs: loggerMocks.flush,
+  frontendLogger: { error: loggerMocks.error },
+}));
+
 afterEach(() => {
   document.getElementById('hydration-failure')?.remove();
   vi.unstubAllGlobals();
@@ -10,11 +20,7 @@ afterEach(() => {
 });
 
 test('reports a root failure and renders the reload control', async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue(new Response(null, { status: 202 }));
   const reportError = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('reportError', reportError);
 
   reportHydrationFailure(document, 'root render failed');
@@ -22,25 +28,10 @@ test('reports a root failure and renders the reload control', async () => {
   expect(reportError).toHaveBeenCalledWith(
     expect.objectContaining({ message: 'root render failed' })
   );
-  expect(fetchMock).toHaveBeenCalledWith(
-    '/api/telemetry/logs',
-    expect.objectContaining({
-      body: expect.any(String),
-      credentials: 'same-origin',
-      keepalive: true,
-      method: 'POST',
-    })
-  );
-  const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
-  expect(JSON.parse(String(request.body))).toMatchObject({
-    records: [
-      {
-        error: 'root render failed',
-        event: 'client.hydration_failed',
-        level: 'error',
-      },
-    ],
+  expect(loggerMocks.error).toHaveBeenCalledWith('client.hydration_failed', {
+    error: 'root render failed',
   });
+  expect(loggerMocks.flush).toHaveBeenCalledWith({ preferBeacon: false });
   await expect
     .element(page.getByRole('alert'))
     .toHaveTextContent('This page could not finish loading');
@@ -50,7 +41,9 @@ test('reports a root failure and renders the reload control', async () => {
 });
 
 test('keeps one recovery control when reporting services fail', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('fetch failed')));
+  loggerMocks.error.mockImplementation(() => {
+    throw new Error('logger failed');
+  });
   vi.stubGlobal(
     'reportError',
     vi.fn(() => {

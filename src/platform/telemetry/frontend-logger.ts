@@ -94,14 +94,20 @@ const sendWithFetch = async (records: FrontendLogPayload[]) => {
   }
 };
 
-export const flushFrontendLogs = async () => {
+type FlushFrontendLogsOptions = {
+  preferBeacon?: boolean;
+};
+
+export const flushFrontendLogs = async (
+  options: FlushFrontendLogsOptions = {}
+) => {
   if (!isBrowser() || queue.length === 0) return;
 
   clearFlushTimer();
   const records = queue;
   queue = [];
 
-  if (sendWithBeacon(records)) return;
+  if (options.preferBeacon !== false && sendWithBeacon(records)) return;
 
   try {
     await sendWithFetch(records);

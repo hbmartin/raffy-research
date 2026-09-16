@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { hydrateClient } from '@/composition/hydrate-client';
+import { startClientHydration } from '@/composition/start-client-hydration';
 import { captureStartHydrationOwner } from '@/composition/start-hydration-compat';
 
 const mocks = vi.hoisted(() => ({
@@ -24,10 +25,13 @@ afterEach(() => {
 const fixture = () => {
   const document = {} as Document;
   const bootstrap = { h: vi.fn() };
-  const view: {
+  const view = Object.assign(new EventTarget(), {
+    document,
+    $_TSR: bootstrap,
+  }) as EventTarget & {
     document: Document;
     $_TSR: { h: ReturnType<typeof vi.fn> } | undefined;
-  } = { document, $_TSR: bootstrap };
+  };
   Object.assign(document, { defaultView: view });
   vi.stubGlobal('window', view);
   const loading = Promise.withResolvers<unknown>();
@@ -36,6 +40,48 @@ const fixture = () => {
 };
 
 describe('client hydration cleanup ownership', () => {
+  it('suppresses a pending route import failure after pagehide', async () => {
+    const { document, loading, view } = fixture();
+    const hydration = startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient }),
+    });
+    await vi.waitFor(() => expect(mocks.hydrateStart).toHaveBeenCalledOnce());
+
+    view.dispatchEvent(new Event('pagehide'));
+    loading.reject(new Error('navigation canceled the route chunk'));
+    await hydration;
+
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('reports a route import failure for the current owner', async () => {
+    const { document, loading } = fixture();
+    const failure = new Error('route chunk failed');
+    const hydration = hydrateClient(document);
+
+    loading.reject(failure);
+    await hydration;
+
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
+      document,
+      failure
+    );
+    expect(mocks.hydrateRoot).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a route import failure after ownership changes', async () => {
+    const { document, loading } = fixture();
+    const hydration = hydrateClient(document);
+
+    captureStartHydrationOwner(document);
+    loading.reject(new Error('stale route chunk failed'));
+    await hydration;
+
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.hydrateRoot).not.toHaveBeenCalled();
+  });
+
   it('signals and renders the current document after its route imports finish', async () => {
     const { document, bootstrap, loading } = fixture();
     const hydration = hydrateClient(document);
