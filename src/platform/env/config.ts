@@ -22,11 +22,21 @@ const isDev = () => {
 
 export const isDevEnvironment = isDev;
 
-const getBaseUrl = (env: RuntimeEnv) => {
-  const vercelUrlPreviewUrl =
-    env.VITE_VERCEL_ENV === 'preview' ? env.VITE_VERCEL_BRANCH_URL : null;
+const nonEmptyString = (value: unknown) =>
+  typeof value === 'string' && value ? value : undefined;
 
-  if (typeof vercelUrlPreviewUrl === 'string' && vercelUrlPreviewUrl) {
+const getBaseUrl = (env: RuntimeEnv) => {
+  const vercelEnvironment =
+    nonEmptyString(env.VITE_VERCEL_ENV) ?? nonEmptyString(env.VERCEL_ENV);
+  const vercelUrlPreviewUrl =
+    vercelEnvironment === 'preview'
+      ? (nonEmptyString(env.VITE_VERCEL_BRANCH_URL) ??
+        nonEmptyString(env.VERCEL_BRANCH_URL) ??
+        nonEmptyString(env.VITE_VERCEL_URL) ??
+        nonEmptyString(env.VERCEL_URL))
+      : undefined;
+
+  if (vercelUrlPreviewUrl) {
     return `https://${vercelUrlPreviewUrl}`;
   }
 
