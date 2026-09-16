@@ -44,16 +44,12 @@ export function buildContentSecurityPolicy(
   ]);
   const styleSources = uniqueSources([
     "'self'",
-    nonceSource,
-    options.cspNonce ? undefined : "'unsafe-inline'",
-    allowDevServerCspRelaxations ? "'unsafe-inline'" : undefined,
+    "'unsafe-inline'",
     ...(options.allowPlaywrightScreenshotStyles && !options.isProduction
       ? PLAYWRIGHT_SCREENSHOT_STYLE_HASH_SOURCES
       : []),
   ]);
-  const styleElementSources = allowDevServerCspRelaxations
-    ? uniqueSources(["'self'", "'unsafe-inline'"])
-    : undefined;
+  const styleElementSources = uniqueSources(["'self'", "'unsafe-inline'"]);
   const imgSources = uniqueSources([
     "'self'",
     'data:',

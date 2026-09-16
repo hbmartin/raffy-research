@@ -25,6 +25,29 @@ describe('error-only server entry', () => {
     expect(report.captureException).not.toHaveBeenCalled();
   });
 
+  it('returns a known-length HTML response untouched', async () => {
+    const report = reporter();
+    const original = new Response('<html>ready</html>', {
+      headers: { 'Content-Length': '18', 'Content-Type': 'text/html' },
+    });
+    const fetch = createErrorOnlyFetch(async () => original, report);
+    expect(await fetch(request, { context: { requestId: 'test' } })).toBe(
+      original
+    );
+    expect(original.headers.get('Content-Length')).toBe('18');
+  });
+
+  it('returns a non-HTML response untouched', async () => {
+    const report = reporter();
+    const original = new Response(JSON.stringify({ ready: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const fetch = createErrorOnlyFetch(async () => original, report);
+    expect(await fetch(request, { context: { requestId: 'test' } })).toBe(
+      original
+    );
+  });
+
   it('captures handler exceptions and flushes before rethrowing', async () => {
     const report = reporter();
     const failure = new Error('handler failure');
@@ -34,7 +57,9 @@ describe('error-only server entry', () => {
     await expect(
       fetch(request, { context: { requestId: 'test' } })
     ).rejects.toBe(failure);
-    expect(report.captureException).toHaveBeenCalledWith(failure);
+    expect(report.captureException).toHaveBeenCalledWith(failure, {
+      mechanism: { type: 'auto.http.tanstackstart', handled: false },
+    });
     expect(report.flush).toHaveBeenCalledTimes(1);
   });
 
@@ -47,12 +72,15 @@ describe('error-only server entry', () => {
       },
     });
     const fetch = createErrorOnlyFetch(
-      async () => new Response(stream),
+      async () =>
+        new Response(stream, { headers: { 'Content-Type': 'text/html' } }),
       report
     );
     const response = await fetch(request, { context: { requestId: 'test' } });
     await expect(response.text()).rejects.toBe(failure);
-    expect(report.captureException).toHaveBeenCalledWith(failure);
+    expect(report.captureException).toHaveBeenCalledWith(failure, {
+      mechanism: { type: 'auto.http.tanstackstart', handled: false },
+    });
     expect(report.flush).toHaveBeenCalledTimes(1);
   });
 
@@ -60,7 +88,10 @@ describe('error-only server entry', () => {
     const report = reporter();
     const cancel = vi.fn();
     const fetch = createErrorOnlyFetch(
-      async () => new Response(new ReadableStream({ cancel })),
+      async () =>
+        new Response(new ReadableStream({ cancel }), {
+          headers: { 'Content-Type': 'text/html' },
+        }),
       report
     );
     const response = await fetch(request, { context: { requestId: 'test' } });
@@ -84,7 +115,8 @@ describe('error-only server entry', () => {
     const fetch = createErrorOnlyFetch(
       async () =>
         new Response(
-          new ReadableStream({ start: (controller) => controller.close() })
+          new ReadableStream({ start: (controller) => controller.close() }),
+          { headers: { 'Content-Type': 'text/html' } }
         ),
       report
     );
@@ -109,7 +141,8 @@ describe('error-only server entry', () => {
     );
     const stream = new ReadableStream({ pull }, { highWaterMark: 0 });
     const fetch = createErrorOnlyFetch(
-      async () => new Response(stream),
+      async () =>
+        new Response(stream, { headers: { 'Content-Type': 'text/html' } }),
       report
     );
     const response = await fetch(request, { context: { requestId: 'test' } });

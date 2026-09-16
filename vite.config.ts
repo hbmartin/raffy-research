@@ -78,16 +78,18 @@ export default defineConfig(({ mode }) => {
     privateEnv.SENTRY_PROJECT &&
     privateEnv.SENTRY_AUTH_TOKEN
   );
-  const sentryPlugins = env.VITE_SENTRY_DSN
-    ? sentryTanstackStart({
-        org: privateEnv.SENTRY_ORG || undefined,
-        project: privateEnv.SENTRY_PROJECT || undefined,
-        authToken: privateEnv.SENTRY_AUTH_TOKEN || undefined,
-        telemetry: false,
-        sourcemaps: { disable: !canUpload },
-        release: { create: canUpload, finalize: canUpload },
-      })
-    : [];
+  const sentryPlugins =
+    env.VITE_SENTRY_DSN && canUpload
+      ? sentryTanstackStart({
+          org: privateEnv.SENTRY_ORG || undefined,
+          project: privateEnv.SENTRY_PROJECT || undefined,
+          authToken: privateEnv.SENTRY_AUTH_TOKEN || undefined,
+          telemetry: false,
+          autoInstrumentMiddleware: false,
+          sourcemaps: { disable: !canUpload },
+          release: { create: canUpload, finalize: canUpload },
+        })
+      : [];
 
   return {
     envDir: envDirectory,

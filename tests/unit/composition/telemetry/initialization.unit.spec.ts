@@ -51,4 +51,23 @@ describe('server telemetry initialization', () => {
       })
     );
   });
+
+  it('keeps serving and does not retry an unexpected SDK initialization failure', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    mocks.otel.mockImplementation(() => {
+      throw new Error('SDK setup failed');
+    });
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { initTelemetryServer } =
+      await import('@/composition/telemetry/sentry.server');
+    expect(initTelemetryServer).not.toThrow();
+    initTelemetryServer();
+    expect(mocks.otel).toHaveBeenCalledTimes(1);
+    expect(diagnostic).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+      'SDK setup failed'
+    );
+    diagnostic.mockRestore();
+  });
 });

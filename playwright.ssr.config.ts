@@ -24,27 +24,22 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    // Model separate proxied clients so production sign-in rate limits do not
-    // combine all browser projects into the same anonymous IP bucket.
     {
       name: 'ssr-desktop',
       use: {
         ...devices['Desktop Chrome'],
-        extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.1' },
       },
     },
     {
       name: 'ssr-firefox',
       use: {
         ...devices['Desktop Firefox'],
-        extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.2' },
       },
     },
     {
       name: 'ssr-webkit',
       use: {
         ...devices['iPhone 13'],
-        extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.3' },
       },
     },
     {
@@ -52,7 +47,6 @@ export default defineConfig({
       use: {
         ...devices['iPhone 13'],
         defaultBrowserType: 'chromium',
-        extraHTTPHeaders: { 'X-Forwarded-For': '192.0.2.4' },
       },
     },
   ],

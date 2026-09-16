@@ -1,4 +1,4 @@
-import { metrics } from '@opentelemetry/api';
+import { metrics, ProxyTracerProvider, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import {
   CompositePropagator,
@@ -37,7 +37,7 @@ import type { TelemetryAdapter } from '@/platform/telemetry';
 
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
-let initialized = false;
+let state: 'new' | 'ready' | 'failed' = 'new';
 let adapter: TelemetryAdapter | undefined;
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
@@ -47,78 +47,102 @@ const signalUrl = (
   signal: 'logs' | 'metrics' | 'traces'
 ) => `${trimTrailingSlash(collectorUrl)}/v1/${signal}`;
 
-const createResource = () => {
-  const config = getTelemetryConfig();
-  return resourceFromAttributes({
+const createResource = (config: ReturnType<typeof getTelemetryConfig>) =>
+  resourceFromAttributes({
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: config.otelEnvironment,
     [ATTR_SERVICE_NAME]: config.serviceName,
     ...(config.serviceVersion
       ? { [ATTR_SERVICE_VERSION]: config.serviceVersion }
       : {}),
   });
-};
 
 export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
-  if (initialized) return adapter;
+  if (state !== 'new') return adapter;
 
+  // Configuration errors are deliberately outside the SDK failure boundary.
   const config = getTelemetryConfig();
   if (!config.collectorUrl) {
+    state = 'ready';
     return undefined;
   }
 
-  const resource = createResource();
-  const tracerProvider = new NodeTracerProvider({
-    resource,
-    sampler: new ParentBasedSampler({
-      root: new TraceIdRatioBasedSampler(config.otelTracesSampleRate),
-    }),
-    spanProcessors: [
-      new BatchSpanProcessor(
-        new OTLPTraceExporter({
-          headers: resolveCollectorHeaders(config, 'traces'),
-          url: signalUrl(config.collectorUrl, 'traces'),
-        })
-      ),
-    ],
-  });
-
-  tracerProvider.register({
-    propagator: new CompositePropagator({
-      propagators: [
-        new W3CTraceContextPropagator(),
-        new W3CBaggagePropagator(),
-      ],
-    }),
-  });
-
-  const meterProvider = new MeterProvider({
-    readers: [
-      new PeriodicExportingMetricReader({
-        exporter: new OTLPMetricExporter({
-          headers: resolveCollectorHeaders(config, 'metrics'),
-          url: signalUrl(config.collectorUrl, 'metrics'),
-        }),
-        exportIntervalMillis: 30_000,
+  let tracerProvider: NodeTracerProvider | undefined;
+  let meterProvider: MeterProvider | undefined;
+  let loggerProvider: LoggerProvider | undefined;
+  try {
+    const resource = createResource(config);
+    tracerProvider = new NodeTracerProvider({
+      resource,
+      sampler: new ParentBasedSampler({
+        root: new TraceIdRatioBasedSampler(config.otelTracesSampleRate),
       }),
-    ],
-    resource,
-  });
-  metrics.setGlobalMeterProvider(meterProvider);
+      spanProcessors: [
+        new BatchSpanProcessor(
+          new OTLPTraceExporter({
+            headers: resolveCollectorHeaders(config, 'traces'),
+            url: signalUrl(config.collectorUrl, 'traces'),
+          })
+        ),
+      ],
+    });
 
-  const loggerProvider = new LoggerProvider({
-    processors: [
-      new BatchLogRecordProcessor(
-        new OTLPLogExporter({
-          headers: resolveCollectorHeaders(config, 'logs'),
-          url: signalUrl(config.collectorUrl, 'logs'),
-        })
-      ),
-    ],
-    resource,
-  });
-  logs.setGlobalLoggerProvider(loggerProvider);
-
-  adapter = createOpenTelemetryAdapter();
-  initialized = true;
-  return adapter;
+    meterProvider = new MeterProvider({
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: new OTLPMetricExporter({
+            headers: resolveCollectorHeaders(config, 'metrics'),
+            url: signalUrl(config.collectorUrl, 'metrics'),
+          }),
+          exportIntervalMillis: 30_000,
+        }),
+      ],
+      resource,
+    });
+    loggerProvider = new LoggerProvider({
+      processors: [
+        new BatchLogRecordProcessor(
+          new OTLPLogExporter({
+            headers: resolveCollectorHeaders(config, 'logs'),
+            url: signalUrl(config.collectorUrl, 'logs'),
+          })
+        ),
+      ],
+      resource,
+    });
+    // Build every timer-owning provider before mutating process globals. Any
+    // failure after this point is terminal for the process, never retried.
+    tracerProvider.register({
+      propagator: new CompositePropagator({
+        propagators: [
+          new W3CTraceContextPropagator(),
+          new W3CBaggagePropagator(),
+        ],
+      }),
+    });
+    const globalTracer = trace.getTracerProvider();
+    if (
+      globalTracer instanceof ProxyTracerProvider
+        ? globalTracer.getDelegate() !== tracerProvider
+        : globalTracer !== tracerProvider
+    )
+      throw new Error('OpenTelemetry tracer provider was already registered');
+    if (!metrics.setGlobalMeterProvider(meterProvider))
+      throw new Error('OpenTelemetry meter provider was already registered');
+    if (!logs.setGlobalLoggerProvider(loggerProvider))
+      throw new Error('OpenTelemetry logger provider was already registered');
+    adapter = createOpenTelemetryAdapter();
+    state = 'ready';
+    return adapter;
+  } catch {
+    state = 'failed';
+    // The API cannot unregister a global provider. Shut down all constructed
+    // exporters and never construct replacements on a later call.
+    void Promise.allSettled([
+      tracerProvider?.shutdown(),
+      meterProvider?.shutdown(),
+      loggerProvider?.shutdown(),
+    ]);
+    process.stderr.write('{"event":"telemetry.sdk_init_failed"}\n');
+    return undefined;
+  }
 };

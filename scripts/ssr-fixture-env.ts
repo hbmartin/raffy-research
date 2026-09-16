@@ -1,11 +1,18 @@
 /* oxlint-disable no-process-env */
-import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 
 import { SSR_BASE_URL, SSR_SEED_PASSWORD } from '../tests/support/ssr-e2e';
 
-export const SSR_FIXTURE_DIRECTORY = resolve('test-results/ssr-fixture');
+export const SSR_FIXTURE_DIRECTORY = resolve('.ssr-fixture');
 export const SSR_FIXTURE_MANIFEST = resolve(
   SSR_FIXTURE_DIRECTORY,
   'environment.json'
@@ -60,6 +67,7 @@ export const fixtureEnvironment = (authSecret: string): NodeJS.ProcessEnv => ({
   OTEL_EXPORTER_OTLP_METRICS_HEADERS: 'x-fixture-auth=metric-fixture',
   OTEL_LOCAL_SQLITE_ENABLED: 'false',
   SKIP_ENV_VALIDATION: 'false',
+  SSR_FIXTURE_MODE: 'true',
   LOGGER_PRETTY: 'false',
   SSR_FIXTURE_ENV_DIR: resolve(SSR_FIXTURE_DIRECTORY, 'env'),
 });
@@ -67,13 +75,51 @@ export const fixtureEnvironment = (authSecret: string): NodeJS.ProcessEnv => ({
 export const createFixtureEnvironment = async () => {
   const env = fixtureEnvironment(randomBytes(32).toString('hex'));
   await mkdir(env.SSR_FIXTURE_ENV_DIR!, { recursive: true });
-  // Store only the generated fixture credential, never inherited host variables.
+  return env;
+};
+
+const buildOutputDirectory = () => resolve('.output');
+
+export const digestBuiltOutput = async () => {
+  const root = buildOutputDirectory();
+  const hash = createHash('sha256');
+  let fileCount = 0;
+  const visit = async (directory: string): Promise<void> => {
+    const entries = (await readdir(directory, { withFileTypes: true })).sort(
+      (left, right) => left.name.localeCompare(right.name)
+    );
+    for (const entry of entries) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path);
+      } else if (entry.isFile()) {
+        hash.update(relative(root, path).replaceAll('\\', '/'));
+        hash.update('\0');
+        hash.update(await readFile(path));
+        hash.update('\0');
+        fileCount++;
+      }
+    }
+  };
+  await visit(root);
+  if (!fileCount)
+    throw new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+  return hash.digest('hex');
+};
+
+export const invalidateFixtureManifest = () =>
+  rm(SSR_FIXTURE_MANIFEST, { force: true });
+
+export const writeFixtureManifest = async (env: NodeJS.ProcessEnv) => {
+  const buildDigest = await digestBuiltOutput();
+  const temporary = `${SSR_FIXTURE_MANIFEST}.tmp`;
+  // Store only the fixture credential and a fingerprint of the completed build.
   await writeFile(
-    SSR_FIXTURE_MANIFEST,
-    JSON.stringify({ authSecret: env.AUTH_SECRET }),
+    temporary,
+    JSON.stringify({ authSecret: env.AUTH_SECRET, buildDigest }),
     { mode: 0o600 }
   );
-  return env;
+  await rename(temporary, SSR_FIXTURE_MANIFEST);
 };
 
 export const readFixtureEnvironment = async () => {
@@ -85,7 +131,11 @@ export const readFixtureEnvironment = async () => {
     typeof manifest !== 'object' ||
     !('authSecret' in manifest) ||
     typeof manifest.authSecret !== 'string' ||
-    !/^[a-f0-9]{64}$/.test(manifest.authSecret)
+    !/^[a-f0-9]{64}$/.test(manifest.authSecret) ||
+    !('buildDigest' in manifest) ||
+    typeof manifest.buildDigest !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(manifest.buildDigest) ||
+    manifest.buildDigest !== (await digestBuiltOutput())
   ) {
     throw new Error(
       'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'

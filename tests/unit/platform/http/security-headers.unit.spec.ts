@@ -51,7 +51,7 @@ describe('security headers', () => {
     expect(policy).toContain('upgrade-insecure-requests');
   });
 
-  it('adds a CSP nonce for script and style elements when provided', () => {
+  it('adds a CSP nonce for scripts while allowing inline style elements', () => {
     const policy = buildContentSecurityPolicy({
       cspNonce: 'test-nonce',
     });
@@ -60,7 +60,7 @@ describe('security headers', () => {
       "script-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(policy, 'style-src')).toBe(
-      "style-src 'self' 'nonce-test-nonce'"
+      "style-src 'self' 'unsafe-inline'"
     );
     expect(directiveValue(policy, 'style-src-attr')).toBe(
       "style-src-attr 'unsafe-inline'"
@@ -90,7 +90,7 @@ describe('security headers', () => {
     );
   });
 
-  it('can relax script and style sources for the local test dev server only', () => {
+  it('keeps scripts nonce-protected while allowing inline style elements', () => {
     const testPolicy = buildContentSecurityPolicy({
       allowDevServerCspRelaxations: true,
       cspNonce: 'test-nonce',
@@ -106,7 +106,7 @@ describe('security headers', () => {
       "script-src 'self' 'nonce-test-nonce' 'unsafe-eval'"
     );
     expect(directiveValue(testPolicy, 'style-src')).toBe(
-      "style-src 'self' 'nonce-test-nonce' 'unsafe-inline'"
+      "style-src 'self' 'unsafe-inline'"
     );
     expect(directiveValue(testPolicy, 'style-src-elem')).toBe(
       "style-src-elem 'self' 'unsafe-inline'"
@@ -115,9 +115,11 @@ describe('security headers', () => {
       "script-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(productionPolicy, 'style-src')).toBe(
-      "style-src 'self' 'nonce-test-nonce'"
+      "style-src 'self' 'unsafe-inline'"
     );
-    expect(directiveValue(productionPolicy, 'style-src-elem')).toBeUndefined();
+    expect(directiveValue(productionPolicy, 'style-src-elem')).toBe(
+      "style-src-elem 'self' 'unsafe-inline'"
+    );
   });
 
   it('does not add HTTPS upgrade directives outside production HTTPS', () => {

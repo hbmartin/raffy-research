@@ -1,9 +1,24 @@
 import type { ServerEntry } from '@tanstack/react-start/server-entry';
 
 type ErrorReporter = {
-  captureException(error: unknown): unknown;
+  captureException(
+    error: unknown,
+    context?: { mechanism: { type: string; handled: boolean } }
+  ): unknown;
   flush(): Promise<unknown>;
 };
+
+const unhandledHttpError = {
+  mechanism: { type: 'auto.http.tanstackstart', handled: false },
+} as const;
+
+const needsStreamObservation = (response: Response) =>
+  Boolean(
+    response.body &&
+    !response.headers.has('Content-Length') &&
+    !response.headers.has('Content-Encoding') &&
+    response.headers.get('Content-Type')?.toLowerCase().includes('text/html')
+  );
 
 /** Observe the final response after Start has assigned stream cleanup ownership.
  * Bytes pass through unchanged; no HTML parsing or trace metadata injection.
@@ -27,15 +42,16 @@ export const createErrorOnlyFetch =
     try {
       response = await fetch(...args);
     } catch (error) {
-      reporter.captureException(error);
+      reporter.captureException(error, unhandledHttpError);
       await flush();
       throw error;
     }
-    if (!response.body) {
+    const responseBody = response.body;
+    if (!responseBody || !needsStreamObservation(response)) {
       await flush();
       return response;
     }
-    const reader = response.body.getReader();
+    const reader = responseBody.getReader();
     let canceled = false;
     let released = false;
     const release = () => {
@@ -56,7 +72,7 @@ export const createErrorOnlyFetch =
             } else controller.enqueue(result.value);
           } catch (error) {
             if (canceled) return;
-            reporter.captureException(error);
+            reporter.captureException(error, unhandledHttpError);
             await flush();
             if (!canceled) controller.error(error);
             release();

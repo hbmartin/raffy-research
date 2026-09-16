@@ -59,6 +59,8 @@ describe('Better Auth security configuration', () => {
 
     expect(options.advanced.disableCSRFCheck).toBeUndefined();
     expect(options.advanced.disableOriginCheck).toBeUndefined();
+    expect(options.advanced.ipAddress.ipAddressHeaders).toEqual([]);
+    expect(options.rateLimit).toBeUndefined();
     expect(options.account.encryptOAuthTokens).toBe(true);
     expect(options.emailAndPassword).toEqual({
       enabled: true,

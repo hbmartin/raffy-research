@@ -34,7 +34,13 @@ export const initTelemetryServer = () => {
   if (initialized) return;
 
   const telemetryConfig = getTelemetryConfig();
-  const adapters = [initOpenTelemetryServer()].filter(isTelemetryAdapter);
+  let otelAdapter: TelemetryAdapter | undefined;
+  try {
+    otelAdapter = initOpenTelemetryServer();
+  } catch {
+    process.stderr.write('{"event":"telemetry.sdk_init_failed"}\n');
+  }
+  const adapters = [otelAdapter].filter(isTelemetryAdapter);
   if (!telemetryConfig.dsn) {
     if (adapters.length > 0) {
       setTelemetry(createTelemetryAdapterChain(adapters));
@@ -43,15 +49,19 @@ export const initTelemetryServer = () => {
     return;
   }
 
-  Sentry.init({
-    dsn: telemetryConfig.dsn,
-    environment: telemetryConfig.environment,
-    tracesSampleRate: SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE,
-    sendDefaultPii: false,
-    beforeSend: sanitizeSentryEvent,
-  });
-
-  adapters.push(createSentryTelemetryAdapter(Sentry));
+  try {
+    Sentry.init({
+      dsn: telemetryConfig.dsn,
+      environment: telemetryConfig.environment,
+      tracesSampleRate: SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE,
+      sendDefaultPii: false,
+      beforeSend: sanitizeSentryEvent,
+      skipOpenTelemetrySetup: true,
+    });
+    adapters.push(createSentryTelemetryAdapter(Sentry));
+  } catch {
+    process.stderr.write('{"event":"telemetry.sentry_init_failed"}\n');
+  }
   setTelemetry(
     createTelemetryAdapterChain(
       adapters.length > 0 ? adapters : [createNoOpTelemetry()]

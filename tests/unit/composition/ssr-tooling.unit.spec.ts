@@ -93,9 +93,15 @@ describe('SSR tooling guardrails', () => {
     const path = temporary();
     vi.spyOn(process, 'cwd').mockReturnValue(path);
     vi.resetModules();
-    const { createFixtureEnvironment, readFixtureEnvironment } =
-      await import('../../../scripts/ssr-fixture-env');
+    const {
+      createFixtureEnvironment,
+      readFixtureEnvironment,
+      writeFixtureManifest,
+    } = await import('../../../scripts/ssr-fixture-env');
     const buildEnv = await createFixtureEnvironment();
+    mkdirSync(join(path, '.output/server'), { recursive: true });
+    writeFileSync(join(path, '.output/server/index.mjs'), 'fixture build');
+    await writeFixtureManifest(buildEnv);
     for (const filename of ['.env', '.env.local']) {
       writeFileSync(
         join(path, filename),
@@ -107,6 +113,13 @@ describe('SSR tooling guardrails', () => {
     const loaded = loadEnv('production', runtimeEnv.SSR_FIXTURE_ENV_DIR!, '');
     expect(loaded.VITE_BASE_URL).not.toBe('https://developer.invalid');
     expect(loaded.AUTH_DEBUG).not.toBe('true');
+    mkdirSync(join(path, 'test-results'), { recursive: true });
+    rmSync(join(path, 'test-results'), { recursive: true });
+    expect(await readFixtureEnvironment()).toEqual(buildEnv);
+    writeFileSync(join(path, '.output/server/index.mjs'), 'different build');
+    await expect(readFixtureEnvironment()).rejects.toThrow(
+      'Invalid SSR fixture manifest'
+    );
   });
 
   it('rejects a router override and incompatible dependency resolutions', () => {
