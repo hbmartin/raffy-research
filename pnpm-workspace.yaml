@@ -14,10 +14,6 @@ overrides:
   kysely: 0.28.17
   qs: 6.15.2
   'react-cosmos>ws': 8.20.1
-  # TanStack router-core 1.171.7+ can reserve the SSR stream fast path before
-  # react-router-ssr-query registers its render-finished listener. Keep this
-  # pre-regression release until the coordinated upstream fix is available.
-  '@tanstack/router-core': 1.171.6
   # Patch transitive advisories pulled in by the workflow SDK's unused
   # framework adapters (@workflow/astro): undici and devalue.
   'undici@>=7.0.0 <7.24.0': '>=7.24.0'

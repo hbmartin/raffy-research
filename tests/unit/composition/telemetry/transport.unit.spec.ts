@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const configMock = vi.hoisted(() => ({
   browserDsn: undefined as string | undefined,
   collectorBearerToken: undefined as string | undefined,
+  signalHeaders: { traces: {}, metrics: {}, logs: {} } as Record<
+    string,
+    Record<string, string>
+  >,
   collectorHeaders: {} as Readonly<Record<string, string>>,
   collectorUrl: undefined as string | undefined,
   logMaxEvents: 2,
@@ -23,9 +27,13 @@ const telemetryMock = vi.hoisted(() => ({
 
 const localSummaryMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/modules/kernel/infrastructure/config/telemetry', () => ({
-  getTelemetryConfig: () => configMock,
-}));
+vi.mock(
+  '@/modules/kernel/infrastructure/config/telemetry',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    getTelemetryConfig: () => configMock,
+  })
+);
 
 vi.mock('@/composition/kernel', () => ({
   getKernel: () => ({ logger: loggerMock }),
@@ -53,15 +61,91 @@ const request = (path: string, contentType: string, body: BodyInit) =>
   });
 
 describe('telemetry transport handlers', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     configMock.browserDsn = undefined;
     configMock.collectorBearerToken = undefined;
     configMock.collectorHeaders = {};
+    configMock.signalHeaders = { traces: {}, metrics: {}, logs: {} };
     configMock.collectorUrl = undefined;
     configMock.logMaxEvents = 2;
     configMock.proxyMaxBytes = 1_000;
     vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it.each(['traces', 'metrics'] as const)(
+    'uses %s-specific proxy credentials',
+    async (signal) => {
+      configMock.collectorUrl = 'https://collector.example';
+      configMock.collectorHeaders = { authorization: 'Basic general' };
+      configMock.signalHeaders[signal] = { Authorization: 'Basic signal' };
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+      expect(
+        (
+          await handleOtlpProxyRequest(
+            request('/api/telemetry/otel', 'application/x-protobuf', 'payload'),
+            signal
+          )
+        ).status
+      ).toBe(202);
+      expect(
+        new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get(
+          'authorization'
+        )
+      ).toBe('Basic signal');
+    }
+  );
+
+  it('maps collector connection failure to a sanitized gateway failure', async () => {
+    configMock.collectorUrl = 'https://collector.example';
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.mocked(fetch).mockRejectedValue(new Error('private-token'));
+    const { handleOtlpProxyRequest } =
+      await import('@/composition/telemetry/transport');
+    const response = await handleOtlpProxyRequest(
+      request('/api/telemetry/otel', 'application/x-protobuf', 'payload'),
+      'traces'
+    );
+    expect(response.status).toBe(502);
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.stringContaining('telemetry.proxy_failure')
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(await response.text()).not.toContain('private-token');
+    expect(JSON.stringify(localSummaryMock.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(telemetryMock.captureException).not.toHaveBeenCalled();
+  });
+
+  it('maps Sentry tunnel connection failures to gateway failures', async () => {
+    configMock.browserDsn = 'https://public@collector.example/1';
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.mocked(fetch).mockRejectedValue(new Error('private-token'));
+    const { handleSentryTunnelRequest } =
+      await import('@/composition/telemetry/transport');
+    const response = await handleSentryTunnelRequest(
+      request(
+        '/api/telemetry/sentry-tunnel',
+        'application/x-sentry-envelope',
+        'payload'
+      )
+    );
+    expect(response.status).toBe(502);
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.stringContaining('telemetry.proxy_failure')
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(JSON.stringify(localSummaryMock.mock.calls)).not.toContain(
+      'private-token'
+    );
   });
 
   it('no-ops OTLP proxy requests when Collector env is missing', async () => {

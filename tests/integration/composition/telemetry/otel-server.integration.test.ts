@@ -110,3 +110,65 @@ describe('server OTLP header precedence', () => {
     }
   );
 });
+
+vi.mock('@/composition/kernel', () => ({ getKernel: vi.fn() }));
+
+describe('proxy HTTP failure boundary', () => {
+  it.each(['collector', 'sentry'] as const)(
+    'returns a controlled 502 for %s rejection and connection refusal',
+    async (destination) => {
+      collector = createServer((request, response) => {
+        request.resume();
+        response.writeHead(401);
+        response.end('upstream-private-detail');
+      });
+      collector.listen(0, '127.0.0.1');
+      await once(collector, 'listening');
+      const address = collector.address();
+      if (!address || typeof address === 'string')
+        throw new Error('Missing collector port');
+      const origin = `http://127.0.0.1:${address.port}`;
+      vi.stubEnv('OTEL_COLLECTOR_URL', origin);
+      vi.stubEnv('VITE_SENTRY_DSN', `${origin.replace('://', '://public@')}/1`);
+      vi.stubEnv('OTEL_LOCAL_SQLITE_ENABLED', 'false');
+      const diagnostic = vi
+        .spyOn(process.stderr, 'write')
+        .mockReturnValue(true);
+      try {
+        const { handleOtlpProxyRequest, handleSentryTunnelRequest } =
+          await import('@/composition/telemetry/transport');
+        const send = () => {
+          const request = new Request('http://localhost/api/telemetry', {
+            method: 'POST',
+            headers: {
+              Origin: 'http://localhost',
+              'Sec-Fetch-Site': 'same-origin',
+              'Content-Type':
+                destination === 'collector'
+                  ? 'application/x-protobuf'
+                  : 'application/x-sentry-envelope',
+            },
+            body: 'fixture',
+          });
+          return destination === 'collector'
+            ? handleOtlpProxyRequest(request, 'traces')
+            : handleSentryTunnelRequest(request);
+        };
+        const rejected = await send();
+        expect(rejected.status).toBe(502);
+        expect(await rejected.text()).toBe('');
+        collector.closeAllConnections();
+        await new Promise<void>((resolve) => collector.close(() => resolve()));
+        const disconnected = await send();
+        expect(disconnected.status).toBe(502);
+        expect(await disconnected.text()).toBe('');
+        expect(diagnostic).toHaveBeenCalledTimes(2);
+        expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+          'upstream-private-detail'
+        );
+      } finally {
+        diagnostic.mockRestore();
+      }
+    }
+  );
+});
