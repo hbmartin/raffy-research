@@ -79,7 +79,8 @@ app.config.timestamp_*.js
 
 reviews_triage/
 triage_decisions.db
-docs
+docs/*
+!docs/ai-sdk-v7-opportunities.md
 *.pptx
 *.zip
 audio_docs/

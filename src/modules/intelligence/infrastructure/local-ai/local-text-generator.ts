@@ -164,11 +164,13 @@ export async function generateLocalText(
         ollamaBaseUrl: input.ollamaBaseUrl,
       }),
       prompt: input.prompt,
-      includeRawChunks: true,
       abortSignal: input.abortSignal,
+      include: {
+        rawChunks: true,
+      },
     });
 
-    for await (const part of result.fullStream) {
+    for await (const part of result.stream) {
       throwIfAborted(input.abortSignal);
       rawEvents.push(toJsonValue(part));
 
