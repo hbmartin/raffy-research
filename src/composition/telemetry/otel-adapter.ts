@@ -18,11 +18,6 @@ import type {
 import { hashUserIdForMetrics } from '@/platform/telemetry/metadata';
 
 const tracer = trace.getTracer('start-ui-web');
-const meter = metrics.getMeter('start-ui-web');
-const otelLogger = logs.getLogger('start-ui-web');
-
-const counters = new Map<string, ReturnType<typeof meter.createCounter>>();
-const histograms = new Map<string, ReturnType<typeof meter.createHistogram>>();
 
 const severityByLevel = {
   debug: SeverityNumber.DEBUG,
@@ -75,26 +70,6 @@ const spanAttributes = (
   ...(user?.id ? { 'user.id': user.id } : {}),
 });
 
-const getCounter = (name: string, unit: string | undefined) => {
-  const key = `${name}:${unit ?? ''}`;
-  const existing = counters.get(key);
-  if (existing) return existing;
-
-  const created = meter.createCounter(name, unit ? { unit } : {});
-  counters.set(key, created);
-  return created;
-};
-
-const getHistogram = (name: string, unit: string | undefined) => {
-  const key = `${name}:${unit ?? ''}`;
-  const existing = histograms.get(key);
-  if (existing) return existing;
-
-  const created = meter.createHistogram(name, unit ? { unit } : {});
-  histograms.set(key, created);
-  return created;
-};
-
 const manualSpanHandle = (
   span: ReturnType<typeof tracer.startSpan>,
   user: TelemetryUser | null
@@ -120,6 +95,30 @@ const manualSpanHandle = (
 });
 
 export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
+  // The metrics API does not proxy meters obtained before global registration.
+  const meter = metrics.getMeter('start-ui-web');
+  const otelLogger = logs.getLogger('start-ui-web');
+  const counters = new Map<string, ReturnType<typeof meter.createCounter>>();
+  const histograms = new Map<
+    string,
+    ReturnType<typeof meter.createHistogram>
+  >();
+  const getCounter = (name: string, unit: string | undefined) => {
+    const key = `${name}:${unit ?? ''}`;
+    const existing = counters.get(key);
+    if (existing) return existing;
+    const created = meter.createCounter(name, unit ? { unit } : {});
+    counters.set(key, created);
+    return created;
+  };
+  const getHistogram = (name: string, unit: string | undefined) => {
+    const key = `${name}:${unit ?? ''}`;
+    const existing = histograms.get(key);
+    if (existing) return existing;
+    const created = meter.createHistogram(name, unit ? { unit } : {});
+    histograms.set(key, created);
+    return created;
+  };
   let activeUser: TelemetryUser | null = null;
 
   return {

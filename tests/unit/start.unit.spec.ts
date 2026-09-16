@@ -156,7 +156,7 @@ describe('TanStack Start instance', () => {
       `script-src 'self' 'nonce-${cspNonce}'`
     );
     expect(result.response.headers.get('Content-Security-Policy')).toContain(
-      `style-src 'self' 'nonce-${cspNonce}'`
+      "style-src-elem 'self' 'unsafe-inline'"
     );
     expect(result.response.headers.get('Cross-Origin-Opener-Policy')).toBe(
       'same-origin-allow-popups'

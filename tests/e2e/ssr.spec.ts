@@ -11,13 +11,8 @@ import { ADMIN_EMAIL } from './utils/constants';
 const captureSsrScreenshot = async (
   page: Page,
   testInfo: TestInfo,
-  browserName: string,
   name: string
 ) => {
-  // WebKit's screenshot implementation injects an unnonced `body {}` stylesheet
-  // in an isolated world. Keep CSP assertions intact; capture visual evidence in
-  // Chromium and Firefox instead. WebKit still runs all behavioral checks.
-  if (browserName === 'webkit') return;
   await page.screenshot({
     path: testInfo.outputPath(name),
     fullPage: true,
@@ -27,7 +22,6 @@ const captureSsrScreenshot = async (
 
 test('completes login SSR and hydrates an interactive form after a hard reload', async ({
   page,
-  browserName,
 }, testInfo) => {
   const guard = installConsoleErrorGuard(page, testInfo);
   // APIRequestContext consumes the whole response, including the query stream.
@@ -41,6 +35,9 @@ test('completes login SSR and hydrates an interactive form after a hard reload',
   expect(firstNonce).toBeTruthy();
   expect(response.headers()['content-security-policy']).toContain(
     `'nonce-${firstNonce}'`
+  );
+  expect(response.headers()['content-security-policy']).toContain(
+    "style-src-elem 'self' 'unsafe-inline'"
   );
 
   // Reload without waiting for initial hydration to finish.
@@ -84,24 +81,27 @@ test('completes login SSR and hydrates an interactive form after a hard reload',
     const nonce = document
       .querySelector('meta[property="csp-nonce"]')
       ?.getAttribute('content');
-    const invalid = Array.from(
-      document.querySelectorAll('script:not([src]), style')
-    )
+    const invalid = Array.from(document.querySelectorAll('script:not([src])'))
       .filter((tag) => (tag as HTMLElement).nonce !== nonce)
       .map((tag) => tag.outerHTML.slice(0, 100));
-    const style = document.createElement('style');
-    style.textContent = '.ssr-style-probe { color: rgb(1, 2, 3) }';
-    document.head.append(style);
+    document.head.insertAdjacentHTML(
+      'beforeend',
+      '<style id="ssr-style-probe">.ssr-style-probe { color: rgb(1, 2, 3) }</style>'
+    );
+    const style = document.getElementById(
+      'ssr-style-probe'
+    ) as HTMLStyleElement;
     const probe = document.createElement('span');
     probe.className = 'ssr-style-probe';
     document.body.append(probe);
     const color = getComputedStyle(probe).color;
     style.remove();
     probe.remove();
-    return { nonce, invalid, color };
+    return { nonce, invalid, color, styleNonce: style.nonce };
   });
   expect(nonceState.nonce).not.toBe(firstNonce);
   expect(nonceState.invalid).toEqual([]);
+  expect(nonceState.styleNonce).toBe('');
   expect(nonceState.color).toBe('rgb(1, 2, 3)');
   for (const signal of ['traces', 'metrics']) {
     const status = await page.evaluate(
@@ -117,13 +117,41 @@ test('completes login SSR and hydrates an interactive form after a hard reload',
     );
     expect(status).toBe(202);
   }
-  await captureSsrScreenshot(page, testInfo, browserName, 'login-hydrated.png');
+  await captureSsrScreenshot(page, testInfo, 'login-hydrated.png');
   await guard.assertNoUnexpectedIssues();
+});
+
+test('reports a failed hydration chunk and shows a reload control', async ({
+  page,
+}) => {
+  const reports: string[] = [];
+  const reportStatuses: number[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  page.on('response', (response) => {
+    if (response.url().endsWith('/api/telemetry/logs'))
+      reportStatuses.push(response.status());
+  });
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, (route) =>
+    route.abort('failed')
+  );
+  await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
+  await expect(page.getByRole('alert')).toContainText(
+    'This page could not finish loading'
+  );
+  await expect(page.getByRole('button', { name: 'Reload page' })).toBeVisible();
+  await expect
+    .poll(() =>
+      reports.some((body) => body.includes('client.hydration_failed'))
+    )
+    .toBe(true);
+  await expect.poll(() => reportStatuses).toContain(202);
 });
 
 test('completes authenticated SSR and hydrates the manager after a hard reload', async ({
   page,
-  browserName,
 }, testInfo) => {
   const guard = installConsoleErrorGuard(page, testInfo);
   await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
@@ -143,12 +171,7 @@ test('completes authenticated SSR and hydrates the manager after a hard reload',
   expect(await response.text()).toContain('layout-manager');
   await page.reload({ waitUntil: 'load', timeout: 10_000 });
   await expect(page.getByTestId('layout-manager')).toBeVisible();
-  await captureSsrScreenshot(
-    page,
-    testInfo,
-    browserName,
-    'manager-hydrated.png'
-  );
+  await captureSsrScreenshot(page, testInfo, 'manager-hydrated.png');
   await guard.assertNoUnexpectedIssues();
 });
 

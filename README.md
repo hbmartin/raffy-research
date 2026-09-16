@@ -507,42 +507,47 @@ Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStu
 
 ### TanStack SSR compatibility
 
-The tested compatibility set is `@tanstack/react-start@1.168.16`,
-`@tanstack/react-router@1.170.9`, and `@tanstack/react-router-ssr-query@1.167.1`.
-Router Core follows Router's declared dependency; there is no global override.
-`@tanstack/start-client-core@1.170.5` is a direct dependency for its public
-hydration API, matching Start's requirement. `pnpm check:ssr-compatibility`
-checks these installed dependency relationships.
+The tested compatibility set is `@tanstack/react-start@1.168.54`,
+`@tanstack/react-router@1.170.36`,
+`@tanstack/react-router-ssr-query@1.167.2`, and
+`@tanstack/react-query@5.102.8`. Router Core resolves to `1.171.30` and SSR
+Query Core to `1.169.2` through their declared exact dependencies;
+`@tanstack/start-client-core@1.170.30` matches Start's requirement.
+`pnpm check:ssr-compatibility` checks those relationships, and
+`pnpm test:e2e:ssr` checks complete streamed responses before dependency changes
+are merged. [TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529)
+records the earlier stream regression.
 
 Start's response stream owns SSR cleanup. Request middleware preserves the
 original response body; replacing it with a transformed body can dispose the
-underlying stream before serialization completes. Nonces are supplied during
-rendering through the router and theme provider. Base UI's scrollbar CSS lives
-in the external app stylesheet because React hoists those style resources
-without preserving their element nonce. The browser entry disables Zod JIT
+underlying stream before serialization completes. Script nonces are supplied
+during rendering through the router and theme provider. Production CSP allows
+inline style elements with `style-src-elem 'self' 'unsafe-inline'`; scripts still
+require a nonce. Base UI's scrollbar CSS remains in the external app stylesheet.
+The browser entry disables Zod JIT
 probing so Firefox can validate forms without triggering unsafe-eval violations.
 Client hydration also retains the original document and bootstrap state while
 route chunks load. Completion after a hard reload must not clear the replacement
-document's state through a reused WebKit window. The core hydration API lets
-the app check ownership before signaling completion.
-The corrected cleanup discussion is in
-[TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529);
-the earlier explanation about dropped fast-path listeners was not established.
+document's state through a reused WebKit window. The core hydration API and the
+isolated `start-hydration-compat` shim check ownership before signaling
+completion. An upstream repro and public API proposal are in
+`UPSTREAM_TANSTACK_HYDRATION.md`.
 
 Sentry `10.55.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects
 trace metadata into HTML. OpenTelemetry remains the sole owner of tracing.
-The Sentry Vite plugin runs whenever a browser DSN is present; upload credentials
-control source-map uploads and release publishing separately. Plugin telemetry
-is disabled. Local SSR tests exercise build instrumentation and runtime SDKs
-against a local receiver, without uploads or external Sentry credentials.
+The Sentry Vite plugin runs only with a browser DSN and upload credentials;
+middleware auto-instrumentation and plugin telemetry are disabled. Runtime
+Sentry error capture and local SSR tests work without upload credentials.
 
 Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
 `pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages
 separately: the build has a ten-minute budget; database initialization and server
 readiness have two minutes. Both use the same generated fixture manifest under
-`test-results/ssr-fixture/`, an explicit environment, and an empty Vite env
+`.ssr-fixture/`, an explicit environment, and an empty Vite env
 directory. Developer `.env` files and application credentials are not inherited.
+The manifest is written after a successful build and includes a digest of the
+`.output` files; built-only tests reject a stale or overwritten build.
 The fixture reserves local ports 3011 (app), 54331 (database), and 43191 (receiver).
 
 Desktop/mobile Chromium, Firefox, and mobile WebKit checks consume complete
@@ -551,9 +556,8 @@ compare head metadata and nonces, and check browser proxy authentication and
 CSP/hydration errors. A server-only case verifies invalid headers stop startup
 before readiness. Integration tests cover immediate and delayed query streams,
 cleanup, error propagation, cancellation, and backpressure. Chromium/Firefox
-screenshots and failure traces are saved under `test-results/ssr/`. WebKit runs
-the same behavior and CSP assertions without success screenshots because its
-screenshot helper injects a stylesheet that violates the strict CSP. This gate is independent of
+screenshots and failure traces are saved under `test-results/ssr/` for all
+three browser engines. This gate is independent of
 the Docker-backed E2E matrix. Dependency PRs must pass it before merging.
 
 Sentry's project OTLP integration accepts traces and logs at `/v1/traces` and
@@ -570,9 +574,10 @@ Server exporters and the browser proxy resolve headers identically: general
 `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`, then explicit
 `OTEL_COLLECTOR_BEARER_TOKEN` authorization. Names are case-insensitive, and
 the last entry for a name wins within each variable. The
-proxy preserves its validated payload Content-Type. Parsing uses OpenTelemetry's
-SDK helper: percent escapes are decoded, malformed entries are dropped, and
-semicolon metadata is discarded.
+proxy preserves its validated payload Content-Type. Percent escapes are decoded;
+malformed escapes, empty entries, and semicolon metadata fail configuration
+validation so credentials cannot disappear silently. Resolved signal headers are
+cached for server exporters and browser proxy requests.
 
 For an active collector, invalid decoded HTTP headers, invalid bearer values,
 and transport-controlled headers fail build/runtime configuration validation.
@@ -635,6 +640,11 @@ pnpm start    # node .output/server/index.mjs
 ```
 
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
+
+Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header.
+Self-hosted production requires `AUTH_TRUSTED_CLIENT_IP_HEADER` set to a dedicated
+header that the reverse proxy overwrites on every request; block direct access
+to the Nitro origin. `X-Forwarded-For` is not accepted as that trusted header.
 
 Environment hint banner for non-production deploys:
 

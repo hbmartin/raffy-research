@@ -1,3 +1,4 @@
+import { validateHeaderName } from 'node:http';
 import { filter, isTruthy, map, pipe } from 'remeda';
 import { z } from 'zod';
 
@@ -52,6 +53,10 @@ const betterAuthEnvSchema = baseEnvSchema
       .prefault(86_400),
     AUTH_ALLOWED_HOSTS: z.string().optional(),
     AUTH_TRUSTED_ORIGINS: z.string().optional(),
+    AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
+    SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+    HOST: z.string().optional(),
+    VITE_BASE_URL: z.string().optional(),
     GITHUB_CLIENT_ID: zOptionalProviderSecret(),
     GITHUB_CLIENT_SECRET: zOptionalProviderSecret(),
   })
@@ -75,6 +80,57 @@ const betterAuthEnvSchema = baseEnvSchema
     }
 
     if (!isProdRuntimeEnvironment(env)) return;
+
+    const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
+    const fixtureIsLoopback =
+      env.HOST === '127.0.0.1' &&
+      (() => {
+        try {
+          return new URL(env.VITE_BASE_URL ?? '').hostname === '127.0.0.1';
+        } catch {
+          return false;
+        }
+      })();
+    if (fixtureMode && !fixtureIsLoopback) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SSR_FIXTURE_MODE'],
+        message: 'SSR fixture mode requires a loopback host and base URL',
+      });
+    }
+    if (
+      !shouldSkipEnvValidation(env) &&
+      !env.VERCEL_ENV &&
+      !fixtureMode &&
+      !env.AUTH_TRUSTED_CLIENT_IP_HEADER
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+        message:
+          'A proxy-owned client IP header is required for self-hosted production',
+      });
+    }
+    if (env.AUTH_TRUSTED_CLIENT_IP_HEADER) {
+      try {
+        validateHeaderName(env.AUTH_TRUSTED_CLIENT_IP_HEADER);
+      } catch {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+          message: 'Use a valid proxy-owned client IP header',
+        });
+      }
+      if (
+        env.AUTH_TRUSTED_CLIENT_IP_HEADER.toLowerCase() === 'x-forwarded-for'
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+          message: 'Use a dedicated proxy-owned header, not X-Forwarded-For',
+        });
+      }
+    }
 
     for (const field of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'] as const) {
       if (env[field] === 'REPLACE ME') {
@@ -108,6 +164,8 @@ export type BetterAuthConfig = {
   sessionUpdateAgeInSeconds: number;
   allowedHosts?: string[];
   trustedOrigins?: string[];
+  trustedClientIpHeader?: string;
+  fixtureSignInRateLimit: boolean;
   githubClientId?: string;
   githubClientSecret?: string;
 };
@@ -137,6 +195,10 @@ export function getBetterAuthConfig(): BetterAuthConfig {
     sessionUpdateAgeInSeconds: env.AUTH_SESSION_UPDATE_AGE_IN_SECONDS,
     allowedHosts: splitCsv(env.AUTH_ALLOWED_HOSTS),
     trustedOrigins: splitCsv(env.AUTH_TRUSTED_ORIGINS),
+    trustedClientIpHeader: env.VERCEL_ENV
+      ? 'x-vercel-forwarded-for'
+      : env.AUTH_TRUSTED_CLIENT_IP_HEADER,
+    fixtureSignInRateLimit: env.SSR_FIXTURE_MODE === 'true',
     githubClientId: env.GITHUB_CLIENT_ID,
     githubClientSecret: env.GITHUB_CLIENT_SECRET,
   };

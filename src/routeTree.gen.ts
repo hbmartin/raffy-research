@@ -9,56 +9,41 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LogoutRouteImport } from './routes/logout'
-import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
-import { Route as ManagerRouteRouteImport } from './routes/manager/route'
-import { Route as LoginRouteRouteImport } from './routes/login/route'
-import { Route as AppRouteRouteImport } from './routes/app/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
-import { Route as ManagerIndexRouteImport } from './routes/manager/index'
-import { Route as LoginIndexRouteImport } from './routes/login/index'
+import { Route as AppRouteRouteImport } from './routes/app/route'
+import { Route as LoginRouteRouteImport } from './routes/login/route'
+import { Route as LogoutRouteImport } from './routes/logout'
+import { Route as ManagerRouteRouteImport } from './routes/manager/route'
+import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as AppIndexRouteImport } from './routes/app/index'
-import { Route as ManagerWorkspacesIndexRouteImport } from './routes/manager/workspaces/index'
-import { Route as ManagerUsersIndexRouteImport } from './routes/manager/users/index'
-import { Route as ManagerDashboardIndexRouteImport } from './routes/manager/dashboard.index'
-import { Route as ManagerAccountIndexRouteImport } from './routes/manager/account.index'
-import { Route as LoginErrorIndexRouteImport } from './routes/login/error.index'
-import { Route as AppAccountIndexRouteImport } from './routes/app/account.index'
-import { Route as ApiTelemetrySentryTunnelRouteImport } from './routes/api/telemetry.sentry-tunnel'
-import { Route as ApiTelemetryLogsRouteImport } from './routes/api/telemetry.logs'
-import { Route as ApiCronWeeklyReportsRouteImport } from './routes/api/cron.weekly-reports'
-import { Route as ApiCronDailyIngestRouteImport } from './routes/api/cron.daily-ingest'
+import { Route as LoginIndexRouteImport } from './routes/login/index'
+import { Route as ManagerIndexRouteImport } from './routes/manager/index'
+import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
-import { Route as ManagerWorkspacesIdIndexRouteImport } from './routes/manager/workspaces/$id.index'
-import { Route as ManagerUsersNewIndexRouteImport } from './routes/manager/users/new.index'
-import { Route as ManagerUsersIdIndexRouteImport } from './routes/manager/users/$id.index'
-import { Route as AppSourcesSourceIdIndexRouteImport } from './routes/app/sources/$sourceId.index'
-import { Route as AppReportsReportIdIndexRouteImport } from './routes/app/reports/$reportId.index'
+import { Route as ApiCronDailyIngestRouteImport } from './routes/api/cron.daily-ingest'
+import { Route as ApiCronWeeklyReportsRouteImport } from './routes/api/cron.weekly-reports'
+import { Route as ApiTelemetryLogsRouteImport } from './routes/api/telemetry.logs'
+import { Route as ApiTelemetrySentryTunnelRouteImport } from './routes/api/telemetry.sentry-tunnel'
+import { Route as AppAccountIndexRouteImport } from './routes/app/account.index'
+import { Route as LoginErrorIndexRouteImport } from './routes/login/error.index'
+import { Route as ManagerAccountIndexRouteImport } from './routes/manager/account.index'
+import { Route as ManagerDashboardIndexRouteImport } from './routes/manager/dashboard.index'
+import { Route as ManagerUsersIndexRouteImport } from './routes/manager/users/index'
+import { Route as ManagerWorkspacesIndexRouteImport } from './routes/manager/workspaces/index'
 import { Route as ApiProvidersProviderCallbackRouteImport } from './routes/api/providers.$provider.callback'
-import { Route as ManagerUsersIdUpdateIndexRouteImport } from './routes/manager/users/$id.update.index'
-import { Route as ApiTelemetryOtelV1TracesRouteImport } from './routes/api/telemetry.otel.v1.traces'
-import { Route as ApiTelemetryOtelV1MetricsRouteImport } from './routes/api/telemetry.otel.v1.metrics'
+import { Route as AppReportsReportIdIndexRouteImport } from './routes/app/reports/$reportId.index'
+import { Route as AppSourcesSourceIdIndexRouteImport } from './routes/app/sources/$sourceId.index'
+import { Route as ManagerUsersIdIndexRouteImport } from './routes/manager/users/$id.index'
+import { Route as ManagerUsersNewIndexRouteImport } from './routes/manager/users/new.index'
+import { Route as ManagerWorkspacesIdIndexRouteImport } from './routes/manager/workspaces/$id.index'
 import { Route as ApiDevIntelligenceLocalAiStreamRouteImport } from './routes/api/dev.intelligence.local-ai.stream'
+import { Route as ApiTelemetryOtelV1MetricsRouteImport } from './routes/api/telemetry.otel.v1.metrics'
+import { Route as ApiTelemetryOtelV1TracesRouteImport } from './routes/api/telemetry.otel.v1.traces'
+import { Route as ManagerUsersIdUpdateIndexRouteImport } from './routes/manager/users/$id.update.index'
 
-const LogoutRoute = LogoutRouteImport.update({
-  id: '/logout',
-  path: '/logout',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ManagerRouteRoute = ManagerRouteRouteImport.update({
-  id: '/manager',
-  path: '/manager',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRouteRoute = LoginRouteRouteImport.update({
-  id: '/login',
-  path: '/login',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppRouteRoute = AppRouteRouteImport.update({
@@ -66,75 +51,49 @@ const AppRouteRoute = AppRouteRouteImport.update({
   path: '/app',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const LoginRouteRoute = LoginRouteRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OnboardingRouteRoute,
+const LogoutRoute = LogoutRouteImport.update({
+  id: '/logout',
+  path: '/logout',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const ManagerIndexRoute = ManagerIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ManagerRouteRoute,
+const ManagerRouteRoute = ManagerRouteRouteImport.update({
+  id: '/manager',
+  path: '/manager',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const LoginIndexRoute = LoginIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => LoginRouteRoute,
+const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const ManagerWorkspacesIndexRoute = ManagerWorkspacesIndexRouteImport.update({
-  id: '/workspaces/',
-  path: '/workspaces/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerUsersIndexRoute = ManagerUsersIndexRouteImport.update({
-  id: '/users/',
-  path: '/users/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerDashboardIndexRoute = ManagerDashboardIndexRouteImport.update({
-  id: '/dashboard/',
-  path: '/dashboard/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerAccountIndexRoute = ManagerAccountIndexRouteImport.update({
-  id: '/account/',
-  path: '/account/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const LoginErrorIndexRoute = LoginErrorIndexRouteImport.update({
-  id: '/error/',
-  path: '/error/',
+const LoginIndexRoute = LoginIndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => LoginRouteRoute,
 } as any)
-const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
-  id: '/account/',
-  path: '/account/',
-  getParentRoute: () => AppRouteRoute,
+const ManagerIndexRoute = ManagerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ManagerRouteRoute,
 } as any)
-const ApiTelemetrySentryTunnelRoute =
-  ApiTelemetrySentryTunnelRouteImport.update({
-    id: '/api/telemetry/sentry-tunnel',
-    path: '/api/telemetry/sentry-tunnel',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiTelemetryLogsRoute = ApiTelemetryLogsRouteImport.update({
-  id: '/api/telemetry/logs',
-  path: '/api/telemetry/logs',
-  getParentRoute: () => rootRouteImport,
+const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OnboardingRouteRoute,
 } as any)
-const ApiCronWeeklyReportsRoute = ApiCronWeeklyReportsRouteImport.update({
-  id: '/api/cron/weekly-reports',
-  path: '/api/cron/weekly-reports',
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCronDailyIngestRoute = ApiCronDailyIngestRouteImport.update({
@@ -142,36 +101,51 @@ const ApiCronDailyIngestRoute = ApiCronDailyIngestRouteImport.update({
   path: '/api/cron/daily-ingest',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
+const ApiCronWeeklyReportsRoute = ApiCronWeeklyReportsRouteImport.update({
+  id: '/api/cron/weekly-reports',
+  path: '/api/cron/weekly-reports',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ManagerWorkspacesIdIndexRoute =
-  ManagerWorkspacesIdIndexRouteImport.update({
-    id: '/workspaces/$id/',
-    path: '/workspaces/$id/',
-    getParentRoute: () => ManagerRouteRoute,
+const ApiTelemetryLogsRoute = ApiTelemetryLogsRouteImport.update({
+  id: '/api/telemetry/logs',
+  path: '/api/telemetry/logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTelemetrySentryTunnelRoute =
+  ApiTelemetrySentryTunnelRouteImport.update({
+    id: '/api/telemetry/sentry-tunnel',
+    path: '/api/telemetry/sentry-tunnel',
+    getParentRoute: () => rootRouteImport,
   } as any)
-const ManagerUsersNewIndexRoute = ManagerUsersNewIndexRouteImport.update({
-  id: '/users/new/',
-  path: '/users/new/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const ManagerUsersIdIndexRoute = ManagerUsersIdIndexRouteImport.update({
-  id: '/users/$id/',
-  path: '/users/$id/',
-  getParentRoute: () => ManagerRouteRoute,
-} as any)
-const AppSourcesSourceIdIndexRoute = AppSourcesSourceIdIndexRouteImport.update({
-  id: '/sources/$sourceId/',
-  path: '/sources/$sourceId/',
+const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
+  id: '/account/',
+  path: '/account/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppReportsReportIdIndexRoute = AppReportsReportIdIndexRouteImport.update({
-  id: '/reports/$reportId/',
-  path: '/reports/$reportId/',
-  getParentRoute: () => AppRouteRoute,
+const LoginErrorIndexRoute = LoginErrorIndexRouteImport.update({
+  id: '/error/',
+  path: '/error/',
+  getParentRoute: () => LoginRouteRoute,
+} as any)
+const ManagerAccountIndexRoute = ManagerAccountIndexRouteImport.update({
+  id: '/account/',
+  path: '/account/',
+  getParentRoute: () => ManagerRouteRoute,
+} as any)
+const ManagerDashboardIndexRoute = ManagerDashboardIndexRouteImport.update({
+  id: '/dashboard/',
+  path: '/dashboard/',
+  getParentRoute: () => ManagerRouteRoute,
+} as any)
+const ManagerUsersIndexRoute = ManagerUsersIndexRouteImport.update({
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => ManagerRouteRoute,
+} as any)
+const ManagerWorkspacesIndexRoute = ManagerWorkspacesIndexRouteImport.update({
+  id: '/workspaces/',
+  path: '/workspaces/',
+  getParentRoute: () => ManagerRouteRoute,
 } as any)
 const ApiProvidersProviderCallbackRoute =
   ApiProvidersProviderCallbackRouteImport.update({
@@ -179,16 +153,36 @@ const ApiProvidersProviderCallbackRoute =
     path: '/api/providers/$provider/callback',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ManagerUsersIdUpdateIndexRoute =
-  ManagerUsersIdUpdateIndexRouteImport.update({
-    id: '/users/$id/update/',
-    path: '/users/$id/update/',
+const AppReportsReportIdIndexRoute = AppReportsReportIdIndexRouteImport.update({
+  id: '/reports/$reportId/',
+  path: '/reports/$reportId/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppSourcesSourceIdIndexRoute = AppSourcesSourceIdIndexRouteImport.update({
+  id: '/sources/$sourceId/',
+  path: '/sources/$sourceId/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const ManagerUsersIdIndexRoute = ManagerUsersIdIndexRouteImport.update({
+  id: '/users/$id/',
+  path: '/users/$id/',
+  getParentRoute: () => ManagerRouteRoute,
+} as any)
+const ManagerUsersNewIndexRoute = ManagerUsersNewIndexRouteImport.update({
+  id: '/users/new/',
+  path: '/users/new/',
+  getParentRoute: () => ManagerRouteRoute,
+} as any)
+const ManagerWorkspacesIdIndexRoute =
+  ManagerWorkspacesIdIndexRouteImport.update({
+    id: '/workspaces/$id/',
+    path: '/workspaces/$id/',
     getParentRoute: () => ManagerRouteRoute,
   } as any)
-const ApiTelemetryOtelV1TracesRoute =
-  ApiTelemetryOtelV1TracesRouteImport.update({
-    id: '/api/telemetry/otel/v1/traces',
-    path: '/api/telemetry/otel/v1/traces',
+const ApiDevIntelligenceLocalAiStreamRoute =
+  ApiDevIntelligenceLocalAiStreamRouteImport.update({
+    id: '/api/dev/intelligence/local-ai/stream',
+    path: '/api/dev/intelligence/local-ai/stream',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiTelemetryOtelV1MetricsRoute =
@@ -197,11 +191,17 @@ const ApiTelemetryOtelV1MetricsRoute =
     path: '/api/telemetry/otel/v1/metrics',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiDevIntelligenceLocalAiStreamRoute =
-  ApiDevIntelligenceLocalAiStreamRouteImport.update({
-    id: '/api/dev/intelligence/local-ai/stream',
-    path: '/api/dev/intelligence/local-ai/stream',
+const ApiTelemetryOtelV1TracesRoute =
+  ApiTelemetryOtelV1TracesRouteImport.update({
+    id: '/api/telemetry/otel/v1/traces',
+    path: '/api/telemetry/otel/v1/traces',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const ManagerUsersIdUpdateIndexRoute =
+  ManagerUsersIdUpdateIndexRouteImport.update({
+    id: '/users/$id/update/',
+    path: '/users/$id/update/',
+    getParentRoute: () => ManagerRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -418,32 +418,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/logout': {
-      id: '/logout'
-      path: '/logout'
-      fullPath: '/logout'
-      preLoaderRoute: typeof LogoutRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/manager': {
-      id: '/manager'
-      path: '/manager'
-      fullPath: '/manager'
-      preLoaderRoute: typeof ManagerRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/app': {
@@ -453,33 +432,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/onboarding/': {
-      id: '/onboarding/'
-      path: '/'
-      fullPath: '/onboarding/'
-      preLoaderRoute: typeof OnboardingIndexRouteImport
-      parentRoute: typeof OnboardingRouteRoute
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/manager/': {
-      id: '/manager/'
-      path: '/'
-      fullPath: '/manager/'
-      preLoaderRoute: typeof ManagerIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
+    '/manager': {
+      id: '/manager'
+      path: '/manager'
+      fullPath: '/manager'
+      preLoaderRoute: typeof ManagerRouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/login/': {
-      id: '/login/'
-      path: '/'
-      fullPath: '/login/'
-      preLoaderRoute: typeof LoginIndexRouteImport
-      parentRoute: typeof LoginRouteRoute
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/app/': {
       id: '/app/'
@@ -488,67 +467,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/manager/workspaces/': {
-      id: '/manager/workspaces/'
-      path: '/workspaces'
-      fullPath: '/manager/workspaces/'
-      preLoaderRoute: typeof ManagerWorkspacesIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/users/': {
-      id: '/manager/users/'
-      path: '/users'
-      fullPath: '/manager/users/'
-      preLoaderRoute: typeof ManagerUsersIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/dashboard/': {
-      id: '/manager/dashboard/'
-      path: '/dashboard'
-      fullPath: '/manager/dashboard/'
-      preLoaderRoute: typeof ManagerDashboardIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/manager/account/': {
-      id: '/manager/account/'
-      path: '/account'
-      fullPath: '/manager/account/'
-      preLoaderRoute: typeof ManagerAccountIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/login/error/': {
-      id: '/login/error/'
-      path: '/error'
-      fullPath: '/login/error/'
-      preLoaderRoute: typeof LoginErrorIndexRouteImport
+    '/login/': {
+      id: '/login/'
+      path: '/'
+      fullPath: '/login/'
+      preLoaderRoute: typeof LoginIndexRouteImport
       parentRoute: typeof LoginRouteRoute
     }
-    '/app/account/': {
-      id: '/app/account/'
-      path: '/account'
-      fullPath: '/app/account/'
-      preLoaderRoute: typeof AppAccountIndexRouteImport
-      parentRoute: typeof AppRouteRoute
+    '/manager/': {
+      id: '/manager/'
+      path: '/'
+      fullPath: '/manager/'
+      preLoaderRoute: typeof ManagerIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
     }
-    '/api/telemetry/sentry-tunnel': {
-      id: '/api/telemetry/sentry-tunnel'
-      path: '/api/telemetry/sentry-tunnel'
-      fullPath: '/api/telemetry/sentry-tunnel'
-      preLoaderRoute: typeof ApiTelemetrySentryTunnelRouteImport
-      parentRoute: typeof rootRouteImport
+    '/onboarding/': {
+      id: '/onboarding/'
+      path: '/'
+      fullPath: '/onboarding/'
+      preLoaderRoute: typeof OnboardingIndexRouteImport
+      parentRoute: typeof OnboardingRouteRoute
     }
-    '/api/telemetry/logs': {
-      id: '/api/telemetry/logs'
-      path: '/api/telemetry/logs'
-      fullPath: '/api/telemetry/logs'
-      preLoaderRoute: typeof ApiTelemetryLogsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/cron/weekly-reports': {
-      id: '/api/cron/weekly-reports'
-      path: '/api/cron/weekly-reports'
-      fullPath: '/api/cron/weekly-reports'
-      preLoaderRoute: typeof ApiCronWeeklyReportsRouteImport
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/daily-ingest': {
@@ -558,18 +502,95 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCronDailyIngestRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
+    '/api/cron/weekly-reports': {
+      id: '/api/cron/weekly-reports'
+      path: '/api/cron/weekly-reports'
+      fullPath: '/api/cron/weekly-reports'
+      preLoaderRoute: typeof ApiCronWeeklyReportsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/manager/workspaces/$id/': {
-      id: '/manager/workspaces/$id/'
-      path: '/workspaces/$id'
-      fullPath: '/manager/workspaces/$id/'
-      preLoaderRoute: typeof ManagerWorkspacesIdIndexRouteImport
+    '/api/telemetry/logs': {
+      id: '/api/telemetry/logs'
+      path: '/api/telemetry/logs'
+      fullPath: '/api/telemetry/logs'
+      preLoaderRoute: typeof ApiTelemetryLogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/telemetry/sentry-tunnel': {
+      id: '/api/telemetry/sentry-tunnel'
+      path: '/api/telemetry/sentry-tunnel'
+      fullPath: '/api/telemetry/sentry-tunnel'
+      preLoaderRoute: typeof ApiTelemetrySentryTunnelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/account/': {
+      id: '/app/account/'
+      path: '/account'
+      fullPath: '/app/account/'
+      preLoaderRoute: typeof AppAccountIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/login/error/': {
+      id: '/login/error/'
+      path: '/error'
+      fullPath: '/login/error/'
+      preLoaderRoute: typeof LoginErrorIndexRouteImport
+      parentRoute: typeof LoginRouteRoute
+    }
+    '/manager/account/': {
+      id: '/manager/account/'
+      path: '/account'
+      fullPath: '/manager/account/'
+      preLoaderRoute: typeof ManagerAccountIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
+    }
+    '/manager/dashboard/': {
+      id: '/manager/dashboard/'
+      path: '/dashboard'
+      fullPath: '/manager/dashboard/'
+      preLoaderRoute: typeof ManagerDashboardIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
+    }
+    '/manager/users/': {
+      id: '/manager/users/'
+      path: '/users'
+      fullPath: '/manager/users/'
+      preLoaderRoute: typeof ManagerUsersIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
+    }
+    '/manager/workspaces/': {
+      id: '/manager/workspaces/'
+      path: '/workspaces'
+      fullPath: '/manager/workspaces/'
+      preLoaderRoute: typeof ManagerWorkspacesIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
+    }
+    '/api/providers/$provider/callback': {
+      id: '/api/providers/$provider/callback'
+      path: '/api/providers/$provider/callback'
+      fullPath: '/api/providers/$provider/callback'
+      preLoaderRoute: typeof ApiProvidersProviderCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app/reports/$reportId/': {
+      id: '/app/reports/$reportId/'
+      path: '/reports/$reportId'
+      fullPath: '/app/reports/$reportId/'
+      preLoaderRoute: typeof AppReportsReportIdIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/sources/$sourceId/': {
+      id: '/app/sources/$sourceId/'
+      path: '/sources/$sourceId'
+      fullPath: '/app/sources/$sourceId/'
+      preLoaderRoute: typeof AppSourcesSourceIdIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/manager/users/$id/': {
+      id: '/manager/users/$id/'
+      path: '/users/$id'
+      fullPath: '/manager/users/$id/'
+      preLoaderRoute: typeof ManagerUsersIdIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
     '/manager/users/new/': {
@@ -579,46 +600,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ManagerUsersNewIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
-    '/manager/users/$id/': {
-      id: '/manager/users/$id/'
-      path: '/users/$id'
-      fullPath: '/manager/users/$id/'
-      preLoaderRoute: typeof ManagerUsersIdIndexRouteImport
+    '/manager/workspaces/$id/': {
+      id: '/manager/workspaces/$id/'
+      path: '/workspaces/$id'
+      fullPath: '/manager/workspaces/$id/'
+      preLoaderRoute: typeof ManagerWorkspacesIdIndexRouteImport
       parentRoute: typeof ManagerRouteRoute
     }
-    '/app/sources/$sourceId/': {
-      id: '/app/sources/$sourceId/'
-      path: '/sources/$sourceId'
-      fullPath: '/app/sources/$sourceId/'
-      preLoaderRoute: typeof AppSourcesSourceIdIndexRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/app/reports/$reportId/': {
-      id: '/app/reports/$reportId/'
-      path: '/reports/$reportId'
-      fullPath: '/app/reports/$reportId/'
-      preLoaderRoute: typeof AppReportsReportIdIndexRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/api/providers/$provider/callback': {
-      id: '/api/providers/$provider/callback'
-      path: '/api/providers/$provider/callback'
-      fullPath: '/api/providers/$provider/callback'
-      preLoaderRoute: typeof ApiProvidersProviderCallbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/manager/users/$id/update/': {
-      id: '/manager/users/$id/update/'
-      path: '/users/$id/update'
-      fullPath: '/manager/users/$id/update/'
-      preLoaderRoute: typeof ManagerUsersIdUpdateIndexRouteImport
-      parentRoute: typeof ManagerRouteRoute
-    }
-    '/api/telemetry/otel/v1/traces': {
-      id: '/api/telemetry/otel/v1/traces'
-      path: '/api/telemetry/otel/v1/traces'
-      fullPath: '/api/telemetry/otel/v1/traces'
-      preLoaderRoute: typeof ApiTelemetryOtelV1TracesRouteImport
+    '/api/dev/intelligence/local-ai/stream': {
+      id: '/api/dev/intelligence/local-ai/stream'
+      path: '/api/dev/intelligence/local-ai/stream'
+      fullPath: '/api/dev/intelligence/local-ai/stream'
+      preLoaderRoute: typeof ApiDevIntelligenceLocalAiStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/telemetry/otel/v1/metrics': {
@@ -628,12 +621,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTelemetryOtelV1MetricsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/dev/intelligence/local-ai/stream': {
-      id: '/api/dev/intelligence/local-ai/stream'
-      path: '/api/dev/intelligence/local-ai/stream'
-      fullPath: '/api/dev/intelligence/local-ai/stream'
-      preLoaderRoute: typeof ApiDevIntelligenceLocalAiStreamRouteImport
+    '/api/telemetry/otel/v1/traces': {
+      id: '/api/telemetry/otel/v1/traces'
+      path: '/api/telemetry/otel/v1/traces'
+      fullPath: '/api/telemetry/otel/v1/traces'
+      preLoaderRoute: typeof ApiTelemetryOtelV1TracesRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/manager/users/$id/update/': {
+      id: '/manager/users/$id/update/'
+      path: '/users/$id/update'
+      fullPath: '/manager/users/$id/update/'
+      preLoaderRoute: typeof ManagerUsersIdUpdateIndexRouteImport
+      parentRoute: typeof ManagerRouteRoute
     }
   }
 }

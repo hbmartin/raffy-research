@@ -1,4 +1,3 @@
-import { parseKeyPairsIntoRecord } from '@opentelemetry/core';
 import { validateHeaderName, validateHeaderValue } from 'node:http';
 import { z } from 'zod';
 
@@ -6,6 +5,7 @@ import {
   baseEnvSchema,
   isProdRuntimeEnvironment,
   parseEnv,
+  shouldSkipEnvValidation,
 } from './env-schema';
 import { ConfigurationError } from '../../domain/errors/configuration-error';
 
@@ -50,6 +50,9 @@ export type TelemetryConfig = {
   signalHeaders: Readonly<
     Record<'traces' | 'metrics' | 'logs', Readonly<Record<string, string>>>
   >;
+  resolvedHeaders: Readonly<
+    Record<'traces' | 'metrics' | 'logs', Readonly<Record<string, string>>>
+  >;
   serviceName: string;
   serviceVersion?: string;
   otelEnvironment?: string;
@@ -91,67 +94,110 @@ const validateCollectorHeader = (
   }
 };
 
-const parseCollectorHeaders = (variable: string, value: string | undefined) =>
-  Object.fromEntries(
-    // Normalize each SDK-parsed entry before resolving duplicates. Parsing the
-    // entire record first loses source order when exact and mixed-case names
-    // are interleaved (X-Key=first,x-key=second,X-Key=last).
-    (value ?? '').split(',').flatMap((entry) =>
-      Object.entries(parseKeyPairsIntoRecord(entry)).map(([name, value]) => {
-        validateCollectorHeader(variable, name, value);
-        return [name.toLowerCase(), value];
-      })
-    )
-  );
+const parseCollectorHeaders = (variable: string, value: string | undefined) => {
+  if (!value) return {};
+  const parsed: Record<string, string> = {};
+  for (const entry of value.split(',')) {
+    const separator = entry.indexOf('=');
+    if (separator <= 0 || entry.includes(';'))
+      throw new ConfigurationError(
+        `Invalid ${variable}: expected key=value entries without metadata.`
+      );
+    let name: string;
+    let decodedValue: string;
+    try {
+      name = decodeURIComponent(entry.slice(0, separator).trim());
+      decodedValue = decodeURIComponent(entry.slice(separator + 1).trim());
+    } catch {
+      throw new ConfigurationError(
+        `Invalid ${variable}: malformed percent escape.`
+      );
+    }
+    if (!name || !decodedValue)
+      throw new ConfigurationError(
+        `Invalid ${variable}: empty header name or value.`
+      );
+    validateCollectorHeader(variable, name, decodedValue);
+    // Preserve source order, including mixed-case duplicates: the last wins.
+    parsed[name.toLowerCase()] = decodedValue;
+  }
+  return parsed;
+};
+
+const mergeCollectorHeaders = (
+  general: Readonly<Record<string, string>>,
+  signal: Readonly<Record<string, string>>,
+  bearer?: string
+) => {
+  const headers = new Headers(general);
+  for (const [name, value] of Object.entries(signal)) headers.set(name, value);
+  if (bearer) headers.set('authorization', `Bearer ${bearer}`);
+  return Object.fromEntries(headers.entries());
+};
 
 export const resolveCollectorHeaders = (
   config: TelemetryConfig,
   signal: 'traces' | 'metrics' | 'logs'
-) => {
-  const headers = new Headers(config.collectorHeaders);
-  for (const [name, value] of Object.entries(config.signalHeaders[signal]))
-    headers.set(name, value);
-  if (config.collectorBearerToken)
-    headers.set('authorization', `Bearer ${config.collectorBearerToken}`);
-  return Object.fromEntries(headers.entries());
-};
+) => config.resolvedHeaders[signal];
 
 export function getTelemetryConfig(): TelemetryConfig {
   if (cachedTelemetryConfig) return cachedTelemetryConfig;
 
+  try {
+    cachedTelemetryConfig = buildTelemetryConfig();
+  } catch (error) {
+    if (!shouldSkipEnvValidation() || !(error instanceof ConfigurationError))
+      throw error;
+    // An explicit validation bypass must never export with partially parsed
+    // credentials. Keep the app available with telemetry disabled instead.
+    cachedTelemetryConfig = {
+      tracesSampleRate: 0,
+      collectorHeaders: {},
+      signalHeaders: { traces: {}, metrics: {}, logs: {} },
+      resolvedHeaders: { traces: {}, metrics: {}, logs: {} },
+      serviceName: 'start-ui-web',
+      otelTracesSampleRate: 0,
+      localSqliteEnabled: false,
+      localSqlitePath: '.telemetry/telemetry.sqlite',
+      proxyMaxBytes: 1_000_000,
+      logMaxEvents: 50,
+    };
+  }
+  return cachedTelemetryConfig;
+}
+
+function buildTelemetryConfig(): TelemetryConfig {
   const env = parseEnv(telemetryEnvSchema);
   const isProduction = isProdRuntimeEnvironment(env);
-  if (isProduction && !env.OTEL_COLLECTOR_URL) {
+  if (
+    isProduction &&
+    !env.OTEL_COLLECTOR_URL &&
+    !shouldSkipEnvValidation(env)
+  ) {
     throw new ConfigurationError(
       'OTEL_COLLECTOR_URL is required in production telemetry configuration.'
     );
   }
 
-  const collectorHeaders = env.OTEL_COLLECTOR_URL
-    ? parseCollectorHeaders(
-        'OTEL_EXPORTER_OTLP_HEADERS',
-        env.OTEL_EXPORTER_OTLP_HEADERS
-      )
-    : {};
+  const headerVariables = {
+    general: 'OTEL_EXPORTER_OTLP_HEADERS',
+    traces: 'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
+    metrics: 'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
+    logs: 'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+  } as const;
+  const parsedHeaders = Object.fromEntries(
+    Object.entries(headerVariables).map(([signal, variable]) => [
+      signal,
+      env.OTEL_COLLECTOR_URL
+        ? parseCollectorHeaders(variable, env[variable])
+        : {},
+    ])
+  ) as Record<keyof typeof headerVariables, Record<string, string>>;
+  const collectorHeaders = parsedHeaders.general;
   const signalHeaders = {
-    traces: env.OTEL_COLLECTOR_URL
-      ? parseCollectorHeaders(
-          'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
-          env.OTEL_EXPORTER_OTLP_TRACES_HEADERS
-        )
-      : {},
-    metrics: env.OTEL_COLLECTOR_URL
-      ? parseCollectorHeaders(
-          'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
-          env.OTEL_EXPORTER_OTLP_METRICS_HEADERS
-        )
-      : {},
-    logs: env.OTEL_COLLECTOR_URL
-      ? parseCollectorHeaders(
-          'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
-          env.OTEL_EXPORTER_OTLP_LOGS_HEADERS
-        )
-      : {},
+    traces: parsedHeaders.traces,
+    metrics: parsedHeaders.metrics,
+    logs: parsedHeaders.logs,
   };
   if (env.OTEL_COLLECTOR_URL && env.OTEL_COLLECTOR_BEARER_TOKEN) {
     validateCollectorHeader(
@@ -161,7 +207,7 @@ export function getTelemetryConfig(): TelemetryConfig {
     );
   }
 
-  cachedTelemetryConfig = {
+  return {
     dsn: env.SENTRY_DSN,
     browserDsn: env.VITE_SENTRY_DSN ?? env.SENTRY_DSN,
     environment: env.SENTRY_ENVIRONMENT,
@@ -173,6 +219,23 @@ export function getTelemetryConfig(): TelemetryConfig {
     collectorBearerToken: env.OTEL_COLLECTOR_BEARER_TOKEN,
     collectorHeaders,
     signalHeaders,
+    resolvedHeaders: {
+      traces: mergeCollectorHeaders(
+        collectorHeaders,
+        signalHeaders.traces,
+        env.OTEL_COLLECTOR_BEARER_TOKEN
+      ),
+      metrics: mergeCollectorHeaders(
+        collectorHeaders,
+        signalHeaders.metrics,
+        env.OTEL_COLLECTOR_BEARER_TOKEN
+      ),
+      logs: mergeCollectorHeaders(
+        collectorHeaders,
+        signalHeaders.logs,
+        env.OTEL_COLLECTOR_BEARER_TOKEN
+      ),
+    },
     serviceName: env.OTEL_SERVICE_NAME ?? 'start-ui-web',
     serviceVersion: env.OTEL_SERVICE_VERSION,
     otelEnvironment:
@@ -186,5 +249,4 @@ export function getTelemetryConfig(): TelemetryConfig {
     proxyMaxBytes: env.TELEMETRY_PROXY_MAX_BYTES ?? 1_000_000,
     logMaxEvents: env.TELEMETRY_LOG_MAX_EVENTS ?? 50,
   };
-  return cachedTelemetryConfig;
 }

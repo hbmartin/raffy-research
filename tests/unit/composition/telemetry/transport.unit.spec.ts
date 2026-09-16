@@ -32,6 +32,19 @@ vi.mock(
   async (importOriginal) => ({
     ...(await importOriginal<object>()),
     getTelemetryConfig: () => configMock,
+    resolveCollectorHeaders: (
+      config: typeof configMock,
+      signal: 'traces' | 'metrics' | 'logs'
+    ) => {
+      const headers = new Headers(config.collectorHeaders);
+      for (const [name, value] of Object.entries(
+        config.signalHeaders[signal] ?? {}
+      ))
+        headers.set(name, value);
+      if (config.collectorBearerToken)
+        headers.set('authorization', `Bearer ${config.collectorBearerToken}`);
+      return Object.fromEntries(headers.entries());
+    },
   })
 );
 

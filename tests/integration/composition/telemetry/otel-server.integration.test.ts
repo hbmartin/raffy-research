@@ -9,6 +9,7 @@ import { logs } from '@opentelemetry/api-logs';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import * as Sentry from '@sentry/tanstackstart-react';
 import { once } from 'node:events';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -79,9 +80,16 @@ describe('server OTLP header precedence', () => {
       );
       vi.stubEnv('OTEL_TRACES_SAMPLE_RATE', '1');
 
+      Sentry.init({
+        dsn: 'https://public@sentry.example/1',
+        tracesSampleRate: 0,
+        skipOpenTelemetrySetup: true,
+      });
+
       const { initOpenTelemetryServer } =
         await import('@/composition/telemetry/otel.server');
-      initOpenTelemetryServer();
+      const adapter = initOpenTelemetryServer();
+      expect(adapter).toBeDefined();
       const tracer = trace.getTracerProvider() as ProxyTracerProvider;
       const tracerProvider = tracer.getDelegate() as NodeTracerProvider;
       const meterProvider = metrics.getMeterProvider() as MeterProvider;
@@ -91,6 +99,9 @@ describe('server OTLP header precedence', () => {
       trace.getTracer('header-test').startSpan('export').end();
       metrics.getMeter('header-test').createCounter('header_test').add(1);
       logs.getLogger('header-test').emit({ body: 'export' });
+      adapter!.startManualSpan({ name: 'adapter-export' }).end();
+      adapter!.recordMetric({ name: 'adapter_counter', value: 1 });
+      adapter!.emitLog({ level: 'info', event: 'adapter.export' });
       await Promise.all(providers.map((provider) => provider.forceFlush()));
 
       expect(received.map(({ path }) => path).sort()).toEqual([
@@ -109,6 +120,31 @@ describe('server OTLP header precedence', () => {
       }
     }
   );
+
+  it('does not construct replacements after partial global registration', async () => {
+    collector = createServer((request, response) => {
+      request.resume();
+      response.writeHead(200);
+      response.end();
+    });
+    collector.listen(0, '127.0.0.1');
+    await once(collector, 'listening');
+    const address = collector.address();
+    if (!address || typeof address === 'string')
+      throw new Error('Missing collector port');
+    vi.stubEnv('OTEL_COLLECTOR_URL', `http://127.0.0.1:${address.port}`);
+    const existingMeter = new MeterProvider();
+    metrics.setGlobalMeterProvider(existingMeter);
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { initOpenTelemetryServer } =
+      await import('@/composition/telemetry/otel.server');
+    expect(initOpenTelemetryServer()).toBeUndefined();
+    expect(initOpenTelemetryServer()).toBeUndefined();
+    expect(diagnostic).toHaveBeenCalledTimes(1);
+    expect(metrics.getMeterProvider()).toBe(existingMeter);
+    providers = [existingMeter];
+    diagnostic.mockRestore();
+  });
 });
 
 vi.mock('@/composition/kernel', () => ({ getKernel: vi.fn() }));

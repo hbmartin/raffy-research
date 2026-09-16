@@ -235,6 +235,59 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig().secret).toBe('a'.repeat(32));
   });
 
+  it('requires a dedicated proxy IP header for self-hosted production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('selects Vercel-overwritten and explicit self-hosted IP headers', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL_ENV', 'production');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
+      'x-vercel-forwarded-for'
+    );
+    vi.resetModules();
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'x-proxy-client-ip');
+    const { getBetterAuthConfig: getSelfHostedConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getSelfHostedConfig().trustedClientIpHeader).toBe(
+      'x-proxy-client-ip'
+    );
+  });
+
+  it('rejects X-Forwarded-For as the self-hosted trusted header', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'X-Forwarded-For');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('limits SSR sign-in relaxation to the loopback fixture', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig().fixtureSignInRateLimit).toBe(true);
+    vi.resetModules();
+    vi.stubEnv('HOST', '0.0.0.0');
+    const { getBetterAuthConfig: getPublicConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getPublicConfig).toThrow('SSR_FIXTURE_MODE');
+  });
+
   it('allows weak AUTH_SECRET values only when env validation is skipped', async () => {
     const weakAuthValue = ['too', 'short', 'fixture'].join('-');
     vi.stubEnv('AUTH_PROVIDER', 'better-auth');
@@ -333,18 +386,33 @@ describe('server config accessors', () => {
       'x-sentry-auth': 'Sentry sentry_key=public-key',
     });
   });
-  it('normalizes names, preserves encoded delimiters, and drops malformed escapes', async () => {
+  it('normalizes names and preserves encoded delimiters and source order', async () => {
     vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
     vi.stubEnv(
       'OTEL_EXPORTER_OTLP_HEADERS',
-      'X-Key=old,x-key=middle,X-Key=new,x-value=a%2Cb%3Dc,x-percent=literal%ZZ,missing,=empty-name,empty-value='
+      'X-Key=old,x-key=middle,X-Key=new,x-value=a%2Cb%3Dc%3Bf'
     );
     const { getTelemetryConfig } =
       await import('@/modules/kernel/infrastructure/config/telemetry');
     expect(getTelemetryConfig().collectorHeaders).toEqual({
       'x-key': 'new',
-      'x-value': 'a,b=c',
+      'x-value': 'a,b=c;f',
     });
+  });
+
+  it.each([
+    'x-token=literal%ZZ',
+    'x-token=abc;metadata',
+    'x-token=valid,',
+    'missing',
+    '=empty-name',
+    'empty-value=',
+  ])('rejects a silently dropped collector credential: %s', async (value) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', value);
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_EXPORTER_OTLP_HEADERS');
   });
 
   it.each([
@@ -439,11 +507,18 @@ describe('server config accessors', () => {
     });
   });
 
-  it('drops semicolon metadata using SDK semantics', async () => {
+  it('disables malformed telemetry under the explicit validation bypass', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
     vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
     vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=abc;metadata');
     const { getTelemetryConfig } =
       await import('@/modules/kernel/infrastructure/config/telemetry');
-    expect(getTelemetryConfig().collectorHeaders).toEqual({ 'x-token': 'abc' });
+    const config = getTelemetryConfig();
+    expect(config.collectorUrl).toBeUndefined();
+    expect(config.dsn).toBeUndefined();
+    expect(config).toMatchObject({
+      resolvedHeaders: { traces: {}, metrics: {}, logs: {} },
+    });
   });
 });

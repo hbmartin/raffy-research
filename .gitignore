@@ -57,6 +57,7 @@ build-info.gen.json
 
 # playwright
 /test-results/
+/.ssr-fixture/
 /playwright-report/
 /playwright/.cache/
 /tests/e2e/.auth/

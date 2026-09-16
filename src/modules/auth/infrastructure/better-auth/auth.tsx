@@ -40,9 +40,25 @@ export function createAuth(input?: Database | CreateAuthOptions) {
       expiresIn: authConfig.sessionExpirationInSeconds,
       updateAge: authConfig.sessionUpdateAgeInSeconds,
     },
-    advanced: createAuthCookieSecurityOptions(envClient.VITE_BASE_URL, {
-      isProduction: import.meta.env.PROD,
-    }),
+    advanced: {
+      ...createAuthCookieSecurityOptions(envClient.VITE_BASE_URL, {
+        isProduction: import.meta.env.PROD,
+      }),
+      ipAddress: {
+        ipAddressHeaders: authConfig.trustedClientIpHeader
+          ? [authConfig.trustedClientIpHeader]
+          : [],
+      },
+    },
+    ...(authConfig.fixtureSignInRateLimit
+      ? {
+          rateLimit: {
+            customRules: {
+              '/sign-in/*': { window: 10, max: 1_000 },
+            },
+          },
+        }
+      : {}),
     account: {
       encryptOAuthTokens: true,
     },
