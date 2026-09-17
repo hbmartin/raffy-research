@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   handlerFetch: vi.fn(async () => new Response('ok')),
   captureException: vi.fn(),
   initialize: vi.fn(),
+  runWithUserContext: vi.fn(<T>(fn: () => T) => fn()),
 }));
 
 vi.mock('@sentry/tanstackstart-react', () => ({
@@ -13,6 +14,10 @@ vi.mock('@sentry/tanstackstart-react', () => ({
 
 vi.mock('@/composition/telemetry/sentry.server', () => ({
   initTelemetryServer: mocks.initialize,
+}));
+
+vi.mock('@/composition/telemetry/otel.server', () => ({
+  runWithServerTelemetryUserContext: mocks.runWithUserContext,
 }));
 
 vi.mock('@tanstack/react-start/server-entry', () => ({
@@ -36,6 +41,7 @@ describe('server entry', () => {
     const response = await server.fetch(request);
     expect(await response.text()).toBe('ok');
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
+    expect(mocks.runWithUserContext).toHaveBeenCalledTimes(1);
 
     expect(mocks.handlerFetch).toHaveBeenCalledWith(
       request,

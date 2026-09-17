@@ -74,6 +74,16 @@ const mergeRequestContext = (
   ...overrides,
 });
 
+export const shouldAllowPlaywrightScreenshotStyles = ({
+  isProduction,
+  isTestRuntime,
+  requestContextAllows,
+}: {
+  isProduction: boolean;
+  isTestRuntime: boolean;
+  requestContextAllows: boolean;
+}) => (!isProduction && isTestRuntime) || requestContextAllows;
+
 const getSecurityHeaderOptions = (context?: unknown) => {
   const isTestRuntime = envClient.VITE_ENV_NAME === 'tests';
   const requestContext =
@@ -83,8 +93,12 @@ const getSecurityHeaderOptions = (context?: unknown) => {
 
   return {
     allowDevServerCspRelaxations: isTestRuntime,
-    allowPlaywrightScreenshotStyles:
-      isTestRuntime || requestContext?.allowPlaywrightScreenshotStyles === true,
+    allowPlaywrightScreenshotStyles: shouldAllowPlaywrightScreenshotStyles({
+      isProduction: import.meta.env.PROD,
+      isTestRuntime,
+      requestContextAllows:
+        requestContext?.allowPlaywrightScreenshotStyles === true,
+    }),
     baseUrl: envClient.VITE_BASE_URL,
     cspNonce: getCspNonceFromContext(context),
     isProduction: import.meta.env.PROD,

@@ -43,7 +43,14 @@ export const createErrorOnlyFetch =
       await flush();
       return response;
     }
-    const reader = responseBody.getReader();
+    let reader: ReadableStreamDefaultReader<Uint8Array>;
+    try {
+      reader = responseBody.getReader();
+    } catch (error) {
+      reporter.captureException(error, unhandledHttpError);
+      await flush();
+      throw error;
+    }
     let canceled = false;
     let released = false;
     const release = () => {

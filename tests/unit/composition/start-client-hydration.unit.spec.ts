@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { startClientHydration } from '@/composition/start-client-hydration';
+import {
+  isInitialHydrationDocumentActive,
+  startClientHydration,
+} from '@/composition/start-client-hydration';
 
 const mocks = vi.hoisted(() => ({
   reportHydrationFailure: vi.fn(),
@@ -95,4 +98,22 @@ describe('initial hydration coordinator', () => {
       failure
     );
   });
+
+  it.each(['beforeunload', 'pagehide'])(
+    'keeps tracking %s after the hydration module resolves',
+    async (eventName) => {
+      const { document, view } = fixture();
+
+      await startClientHydration({
+        document,
+        loadHydrationModule: async () => ({
+          hydrateClient: vi.fn(async () => undefined),
+        }),
+      });
+
+      view.dispatchEvent(new Event(eventName));
+
+      expect(isInitialHydrationDocumentActive(document)).toBe(false);
+    }
+  );
 });

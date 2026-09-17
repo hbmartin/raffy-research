@@ -56,6 +56,25 @@ describe('error-only server entry', () => {
     expect(report.flush).toHaveBeenCalledOnce();
   });
 
+  it('captures and flushes when the returned body is already locked', async () => {
+    const report = reporter();
+    const original = new Response(new ReadableStream());
+    const upstreamReader = original.body!.getReader();
+    const fetch = createErrorOnlyFetch(async () => original, report);
+
+    const response = fetch(request, { context: { requestId: 'test' } });
+
+    await expect(response).rejects.toBeInstanceOf(TypeError);
+    expect(report.captureException).toHaveBeenCalledWith(
+      expect.any(TypeError),
+      {
+        mechanism: { type: 'auto.http.tanstackstart', handled: false },
+      }
+    );
+    expect(report.flush).toHaveBeenCalledOnce();
+    upstreamReader.releaseLock();
+  });
+
   it('captures handler exceptions and flushes before rethrowing', async () => {
     const report = reporter();
     const failure = new Error('handler failure');

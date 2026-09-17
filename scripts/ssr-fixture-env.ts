@@ -81,39 +81,56 @@ export const createFixtureEnvironment = async () => {
 const buildOutputDirectory = () => resolve('.output');
 const missingBuildOutput = () =>
   new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+const invalidFixtureManifest = () =>
+  new Error('Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.');
 
 const isMissingPathError = (error: unknown) =>
   error instanceof Error &&
   'code' in error &&
   (error as NodeJS.ErrnoException).code === 'ENOENT';
 
+const collectDeployableFiles = async (directory: string): Promise<string[]> => {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (entry.name === 'node_modules') continue;
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory())
+      paths.push(...(await collectDeployableFiles(path)));
+    else if (entry.isFile()) paths.push(path);
+  }
+  return paths;
+};
+
 export const digestBuiltOutput = async () => {
   const root = buildOutputDirectory();
   const hash = createHash('sha256');
-  let paths: string[];
   try {
-    const serverRoot = resolve(root, 'server');
-    const serverEntries = await readdir(serverRoot, { withFileTypes: true });
-    const manifests = serverEntries
-      .filter(
-        (entry) =>
-          entry.isFile() &&
-          entry.name.startsWith('_tanstack-start-manifest_') &&
-          entry.name.endsWith('.mjs')
-      )
-      .map((entry) => resolve(serverRoot, entry.name))
+    const paths = await collectDeployableFiles(root);
+    const relativePaths = paths
+      .map((path) => relative(root, path).replaceAll('\\', '/'))
       .sort();
-    if (manifests.length === 0) throw missingBuildOutput();
-    paths = [
-      resolve(root, 'nitro.json'),
-      resolve(serverRoot, 'index.mjs'),
-      resolve(serverRoot, '_ssr/ssr.mjs'),
-      ...manifests,
-    ];
-    for (const path of paths) {
-      hash.update(relative(root, path).replaceAll('\\', '/'));
+    const hasRequiredOutput = [
+      'nitro.json',
+      'server/index.mjs',
+      'server/_ssr/ssr.mjs',
+    ].every((path) => relativePaths.includes(path));
+    const hasManifest = relativePaths.some(
+      (path) =>
+        path.startsWith('server/_tanstack-start-manifest_') &&
+        path.endsWith('.mjs')
+    );
+    if (!hasRequiredOutput || !hasManifest) throw missingBuildOutput();
+
+    for (const path of paths
+      .map((path) => ({
+        absolute: path,
+        relative: relative(root, path).replaceAll('\\', '/'),
+      }))
+      .sort((left, right) => left.relative.localeCompare(right.relative))) {
+      hash.update(path.relative);
       hash.update('\0');
-      hash.update(await readFile(path));
+      hash.update(await readFile(path.absolute));
       hash.update('\0');
     }
   } catch (error) {
@@ -139,9 +156,12 @@ export const writeFixtureManifest = async (env: NodeJS.ProcessEnv) => {
 };
 
 export const readFixtureEnvironment = async () => {
-  const manifest: unknown = JSON.parse(
-    await readFile(SSR_FIXTURE_MANIFEST, 'utf8')
-  );
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(await readFile(SSR_FIXTURE_MANIFEST, 'utf8'));
+  } catch {
+    throw invalidFixtureManifest();
+  }
   if (
     !manifest ||
     typeof manifest !== 'object' ||
@@ -153,9 +173,7 @@ export const readFixtureEnvironment = async () => {
     !/^[a-f0-9]{64}$/.test(manifest.buildDigest) ||
     manifest.buildDigest !== (await digestBuiltOutput())
   ) {
-    throw new Error(
-      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
-    );
+    throw invalidFixtureManifest();
   }
   return fixtureEnvironment(manifest.authSecret);
 };

@@ -10,6 +10,7 @@ import handler, {
 import { randomUUID } from 'node:crypto';
 
 import { createErrorOnlyFetch } from './composition/telemetry/error-only-fetch';
+import { runWithServerTelemetryUserContext } from './composition/telemetry/otel.server';
 import { initTelemetryServer } from './composition/telemetry/sentry.server';
 import { isValidatedSsrFixtureRuntime } from './modules/kernel/infrastructure/config/auth';
 import type { AppStartRequestContext } from './start';
@@ -18,14 +19,15 @@ initTelemetryServer();
 
 const requestHandler: ServerEntry = {
   fetch: createErrorOnlyFetch(
-    (request) => {
-      return handler.fetch(request, {
-        context: {
-          allowPlaywrightScreenshotStyles: isValidatedSsrFixtureRuntime(),
-          requestId: randomUUID(),
-        } satisfies AppStartRequestContext,
-      });
-    },
+    (request) =>
+      runWithServerTelemetryUserContext(() =>
+        handler.fetch(request, {
+          context: {
+            allowPlaywrightScreenshotStyles: isValidatedSsrFixtureRuntime(),
+            requestId: randomUUID(),
+          } satisfies AppStartRequestContext,
+        })
+      ),
     { captureException, flush: () => flushIfServerless() }
   ),
 };

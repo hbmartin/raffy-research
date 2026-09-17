@@ -182,18 +182,21 @@ describe('server OTLP header precedence', () => {
     const users = createServerTelemetryUserContext();
     const bothReady = Promise.withResolvers<void>();
     let ready = 0;
-    const run = async (id: string) => {
-      users.setUser({ id });
-      ready += 1;
-      if (ready === 2) bothReady.resolve();
-      await bothReady.promise;
-      return users.getUser()?.id;
-    };
+    const run = (id: string) =>
+      users.run(async () => {
+        expect(users.getUser()).toBeNull();
+        users.setUser({ id });
+        ready += 1;
+        if (ready === 2) bothReady.resolve();
+        await bothReady.promise;
+        return users.getUser()?.id;
+      });
 
     await expect(Promise.all([run('user-a'), run('user-b')])).resolves.toEqual([
       'user-a',
       'user-b',
     ]);
+    expect(users.getUser()).toBeNull();
   });
 });
 

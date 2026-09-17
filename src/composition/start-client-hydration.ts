@@ -50,9 +50,5 @@ export const startClientHydration = ({
     .catch(async (error: unknown) => {
       if (await shouldReportInitialHydrationFailure(document))
         reportHydrationFailure(document, error);
-    })
-    .finally(() => {
-      view?.removeEventListener('beforeunload', markPageExiting);
-      view?.removeEventListener('pagehide', markPageExiting);
     });
 };

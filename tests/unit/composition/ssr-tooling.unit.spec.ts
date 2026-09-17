@@ -147,7 +147,7 @@ describe('SSR tooling guardrails', () => {
     await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
   });
 
-  it('hashes bounded build metadata and entries but ignores bundled dependencies', async () => {
+  it('hashes deployable output but ignores dependency trees', async () => {
     const path = temporary();
     vi.spyOn(process, 'cwd').mockReturnValue(path);
     writeSsrBuild(path);
@@ -162,6 +162,10 @@ describe('SSR tooling guardrails', () => {
     );
     expect(await digestBuiltOutput()).toBe(initial);
 
+    writeFileSync(join(path, '.output/server/_ssr/route.mjs'), 'route v1');
+    expect(await digestBuiltOutput()).not.toBe(initial);
+    rmSync(join(path, '.output/server/_ssr/route.mjs'));
+
     writeFileSync(
       join(path, '.output/server/index.mjs'),
       'changed server entry'
@@ -173,6 +177,23 @@ describe('SSR tooling guardrails', () => {
       'export default { changed: true }'
     );
     expect(await digestBuiltOutput()).not.toBe(initial);
+  });
+
+  it('maps missing and malformed fixture manifests to an actionable error', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    vi.resetModules();
+    const { readFixtureEnvironment } =
+      await import('../../../scripts/ssr-fixture-env');
+
+    await expect(readFixtureEnvironment()).rejects.toThrow(
+      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
+    );
+    mkdirSync(join(path, '.ssr-fixture'), { recursive: true });
+    writeFileSync(join(path, '.ssr-fixture/environment.json'), '{');
+    await expect(readFixtureEnvironment()).rejects.toThrow(
+      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
+    );
   });
 
   it('rejects a router override and incompatible dependency resolutions', () => {

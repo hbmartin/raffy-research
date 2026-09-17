@@ -43,6 +43,7 @@ export const createServerTelemetryUserContext = () => {
   const users = new AsyncLocalStorage<TelemetryUser | null>();
   return {
     getUser: () => users.getStore() ?? null,
+    run: <T>(fn: () => T) => users.run(null, fn),
     setUser: (user: TelemetryUser | null) => users.enterWith(user),
   };
 };
@@ -50,6 +51,9 @@ export const createServerTelemetryUserContext = () => {
 let state: 'new' | 'ready' | 'failed' = 'new';
 let adapter: TelemetryAdapter | undefined;
 const userContext = createServerTelemetryUserContext();
+
+export const runWithServerTelemetryUserContext = <T>(fn: () => T) =>
+  userContext.run(fn);
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
