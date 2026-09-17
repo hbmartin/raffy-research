@@ -1,12 +1,11 @@
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Page, test, type TestInfo } from '@playwright/test';
+import { SSR_SEED_PASSWORD } from '@tests/support/ssr-e2e';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFixtureEnvironment } from '../../scripts/ssr-fixture-env';
-
-import { SSR_SEED_PASSWORD } from '@tests/support/ssr-e2e';
 
 import { installConsoleErrorGuard } from './utils/console-error-guard';
 import { ADMIN_EMAIL } from './utils/constants';
+import { readFixtureEnvironment } from '../../scripts/ssr-fixture-env';
 
 const captureSsrScreenshot = async (
   page: Page,
@@ -18,6 +17,30 @@ const captureSsrScreenshot = async (
     fullPage: true,
     caret: 'initial',
   });
+};
+
+const waitForHttpReady = async (
+  url: string,
+  child: ReturnType<typeof spawn>,
+  readOutput: () => string
+) => {
+  const deadline = Date.now() + 30_000;
+  let lastStatus: number | undefined;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw new Error(`SSR child exited before readiness:\n${readOutput()}`);
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+      lastStatus = response.status;
+    } catch {
+      // The child has not started listening yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(
+    `Timed out waiting for ${url}${lastStatus ? ` (last status ${lastStatus})` : ''}:\n${readOutput()}`
+  );
 };
 
 test('completes login SSR and hydrates an interactive form after a hard reload', async ({
@@ -121,6 +144,85 @@ test('completes login SSR and hydrates an interactive form after a hard reload',
   await guard.assertNoUnexpectedIssues();
 });
 
+test('enforces nonced production styles outside the fixture relaxation', async ({
+  page,
+}, testInfo) => {
+  const portByProject: Record<string, string> = {
+    'ssr-desktop': '3014',
+    'ssr-firefox': '3015',
+    'ssr-mobile': '3017',
+    'ssr-webkit': '3016',
+  };
+  const port = portByProject[testInfo.project.name];
+  if (!port) throw new Error(`Missing port for ${testInfo.project.name}`);
+  const origin = `http://127.0.0.1:${port}`;
+  const env = await readFixtureEnvironment();
+  const child = spawn(process.execPath, ['.output/server/index.mjs'], {
+    env: {
+      ...env,
+      AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
+      AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
+      PORT: port,
+      SSR_FIXTURE_MODE: 'false',
+      VITE_BASE_URL: origin,
+      VITE_PORT: port,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+
+  try {
+    await waitForHttpReady(`${origin}/login`, child, () => output);
+    const response = await page.goto(`${origin}/login`, {
+      waitUntil: 'load',
+      timeout: 10_000,
+    });
+    expect(response?.status()).toBe(200);
+    const policy = response?.headers()['content-security-policy'] ?? '';
+    const styleDirective = policy
+      .split('; ')
+      .find((directive) => directive.startsWith('style-src '));
+    const styleElementDirective = policy
+      .split('; ')
+      .find((directive) => directive.startsWith('style-src-elem '));
+    expect(styleDirective).toContain("'nonce-");
+    expect(styleDirective).not.toContain("'unsafe-inline'");
+    expect(styleElementDirective).toContain("'nonce-");
+    expect(styleElementDirective).not.toContain("'unsafe-inline'");
+
+    const dynamicStyle = await page.evaluate(() => {
+      const nonce = document
+        .querySelector('meta[property="csp-nonce"]')
+        ?.getAttribute('content');
+      const style = document.createElement('style');
+      style.textContent = '.nonced-style-probe { color: rgb(4, 5, 6) }';
+      document.head.append(style);
+      const probe = document.createElement('span');
+      probe.className = 'nonced-style-probe';
+      document.body.append(probe);
+      return {
+        color: getComputedStyle(probe).color,
+        nonce,
+        styleNonce: style.nonce,
+      };
+    });
+    expect(dynamicStyle.styleNonce).toBe(dynamicStyle.nonce);
+    expect(dynamicStyle.color).toBe('rgb(4, 5, 6)');
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      await exited;
+    }
+  }
+});
+
 test('reports a failed hydration chunk and shows a reload control', async ({
   page,
 }) => {
@@ -148,6 +250,43 @@ test('reports a failed hydration chunk and shows a reload control', async ({
     )
     .toBe(true);
   await expect.poll(() => reportStatuses).toContain(202);
+});
+
+test('does not report a hydration chunk canceled by navigation', async ({
+  page,
+}) => {
+  const releaseFirstChunk = Promise.withResolvers<void>();
+  const reports: string[] = [];
+  const hydrationChunkPattern = /\/assets\/hydrate-client-[^/]+\.js$/;
+  let hydrationRequests = 0;
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.route(hydrationChunkPattern, async (route) => {
+    hydrationRequests += 1;
+    if (hydrationRequests !== 1) {
+      await route.continue();
+      return;
+    }
+
+    await releaseFirstChunk.promise;
+    await route.abort('failed').catch(() => undefined);
+  });
+
+  await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
+  await expect.poll(() => hydrationRequests).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  const navigation = page.goto('about:blank', {
+    waitUntil: 'load',
+    timeout: 10_000,
+  });
+  releaseFirstChunk.resolve();
+  await navigation;
+  await page.unroute(hydrationChunkPattern);
+  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
+    false
+  );
 });
 
 test('completes authenticated SSR and hydrates the manager after a hard reload', async ({

@@ -360,7 +360,7 @@ module.exports = {
         'Sentry SDK imports stay in app entrypoints and telemetry composition.',
       from: {
         pathNot:
-          '^(instrument\\.server\\.mjs$|src/(server\\.ts$|start\\.ts$|composition/telemetry/sentry\\.(client|server)\\.ts$))',
+          '^(instrument\\.server\\.mjs$|src/(server\\.ts$|start\\.ts$|composition/telemetry/(sentry\\.(client|server)|sentry-bootstrap\\.server|otel\\.server)\\.ts$))',
       },
       to: { path: 'node_modules/@sentry/' },
     },

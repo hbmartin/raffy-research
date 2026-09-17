@@ -38,6 +38,10 @@ const authProviderEnvSchema = baseEnvSchema.extend({
   AUTH_PROVIDER: z.enum(['better-auth', 'workos']).prefault('better-auth'),
 });
 
+const ssrFixtureMarkerEnvSchema = baseEnvSchema.extend({
+  SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+});
+
 const betterAuthEnvSchema = baseEnvSchema
   .extend({
     AUTH_SECRET: z.string().trim(),
@@ -54,6 +58,8 @@ const betterAuthEnvSchema = baseEnvSchema
     AUTH_ALLOWED_HOSTS: z.string().optional(),
     AUTH_TRUSTED_ORIGINS: z.string().optional(),
     AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
+    VERCEL: z.string().optional(),
+    VERCEL_REGION: z.string().trim().optional(),
     SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
     HOST: z.string().optional(),
     VITE_BASE_URL: z.string().optional(),
@@ -82,6 +88,7 @@ const betterAuthEnvSchema = baseEnvSchema
     if (!isProdRuntimeEnvironment(env)) return;
 
     const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
+    const isVercelRuntime = env.VERCEL === '1' && Boolean(env.VERCEL_REGION);
     const fixtureIsLoopback =
       env.HOST === '127.0.0.1' &&
       (() => {
@@ -100,7 +107,7 @@ const betterAuthEnvSchema = baseEnvSchema
     }
     if (
       !shouldSkipEnvValidation(env) &&
-      !env.VERCEL_ENV &&
+      !isVercelRuntime &&
       !fixtureMode &&
       !env.AUTH_TRUSTED_CLIENT_IP_HEADER
     ) {
@@ -174,6 +181,15 @@ export type AuthConfig = BetterAuthConfig;
 
 let cachedAuthProviderConfig: AuthProviderConfig | undefined;
 let cachedBetterAuthConfig: BetterAuthConfig | undefined;
+let reportedSharedRateLimitBucket = false;
+
+const reportSharedRateLimitBucket = () => {
+  if (reportedSharedRateLimitBucket) return;
+  reportedSharedRateLimitBucket = true;
+  process.stderr.write(
+    '{"event":"auth.rate_limit_shared_bucket","reason":"trusted_client_ip_unconfigured"}\n'
+  );
+};
 
 export function getAuthProviderConfig(): AuthProviderConfig {
   if (cachedAuthProviderConfig) return cachedAuthProviderConfig;
@@ -189,16 +205,28 @@ export function getBetterAuthConfig(): BetterAuthConfig {
   if (cachedBetterAuthConfig) return cachedBetterAuthConfig;
 
   const env = parseEnv(betterAuthEnvSchema);
+  const isVercelRuntime = env.VERCEL === '1' && Boolean(env.VERCEL_REGION);
+  const trustedClientIpHeader =
+    env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
+    (isVercelRuntime ? 'x-vercel-forwarded-for' : undefined);
+  const fixtureSignInRateLimit = env.SSR_FIXTURE_MODE === 'true';
+  if (
+    isProdRuntimeEnvironment(env) &&
+    shouldSkipEnvValidation(env) &&
+    !fixtureSignInRateLimit &&
+    !trustedClientIpHeader
+  ) {
+    reportSharedRateLimitBucket();
+  }
+
   cachedBetterAuthConfig = {
     secret: env.AUTH_SECRET,
     sessionExpirationInSeconds: env.AUTH_SESSION_EXPIRATION_IN_SECONDS,
     sessionUpdateAgeInSeconds: env.AUTH_SESSION_UPDATE_AGE_IN_SECONDS,
     allowedHosts: splitCsv(env.AUTH_ALLOWED_HOSTS),
     trustedOrigins: splitCsv(env.AUTH_TRUSTED_ORIGINS),
-    trustedClientIpHeader: env.VERCEL_ENV
-      ? 'x-vercel-forwarded-for'
-      : env.AUTH_TRUSTED_CLIENT_IP_HEADER,
-    fixtureSignInRateLimit: env.SSR_FIXTURE_MODE === 'true',
+    trustedClientIpHeader,
+    fixtureSignInRateLimit,
     githubClientId: env.GITHUB_CLIENT_ID,
     githubClientSecret: env.GITHUB_CLIENT_SECRET,
   };
@@ -213,4 +241,11 @@ export function getAuthConfig(): AuthConfig {
     );
   }
   return getBetterAuthConfig();
+}
+
+export function isValidatedSsrFixtureRuntime() {
+  const { SSR_FIXTURE_MODE } = parseEnv(ssrFixtureMarkerEnvSchema);
+  return (
+    SSR_FIXTURE_MODE === 'true' && getBetterAuthConfig().fixtureSignInRateLimit
+  );
 }

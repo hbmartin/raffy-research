@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -9,13 +9,16 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadEnv } from 'vite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import mainConfig from '../../../playwright.config';
 import ssrConfig from '../../../playwright.ssr.config';
-import { fixtureEnvironment } from '../../../scripts/ssr-fixture-env';
 import { assertSsrCompatibility } from '../../../scripts/check-ssr-compatibility.mjs';
+import {
+  digestBuiltOutput,
+  fixtureEnvironment,
+} from '../../../scripts/ssr-fixture-env';
 
 const require = createRequire(import.meta.url);
 const directories: string[] = [];
@@ -23,6 +26,16 @@ const temporary = () => {
   const path = mkdtempSync(join(tmpdir(), 'raffy-ssr-tooling-'));
   directories.push(path);
   return path;
+};
+const writeSsrBuild = (path: string) => {
+  mkdirSync(join(path, '.output/server/_ssr'), { recursive: true });
+  writeFileSync(join(path, '.output/nitro.json'), '{"preset":"node-server"}');
+  writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
+  writeFileSync(join(path, '.output/server/_ssr/ssr.mjs'), 'ssr entry');
+  writeFileSync(
+    join(path, '.output/server/_tanstack-start-manifest_fixture.mjs'),
+    'export default {}'
+  );
 };
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -99,8 +112,7 @@ describe('SSR tooling guardrails', () => {
       writeFixtureManifest,
     } = await import('../../../scripts/ssr-fixture-env');
     const buildEnv = await createFixtureEnvironment();
-    mkdirSync(join(path, '.output/server'), { recursive: true });
-    writeFileSync(join(path, '.output/server/index.mjs'), 'fixture build');
+    writeSsrBuild(path);
     await writeFixtureManifest(buildEnv);
     for (const filename of ['.env', '.env.local']) {
       writeFileSync(
@@ -120,6 +132,47 @@ describe('SSR tooling guardrails', () => {
     await expect(readFixtureEnvironment()).rejects.toThrow(
       'Invalid SSR fixture manifest'
     );
+  });
+
+  it('returns an actionable error for missing or partial build output', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    vi.resetModules();
+    const { digestBuiltOutput: digest } =
+      await import('../../../scripts/ssr-fixture-env');
+
+    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+    mkdirSync(join(path, '.output/server'), { recursive: true });
+    writeFileSync(join(path, '.output/server/index.mjs'), 'partial');
+    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+  });
+
+  it('hashes bounded build metadata and entries but ignores bundled dependencies', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    writeSsrBuild(path);
+    const initial = await digestBuiltOutput();
+
+    mkdirSync(join(path, '.output/server/node_modules/example'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(path, '.output/server/node_modules/example/index.js'),
+      'dependency v1'
+    );
+    expect(await digestBuiltOutput()).toBe(initial);
+
+    writeFileSync(
+      join(path, '.output/server/index.mjs'),
+      'changed server entry'
+    );
+    expect(await digestBuiltOutput()).not.toBe(initial);
+    writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
+    writeFileSync(
+      join(path, '.output/server/_tanstack-start-manifest_fixture.mjs'),
+      'export default { changed: true }'
+    );
+    expect(await digestBuiltOutput()).not.toBe(initial);
   });
 
   it('rejects a router override and incompatible dependency resolutions', () => {

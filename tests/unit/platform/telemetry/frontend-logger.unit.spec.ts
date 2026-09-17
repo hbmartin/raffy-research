@@ -95,4 +95,29 @@ describe('frontend logger', () => {
       level: 'warn',
     });
   });
+
+  it('can force an immediate fetch while the active document is recoverable', async () => {
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal('window', {
+      addEventListener: vi.fn(),
+      location: { hostname: 'localhost' },
+    });
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      visibilityState: 'visible',
+    });
+    vi.stubGlobal('navigator', { sendBeacon });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 202 }))
+    );
+    const { flushFrontendLogs, frontendLogger } =
+      await import('@/platform/telemetry/frontend-logger');
+
+    frontendLogger.error('client.hydration_failed');
+    await flushFrontendLogs({ preferBeacon: false });
+
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
 });

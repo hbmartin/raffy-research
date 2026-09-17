@@ -8,11 +8,6 @@ type ContentSecurityPolicyOptions = {
   isProduction?: boolean;
 };
 
-const PLAYWRIGHT_SCREENSHOT_STYLE_HASH_SOURCES = [
-  "'sha256-7kYjkz6pduUs3kVL/X05CBZQltL/7ngRDDedeYMKnCY='", // pragma: allowlist secret
-  "'sha256-usAZqtYVSsNUHiWQ9dUUoz3b/VIjZb4D3aBYhD6zD5o='", // pragma: allowlist secret
-] as const;
-
 const uniqueSources = (sources: Array<string | undefined>) =>
   pipe(sources, filter(isTruthy), unique());
 
@@ -37,6 +32,8 @@ export function buildContentSecurityPolicy(
     : undefined;
   const allowDevServerCspRelaxations =
     options.allowDevServerCspRelaxations && !options.isProduction;
+  const allowInlineStyleElements =
+    options.allowPlaywrightScreenshotStyles === true;
   const scriptSources = uniqueSources([
     "'self'",
     nonceSource,
@@ -44,12 +41,8 @@ export function buildContentSecurityPolicy(
   ]);
   const styleSources = uniqueSources([
     "'self'",
-    "'unsafe-inline'",
-    ...(options.allowPlaywrightScreenshotStyles && !options.isProduction
-      ? PLAYWRIGHT_SCREENSHOT_STYLE_HASH_SOURCES
-      : []),
+    allowInlineStyleElements ? "'unsafe-inline'" : nonceSource,
   ]);
-  const styleElementSources = uniqueSources(["'self'", "'unsafe-inline'"]);
   const imgSources = uniqueSources([
     "'self'",
     'data:',
@@ -66,9 +59,7 @@ export function buildContentSecurityPolicy(
     formatDirective('script-src', scriptSources),
     formatDirective('script-src-attr', ["'none'"]),
     formatDirective('style-src', styleSources),
-    ...(styleElementSources
-      ? [formatDirective('style-src-elem', styleElementSources)]
-      : []),
+    formatDirective('style-src-elem', styleSources),
     formatDirective('style-src-attr', ["'unsafe-inline'"]),
     formatDirective('img-src', imgSources),
     formatDirective('connect-src', connectSources),

@@ -6,11 +6,23 @@
  * reload and signal the replacement document's private bootstrap state. Keep
  * the private API confined here until TanStack exposes document-bound ownership.
  */
+const currentOwners = new WeakMap<Document, object>();
+
 export const captureStartHydrationOwner = (document: Document) => {
   const view = document.defaultView;
   const bootstrap = view?.$_TSR;
+  const token = {};
+  let signaled = false;
+  currentOwners.set(document, token);
+
   return {
-    isCurrent: () => view?.document === document && view?.$_TSR === bootstrap,
-    signal: () => bootstrap?.h(),
+    isCurrent: () =>
+      view?.document === document &&
+      currentOwners.get(document) === token &&
+      (view?.$_TSR === bootstrap || (signaled && view?.$_TSR === undefined)),
+    signal: () => {
+      signaled = true;
+      bootstrap?.h();
+    },
   };
 };

@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdir,
-  readFile,
   readdir,
+  readFile,
   rename,
   rm,
   writeFile,
@@ -79,31 +79,47 @@ export const createFixtureEnvironment = async () => {
 };
 
 const buildOutputDirectory = () => resolve('.output');
+const missingBuildOutput = () =>
+  new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+
+const isMissingPathError = (error: unknown) =>
+  error instanceof Error &&
+  'code' in error &&
+  (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 export const digestBuiltOutput = async () => {
   const root = buildOutputDirectory();
   const hash = createHash('sha256');
-  let fileCount = 0;
-  const visit = async (directory: string): Promise<void> => {
-    const entries = (await readdir(directory, { withFileTypes: true })).sort(
-      (left, right) => left.name.localeCompare(right.name)
-    );
-    for (const entry of entries) {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(path);
-      } else if (entry.isFile()) {
-        hash.update(relative(root, path).replaceAll('\\', '/'));
-        hash.update('\0');
-        hash.update(await readFile(path));
-        hash.update('\0');
-        fileCount++;
-      }
+  let paths: string[];
+  try {
+    const serverRoot = resolve(root, 'server');
+    const serverEntries = await readdir(serverRoot, { withFileTypes: true });
+    const manifests = serverEntries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.startsWith('_tanstack-start-manifest_') &&
+          entry.name.endsWith('.mjs')
+      )
+      .map((entry) => resolve(serverRoot, entry.name))
+      .sort();
+    if (manifests.length === 0) throw missingBuildOutput();
+    paths = [
+      resolve(root, 'nitro.json'),
+      resolve(serverRoot, 'index.mjs'),
+      resolve(serverRoot, '_ssr/ssr.mjs'),
+      ...manifests,
+    ];
+    for (const path of paths) {
+      hash.update(relative(root, path).replaceAll('\\', '/'));
+      hash.update('\0');
+      hash.update(await readFile(path));
+      hash.update('\0');
     }
-  };
-  await visit(root);
-  if (!fileCount)
-    throw new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+  } catch (error) {
+    if (isMissingPathError(error)) throw missingBuildOutput();
+    throw error;
+  }
   return hash.digest('hex');
 };
 
