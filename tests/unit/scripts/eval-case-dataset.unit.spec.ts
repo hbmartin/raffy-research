@@ -16,6 +16,7 @@ import {
   type CaseManifest,
   contentHash,
   loadCase,
+  readExistingPhoenixBindings,
   writeCase,
 } from '../../../scripts/eval/case';
 import {
@@ -24,11 +25,15 @@ import {
 } from '../../../scripts/eval/phoenix-dataset';
 
 const example = {
+  id: 'case-acme-2026-06-15',
   input: { reportId: 'report-1', sources: [{ id: 's1' }] },
   output: { title: 'Reference report' },
 };
+const examples = [example];
 
-function makeCase(phoenix: CaseManifest['phoenix']) {
+function makeCase(
+  reportGeneration: NonNullable<CaseManifest['phoenix']['reportGeneration']>
+) {
   const dir = mkdtempSync(join(tmpdir(), 'eval-case-'));
   mkdirSync(dir, { recursive: true });
   writeCase(dir, {
@@ -41,7 +46,7 @@ function makeCase(phoenix: CaseManifest['phoenix']) {
       periodEnd: '2026-06-22T00:00:00.000Z',
       exportedAt: '2026-06-23T00:00:00.000Z',
       sourceCount: 1,
-      phoenix,
+      phoenix: { reportGeneration },
     },
     workspace: {
       workspace: { id: 'ws-1', timezone: 'America/Los_Angeles' },
@@ -57,6 +62,7 @@ function makeCase(phoenix: CaseManifest['phoenix']) {
       periodEnd: '2026-06-22T00:00:00.000Z',
     },
     priorReports: [],
+    summaries: [],
   });
   return loadCase(dir);
 }
@@ -78,7 +84,9 @@ describe('eval case Phoenix dataset binding', () => {
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -90,9 +98,11 @@ describe('eval case Phoenix dataset binding', () => {
     const manifest = JSON.parse(
       readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
     ) as CaseManifest;
-    expect(manifest.phoenix.datasetId).toBe('ds-1');
-    expect(manifest.phoenix.contentHash).toBe(contentHash(example));
-    expect(manifest.phoenix.versionId).toBe('v-1');
+    expect(manifest.phoenix.reportGeneration?.datasetId).toBe('ds-1');
+    expect(manifest.phoenix.reportGeneration?.contentHash).toBe(
+      contentHash(examples)
+    );
+    expect(manifest.phoenix.reportGeneration?.versionId).toBe('v-1');
   });
 
   it('reuses the pinned dataset without writing when content is unchanged', async () => {
@@ -100,14 +110,16 @@ describe('eval case Phoenix dataset binding', () => {
       datasetName: 'report-generation-acme',
       datasetId: 'ds-1',
       versionId: 'v-1',
-      contentHash: contentHash(example),
+      contentHash: contentHash(examples),
     });
     mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-1' });
 
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -126,7 +138,7 @@ describe('eval case Phoenix dataset binding', () => {
       datasetName: 'report-generation-acme',
       datasetId: 'ds-1',
       versionId: 'v-1',
-      contentHash: contentHash({ input: { reportId: 'stale' } }),
+      contentHash: contentHash([{ input: { reportId: 'stale' } }]),
     });
     mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-1' });
     mocks.appendDatasetExamples.mockResolvedValue({
@@ -137,7 +149,9 @@ describe('eval case Phoenix dataset binding', () => {
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -157,7 +171,7 @@ describe('eval case Phoenix dataset binding', () => {
     const manifest = JSON.parse(
       readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
     ) as CaseManifest;
-    expect(manifest.phoenix.versionId).toBe('v-2');
+    expect(manifest.phoenix.reportGeneration?.versionId).toBe('v-2');
   });
 
   it('recreates the dataset when the pinned id is gone from Phoenix', async () => {
@@ -165,7 +179,7 @@ describe('eval case Phoenix dataset binding', () => {
       datasetName: 'report-generation-acme',
       datasetId: 'ds-deleted',
       versionId: 'v-1',
-      contentHash: contentHash(example),
+      contentHash: contentHash(examples),
     });
     mocks.getDataset
       .mockRejectedValueOnce(new Error('404'))
@@ -175,7 +189,9 @@ describe('eval case Phoenix dataset binding', () => {
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -194,7 +210,9 @@ describe('eval case Phoenix dataset binding', () => {
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -210,14 +228,16 @@ describe('eval case Phoenix dataset binding', () => {
     const evalCase = makeCase({
       datasetName: 'report-generation-acme',
       datasetId: 'ds-1',
-      contentHash: contentHash(example),
+      contentHash: contentHash(examples),
     });
     mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-7' });
 
     const result = await ensureDataset({
       client: {},
       evalCase,
-      example,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
       description: 'd',
       log,
     });
@@ -226,7 +246,7 @@ describe('eval case Phoenix dataset binding', () => {
     const manifest = JSON.parse(
       readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
     ) as CaseManifest;
-    expect(manifest.phoenix.versionId).toBe('v-7');
+    expect(manifest.phoenix.reportGeneration?.versionId).toBe('v-7');
     expect(mocks.appendDatasetExamples).not.toHaveBeenCalled();
   });
 
@@ -234,12 +254,20 @@ describe('eval case Phoenix dataset binding', () => {
     const evalCase = makeCase({
       datasetName: 'report-generation-acme',
       datasetId: 'ds-1',
-      contentHash: contentHash(example),
+      contentHash: contentHash(examples),
     });
     mocks.getDataset.mockRejectedValue(new Error('503 upstream unavailable'));
 
     await expect(
-      ensureDataset({ client: {}, evalCase, example, description: 'd', log })
+      ensureDataset({
+        client: {},
+        evalCase,
+        purpose: 'reportGeneration',
+        datasetName: 'report-generation-acme',
+        examples,
+        description: 'd',
+        log,
+      })
     ).rejects.toThrow(/503/);
     expect(mocks.createDataset).not.toHaveBeenCalled();
   });
@@ -255,13 +283,53 @@ describe('eval case Phoenix dataset binding', () => {
     }
   });
 
+  it('migrates a v1 flat binding onto the report-generation purpose', () => {
+    const evalCase = makeCase({ datasetName: 'n' });
+    const manifestPath = join(evalCase.dir, 'case.json');
+    // v1 stored a single binding directly under `phoenix`.
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          ...evalCase.manifest,
+          formatVersion: 1,
+          phoenix: {
+            datasetName: 'report-generation-acme',
+            datasetId: 'ds-legacy',
+            versionId: 'v-legacy',
+            contentHash: 'sha256:abc',
+          },
+        },
+        null,
+        2
+      )
+    );
+
+    const migrated = loadCase(evalCase.dir);
+    expect(migrated.manifest.formatVersion).toBe(CASE_FORMAT_VERSION);
+    expect(migrated.manifest.phoenix.reportGeneration).toMatchObject({
+      datasetId: 'ds-legacy',
+      versionId: 'v-legacy',
+    });
+    // Re-exporting must not orphan an already-pushed dataset.
+    expect(
+      readExistingPhoenixBindings(evalCase.dir).reportGeneration
+    ).toMatchObject({ datasetId: 'ds-legacy' });
+  });
+
+  it('reports no bindings for a directory that holds no case', () => {
+    expect(
+      readExistingPhoenixBindings(mkdtempSync(join(tmpdir(), 'empty-')))
+    ).toEqual({});
+  });
+
   it('hashes content independently of key order', () => {
     expect(contentHash({ a: 1, b: { c: 2, d: 3 } })).toBe(
       contentHash({ b: { d: 3, c: 2 }, a: 1 })
     );
   });
 
-  it('rejects a case written in a different format version', () => {
+  it('rejects a case written by newer tooling', () => {
     const evalCase = makeCase({ datasetName: 'n' });
     const manifestPath = join(evalCase.dir, 'case.json');
     const manifest = JSON.parse(

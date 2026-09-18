@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-export const CASE_FORMAT_VERSION = 1;
+export const CASE_FORMAT_VERSION = 2;
 
 export const CASE_FILES = {
   manifest: 'case.json',
@@ -20,6 +20,7 @@ export const CASE_FILES = {
   sources: 'sources.json',
   report: 'report.json',
   priorReports: 'prior-reports.json',
+  summaries: 'summaries.json',
 } as const;
 
 export type CaseSource = {
@@ -52,6 +53,23 @@ export type CaseReport = {
   modelMetadata?: Record<string, unknown> | null;
 };
 
+export type CaseSummary = {
+  id: string;
+  sourceRecordId: string;
+  summaryText: string | null;
+  evidenceCandidateText: string | null;
+  modelName: string | null;
+  modelProvider: string | null;
+  promptVersion: string | null;
+  createdAt: string;
+};
+
+/**
+ * A case owns one Phoenix dataset per purpose — report generation and summary
+ * quality are scored on different examples and must not share a dataset.
+ */
+export type CasePhoenixPurpose = 'reportGeneration' | 'summary';
+
 /** Phoenix identity, recorded on first push and reused by every later run. */
 export type CasePhoenixBinding = {
   datasetName: string;
@@ -71,7 +89,10 @@ export type CaseManifest = {
   periodEnd: string;
   exportedAt: string;
   sourceCount: number;
-  phoenix: CasePhoenixBinding;
+  summaryCount?: number;
+  /** Models whose summaries were exported into this case. */
+  summaryModels?: string[];
+  phoenix: Partial<Record<CasePhoenixPurpose, CasePhoenixBinding>>;
 };
 
 export type EvalCase = {
@@ -81,6 +102,7 @@ export type EvalCase = {
   sources: CaseSource[];
   report: CaseReport;
   priorReports: Record<string, unknown>[];
+  summaries: CaseSummary[];
 };
 
 function readJson<T>(dir: string, file: string): T {
@@ -93,14 +115,67 @@ function readJson<T>(dir: string, file: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
-export function loadCase(caseDir: string): EvalCase {
-  const dir = resolve(process.cwd(), caseDir);
-  const manifest = readJson<CaseManifest>(dir, CASE_FILES.manifest);
-  if (manifest.formatVersion !== CASE_FORMAT_VERSION) {
+function readOptionalJson<T>(dir: string, file: string, fallback: T): T {
+  const path = join(dir, file);
+  if (!existsSync(path)) return fallback;
+  return JSON.parse(readFileSync(path, 'utf8')) as T;
+}
+
+/**
+ * v1 carried a single flat Phoenix binding, before a case could own more than
+ * one dataset. Migrating in memory keeps already-pushed dataset ids working;
+ * the next push rewrites the file in the current shape.
+ */
+function migrateManifest(
+  manifest: CaseManifest & {
+    phoenix?:
+      | CasePhoenixBinding
+      | Partial<Record<CasePhoenixPurpose, CasePhoenixBinding>>;
+  }
+): CaseManifest {
+  if (manifest.formatVersion > CASE_FORMAT_VERSION) {
     throw new Error(
-      `Eval case ${dir} has formatVersion ${manifest.formatVersion}, expected ${CASE_FORMAT_VERSION}`
+      `Eval case has formatVersion ${manifest.formatVersion}, which is newer than this tooling supports (${CASE_FORMAT_VERSION})`
     );
   }
+  const phoenix = manifest.phoenix as Record<string, unknown> | undefined;
+  const isFlatV1 = Boolean(phoenix && 'datasetName' in phoenix);
+  return {
+    ...manifest,
+    formatVersion: CASE_FORMAT_VERSION,
+    phoenix: isFlatV1
+      ? { reportGeneration: phoenix as unknown as CasePhoenixBinding }
+      : ((phoenix ?? {}) as Partial<
+          Record<CasePhoenixPurpose, CasePhoenixBinding>
+        >),
+  };
+}
+
+/**
+ * Phoenix bindings already recorded for a case, if any.
+ *
+ * Re-exporting a case refreshes its content but must not orphan the datasets
+ * it has already been pushed to — the whole point of pinning ids in git.
+ */
+export function readExistingPhoenixBindings(
+  caseDir: string
+): Partial<Record<CasePhoenixPurpose, CasePhoenixBinding>> {
+  const dir = resolve(process.cwd(), caseDir);
+  const path = join(dir, CASE_FILES.manifest);
+  if (!existsSync(path)) return {};
+  try {
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as CaseManifest;
+    return migrateManifest(manifest).phoenix;
+  } catch {
+    return {};
+  }
+}
+
+export function loadCase(caseDir: string): EvalCase {
+  const dir = resolve(process.cwd(), caseDir);
+  const manifest = migrateManifest(
+    readJson<CaseManifest>(dir, CASE_FILES.manifest)
+  );
   return {
     dir,
     manifest,
@@ -111,6 +186,7 @@ export function loadCase(caseDir: string): EvalCase {
       dir,
       CASE_FILES.priorReports
     ),
+    summaries: readOptionalJson<CaseSummary[]>(dir, CASE_FILES.summaries, []),
   };
 }
 
@@ -131,16 +207,21 @@ export function writeCase(
   write(CASE_FILES.sources, input.sources);
   write(CASE_FILES.report, input.report);
   write(CASE_FILES.priorReports, input.priorReports);
+  write(CASE_FILES.summaries, input.summaries);
   write(CASE_FILES.manifest, input.manifest);
   return dir;
 }
 
-/** Persist only the Phoenix binding, leaving the case content untouched. */
+/** Persist one purpose's Phoenix binding, leaving case content untouched. */
 export function writePhoenixBinding(
   evalCase: EvalCase,
-  phoenix: CasePhoenixBinding
+  purpose: CasePhoenixPurpose,
+  binding: CasePhoenixBinding
 ): void {
-  const manifest: CaseManifest = { ...evalCase.manifest, phoenix };
+  const manifest: CaseManifest = {
+    ...evalCase.manifest,
+    phoenix: { ...evalCase.manifest.phoenix, [purpose]: binding },
+  };
   writeFileSync(
     join(evalCase.dir, CASE_FILES.manifest),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -160,6 +241,11 @@ export function usableSources(evalCase: EvalCase): CaseSource[] {
  */
 export function exampleId(evalCase: EvalCase): string {
   return `case-${evalCase.manifest.name}`;
+}
+
+/** Stable per-source example id for the summary dataset. */
+export function summaryExampleId(sourceRecordId: string): string {
+  return `source-${sourceRecordId}`;
 }
 
 /** Key/value ordering must be stable, or the hash changes for identical content. */

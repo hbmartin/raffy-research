@@ -12,7 +12,9 @@ import {
   type CaseManifest,
   type CaseReport,
   type CaseSource,
+  type CaseSummary,
   type CaseWorkspace,
+  readExistingPhoenixBindings,
   writeCase,
 } from './case';
 
@@ -23,6 +25,8 @@ export async function exportCase(input: {
   workspaceId: WorkspaceId;
   reportId?: string;
   name?: string;
+  /** Restrict exported summaries to these models; omitted exports the latest. */
+  summaryModels?: string[];
   outDir: string;
   log: (message: string, data?: Record<string, unknown>) => void;
 }): Promise<string> {
@@ -94,6 +98,43 @@ export async function exportCase(input: {
   if (social.isError()) throw social.getError();
   if (priorReports.isError()) throw priorReports.getError();
 
+  // Summaries are pinned like everything else, so summary-quality experiments
+  // are reproducible from git rather than from a database that keeps moving.
+  const summaryModels = input.summaryModels ?? [];
+  const sourceIds = sources.get().map((source) => source.id);
+  const summaryResults = await Promise.all(
+    summaryModels.length > 0
+      ? summaryModels.map((modelName) =>
+          repositories.sourceRepository.listLatestSummariesForSources({
+            workspaceId: input.workspaceId,
+            sourceRecordIds: sourceIds,
+            modelName,
+          })
+        )
+      : [
+          repositories.sourceRepository.listLatestSummariesForSources({
+            workspaceId: input.workspaceId,
+            sourceRecordIds: sourceIds,
+          }),
+        ]
+  );
+  const caseSummaries: CaseSummary[] = [];
+  for (const result of summaryResults) {
+    if (result.isError()) throw result.getError();
+    for (const summary of result.get()) {
+      caseSummaries.push({
+        id: summary.id,
+        sourceRecordId: summary.sourceRecordId,
+        summaryText: summary.summaryText,
+        evidenceCandidateText: summary.evidenceCandidateText,
+        modelName: summary.modelName,
+        modelProvider: summary.modelProvider,
+        promptVersion: summary.promptVersion,
+        createdAt: summary.createdAt.toISOString(),
+      });
+    }
+  }
+
   const caseWorkspace: CaseWorkspace = {
     workspace: toPlain(workspace),
     keywords: keywords.get().map(toPlain),
@@ -142,8 +183,11 @@ export async function exportCase(input: {
     periodEnd: caseReport.periodEnd,
     exportedAt: new Date().toISOString(),
     sourceCount: caseSources.length,
-    // Left unbound until the first push; ensureDataset fills in the ids.
-    phoenix: { datasetName: `report-generation-${name}` },
+    summaryCount: caseSummaries.length,
+    summaryModels: summaryModels.length > 0 ? summaryModels : undefined,
+    // Carried over from a previous export so a refreshed case keeps the
+    // datasets it has already been pushed to.
+    phoenix: readExistingPhoenixBindings(input.outDir),
   };
 
   const dir = writeCase(input.outDir, {
@@ -152,6 +196,7 @@ export async function exportCase(input: {
     sources: caseSources,
     report: caseReport,
     priorReports: priorReports.get().map(toPlain),
+    summaries: caseSummaries,
   });
 
   input.log('Exported eval case', {
@@ -159,6 +204,8 @@ export async function exportCase(input: {
     name,
     reportId: report.id,
     sources: caseSources.length,
+    summaries: caseSummaries.length,
+    summaryModels,
   });
   return dir;
 }

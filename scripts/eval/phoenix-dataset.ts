@@ -2,20 +2,23 @@
  * Resolves the Phoenix dataset an eval case belongs to.
  *
  * A Phoenix dataset is a stable container; only its examples are versioned. So
- * one case maps to exactly one dataset for its whole life, and editing the case
- * appends a new *version* of the same example rather than creating a second
- * dataset. The dataset id lives in the case's `case.json` (committed to git),
+ * each of a case's purposes (report generation, summary quality) maps to
+ * exactly one dataset for its whole life, and editing the case appends a new
+ * *version* of those examples rather than creating a second dataset. The
+ * dataset ids live in the case's `case.json` (committed to git),
  * which is what makes runs weeks apart — or on a teammate's machine — line up
  * in the Phoenix UI.
  */
 import {
+  type CasePhoenixPurpose,
   contentHash,
   type EvalCase,
-  exampleId,
   writePhoenixBinding,
 } from './case';
 
 export type DatasetExample = {
+  /** Stable id, so re-pushing updates the example instead of duplicating it. */
+  id: string;
   input: Record<string, unknown>;
   output?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
@@ -49,7 +52,7 @@ type DatasetApi = {
   appendDatasetExamples: (args: {
     client: PhoenixClient;
     dataset: { datasetId: string };
-    examples: (DatasetExample & { id?: string })[];
+    examples: DatasetExample[];
   }) => Promise<{ datasetId: string; versionId: string }>;
   getDataset: (args: {
     client: PhoenixClient;
@@ -108,14 +111,19 @@ async function findRemote(
 export async function ensureDataset(input: {
   client: PhoenixClient;
   evalCase: EvalCase;
-  example: DatasetExample;
+  /** Which of the case's datasets to resolve. */
+  purpose: CasePhoenixPurpose;
+  datasetName: string;
+  examples: DatasetExample[];
   description: string;
   log: (message: string, data?: Record<string, unknown>) => void;
 }): Promise<ResolvedDataset> {
-  const { client, evalCase, example, log } = input;
+  const { client, evalCase, purpose, examples, log } = input;
   const api = await loadDatasetApi();
-  const binding = evalCase.manifest.phoenix;
-  const hash = contentHash(example);
+  const binding = evalCase.manifest.phoenix[purpose] ?? {
+    datasetName: input.datasetName,
+  };
+  const hash = contentHash(examples);
 
   const remote = await findRemote(api, client, binding);
 
@@ -127,14 +135,17 @@ export async function ensureDataset(input: {
     if (!binding.versionId && versionId) {
       // Backfill a case bound before versions were recorded, so the pin lives
       // in git from now on rather than being re-resolved every run.
-      writePhoenixBinding(evalCase, { ...binding, versionId });
+      writePhoenixBinding(evalCase, purpose, { ...binding, versionId });
       log('Backfilled the missing dataset version into the case', {
+        purpose,
         versionId,
       });
     }
     log('Reusing pinned Phoenix dataset', {
+      purpose,
       datasetId: remote.id,
       versionId,
+      examples: examples.length,
     });
     return {
       datasetId: remote.id,
@@ -146,18 +157,23 @@ export async function ensureDataset(input: {
 
   if (remote) {
     // Same dataset, changed (or first-seen) content: push a new version under
-    // the case's stable example id so history stays on one dataset.
+    // each example's stable id so history stays on one dataset.
     const appended = await api.appendDatasetExamples({
       client,
       dataset: { datasetId: remote.id },
-      examples: [{ ...example, id: exampleId(evalCase) }],
+      examples,
     });
     const action = binding.datasetId ? 'revised' : 'adopted';
     log(
       action === 'revised'
         ? 'Case content changed, pushed new dataset version'
         : 'Adopted existing Phoenix dataset by name',
-      { datasetId: appended.datasetId, versionId: appended.versionId }
+      {
+        purpose,
+        datasetId: appended.datasetId,
+        versionId: appended.versionId,
+        examples: examples.length,
+      }
     );
     const resolved: ResolvedDataset = {
       datasetId: appended.datasetId,
@@ -165,7 +181,7 @@ export async function ensureDataset(input: {
       action,
       contentHash: hash,
     };
-    writePhoenixBinding(evalCase, {
+    writePhoenixBinding(evalCase, purpose, {
       datasetName: binding.datasetName,
       datasetId: resolved.datasetId,
       versionId: resolved.versionId,
@@ -177,6 +193,7 @@ export async function ensureDataset(input: {
 
   if (binding.datasetId) {
     log('Pinned dataset no longer exists in Phoenix, creating a new one', {
+      purpose,
       missingDatasetId: binding.datasetId,
     });
   }
@@ -185,7 +202,7 @@ export async function ensureDataset(input: {
     client,
     name: binding.datasetName,
     description: input.description,
-    examples: [example],
+    examples,
   });
 
   // createDataset reports only the id, so read the version back — without it
@@ -197,12 +214,18 @@ export async function ensureDataset(input: {
   const versionId = createdVersion?.versionId;
   if (!versionId) {
     log('Created dataset reported no version; experiments will run unpinned', {
+      purpose,
       datasetId: created.datasetId,
     });
   }
 
-  log('Created Phoenix dataset', { datasetId: created.datasetId, versionId });
-  writePhoenixBinding(evalCase, {
+  log('Created Phoenix dataset', {
+    purpose,
+    datasetId: created.datasetId,
+    versionId,
+    examples: examples.length,
+  });
+  writePhoenixBinding(evalCase, purpose, {
     datasetName: binding.datasetName,
     datasetId: created.datasetId,
     versionId,

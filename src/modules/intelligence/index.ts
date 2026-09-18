@@ -10,6 +10,12 @@ export {
   UNTRUSTED_SOURCE_GUIDANCE,
 } from './application/generation/build-report-prompt';
 export {
+  buildSourceSummaryPrompt,
+  renderSourceForSummary,
+  SOURCE_SUMMARY_CONTENT_LIMIT,
+  SOURCE_SUMMARY_PROMPT_VERSION,
+} from './application/generation/build-source-summary-prompt';
+export {
   generateWeeklyReport,
   type GenerateWeeklyReportInput,
   type GenerateWeeklyReportOutcome,

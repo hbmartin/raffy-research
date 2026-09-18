@@ -1,17 +1,28 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
   "name": "aperture-2026-06-15",
   "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
   "reportId": "sywwll5eir4uzcrmguy7jjti",
   "periodStart": "2026-06-15T07:00:00.000Z",
   "periodEnd": "2026-06-22T06:59:59.999Z",
-  "exportedAt": "2026-09-16T22:14:21.605Z",
+  "exportedAt": "2026-09-18T21:42:09.070Z",
   "sourceCount": 101,
+  "summaryCount": 82,
+  "summaryModels": ["qwen3:14b"],
   "phoenix": {
-    "datasetName": "report-generation-aperture-2026-06-15",
-    "datasetId": "RGF0YXNldDo0",
-    "contentHash": "sha256:cfb41ec0a2a4d4c669f2008effb27278",
-    "pushedAt": "2026-09-18T04:50:34.706Z",
-    "versionId": "RGF0YXNldFZlcnNpb246Nzk="
+    "reportGeneration": {
+      "datasetName": "report-generation-aperture-2026-06-15",
+      "datasetId": "RGF0YXNldDo0",
+      "contentHash": "sha256:cfb41ec0a2a4d4c669f2008effb27278",
+      "pushedAt": "2026-09-18T04:50:34.706Z",
+      "versionId": "RGF0YXNldFZlcnNpb246Nzk="
+    },
+    "summary": {
+      "datasetName": "summary-quality-aperture-2026-06-15",
+      "datasetId": "RGF0YXNldDo1",
+      "versionId": "RGF0YXNldFZlcnNpb246ODE=",
+      "contentHash": "sha256:393eb6ae268072952f11385ded7bc36e",
+      "pushedAt": "2026-09-18T22:19:31.562Z"
+    }
   }
 }
