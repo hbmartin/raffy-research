@@ -14,6 +14,8 @@ import {
   type CaseSource,
   type CaseSummary,
   type CaseWorkspace,
+  DEFAULT_SAMPLE_SIZE,
+  pickSampleSourceIds,
   readExistingPhoenixBindings,
   writeCase,
 } from './case';
@@ -27,6 +29,10 @@ export async function exportCase(input: {
   name?: string;
   /** Restrict exported summaries to these models; omitted exports the latest. */
   summaryModels?: string[];
+  /** Size of the fixed sample split; ignored when sampleSourceIds is given. */
+  sampleSize?: number;
+  /** Pin exactly these sources as the sample instead of choosing them. */
+  sampleSourceIds?: string[];
   outDir: string;
   log: (message: string, data?: Record<string, unknown>) => void;
 }): Promise<string> {
@@ -184,6 +190,15 @@ export async function exportCase(input: {
     exportedAt: new Date().toISOString(),
     sourceCount: caseSources.length,
     summaryCount: caseSummaries.length,
+    sampleSourceIds:
+      input.sampleSourceIds && input.sampleSourceIds.length > 0
+        ? input.sampleSourceIds
+        : pickSampleSourceIds(
+            caseSources
+              .filter((source) => source.relevanceLabel !== 'junk')
+              .map((source) => source.id),
+            input.sampleSize ?? DEFAULT_SAMPLE_SIZE
+          ),
     summaryModels: summaryModels.length > 0 ? summaryModels : undefined,
     // Carried over from a previous export so a refreshed case keeps the
     // datasets it has already been pushed to.
@@ -206,6 +221,7 @@ export async function exportCase(input: {
     sources: caseSources.length,
     summaries: caseSummaries.length,
     summaryModels,
+    sampleSize: manifest.sampleSourceIds?.length ?? 0,
   });
   return dir;
 }

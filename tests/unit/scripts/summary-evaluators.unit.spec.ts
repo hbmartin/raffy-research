@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_SAMPLE_SIZE,
+  pickSampleSourceIds,
+} from '../../../scripts/eval/case';
+import {
   SUMMARY_EVALUATORS,
   SUMMARY_LENGTH_BUDGET,
   type SummaryExampleInput,
@@ -214,5 +218,32 @@ describe('summary evaluators', () => {
       evidenceCandidateText: 'e',
     });
     expect(result.score).toBeCloseTo(0.5, 1);
+  });
+});
+
+describe('sample split selection', () => {
+  it('picks a deterministic subset regardless of input order', () => {
+    const ids = ['c', 'a', 'e', 'b', 'd'];
+    expect(pickSampleSourceIds(ids, 3)).toEqual(['a', 'b', 'c']);
+    expect(pickSampleSourceIds([...ids].reverse(), 3)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('returns every id when the sample is larger than the set', () => {
+    expect(pickSampleSourceIds(['b', 'a'], 10)).toEqual(['a', 'b']);
+  });
+
+  it('returns nothing for a non-positive size', () => {
+    expect(pickSampleSourceIds(['a', 'b'], 0)).toEqual([]);
+    expect(pickSampleSourceIds(['a', 'b'], -5)).toEqual([]);
+  });
+
+  it('defaults to ten sources', () => {
+    expect(DEFAULT_SAMPLE_SIZE).toBe(10);
+    expect(
+      pickSampleSourceIds(
+        Array.from({ length: 50 }, (_, i) => `s${String(i).padStart(2, '0')}`),
+        DEFAULT_SAMPLE_SIZE
+      )
+    ).toHaveLength(10);
   });
 });

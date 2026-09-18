@@ -92,6 +92,13 @@ export type CaseManifest = {
   summaryCount?: number;
   /** Models whose summaries were exported into this case. */
   summaryModels?: string[];
+  /**
+   * A fixed subset of sources, published to Phoenix as the `sample` split.
+   *
+   * Membership lives in git so the sample is the same on every run and every
+   * machine: a ten-source experiment today is comparable with one next month.
+   */
+  sampleSourceIds?: string[];
   phoenix: Partial<Record<CasePhoenixPurpose, CasePhoenixBinding>>;
 };
 
@@ -241,6 +248,22 @@ export function usableSources(evalCase: EvalCase): CaseSource[] {
  */
 export function exampleId(evalCase: EvalCase): string {
   return `case-${evalCase.manifest.name}`;
+}
+
+/** The Phoenix split holding a case's fixed sample of sources. */
+export const SAMPLE_SPLIT = 'sample';
+
+export const DEFAULT_SAMPLE_SIZE = 10;
+
+/**
+ * A deterministic subset of source ids: sorted, then the first n. Stable
+ * across exports as long as the case's sources do not change.
+ */
+export function pickSampleSourceIds(
+  sourceIds: string[],
+  size: number
+): string[] {
+  return [...sourceIds].sort().slice(0, Math.max(0, size));
 }
 
 /** Stable per-source example id for the summary dataset. */

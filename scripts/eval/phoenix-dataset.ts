@@ -22,6 +22,8 @@ export type DatasetExample = {
   input: Record<string, unknown>;
   output?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
+  /** Split labels, so an experiment can run a fixed subset of the dataset. */
+  splits?: string[];
 };
 
 export type ResolvedDataset = {

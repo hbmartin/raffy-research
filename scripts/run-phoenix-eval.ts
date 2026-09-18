@@ -53,6 +53,7 @@ import {
   type EvalCase,
   exampleId,
   loadCase,
+  SAMPLE_SPLIT,
   summaryExampleId,
   usableSources as caseUsableSources,
 } from './eval/case';
@@ -86,6 +87,9 @@ type CliArgs = {
   stored?: boolean;
   limit?: number;
   concurrency?: number;
+  split?: string;
+  sampleSize?: number;
+  sampleSourceIds?: string[];
 };
 
 function parseArgs(argv: string[]): CliArgs {
@@ -141,6 +145,9 @@ function parseArgs(argv: string[]): CliArgs {
   let stored = false;
   let limit: number | undefined;
   let concurrency: number | undefined;
+  let split: string | undefined;
+  let sampleSize: number | undefined;
+  let sampleSourceIds: string[] | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -174,6 +181,24 @@ function parseArgs(argv: string[]): CliArgs {
       outDir = args[++i];
     } else if (arg?.startsWith('--out=')) {
       outDir = arg.slice('--out='.length);
+    } else if (arg === '--sample') {
+      split = SAMPLE_SPLIT;
+    } else if (arg === '--split') {
+      split = args[++i];
+    } else if (arg?.startsWith('--split=')) {
+      split = arg.slice('--split='.length);
+    } else if (arg === '--sample-size') {
+      sampleSize = Number(args[++i]);
+    } else if (arg?.startsWith('--sample-size=')) {
+      sampleSize = Number(arg.slice('--sample-size='.length));
+    } else if (arg === '--sample-source') {
+      const value = args[++i];
+      if (value) sampleSourceIds = [...(sampleSourceIds ?? []), value];
+    } else if (arg?.startsWith('--sample-source=')) {
+      sampleSourceIds = [
+        ...(sampleSourceIds ?? []),
+        arg.slice('--sample-source='.length),
+      ];
     } else if (arg === '--stored') {
       stored = true;
     } else if (arg === '--limit') {
@@ -218,6 +243,9 @@ function parseArgs(argv: string[]): CliArgs {
     stored,
     limit,
     concurrency,
+    split,
+    sampleSize,
+    sampleSourceIds,
   };
 }
 
@@ -334,10 +362,12 @@ async function runSummarizeCase(args: CliArgs) {
   }
 
   // Sources only — see the note above on why summaries stay out of the dataset.
+  const sampleIds = new Set(evalCase.manifest.sampleSourceIds ?? []);
   const examples = sources.map((source) => {
     const fullText = source.contentText ?? '';
     return {
       id: summaryExampleId(source.id),
+      ...(sampleIds.has(source.id) ? { splits: [SAMPLE_SPLIT] } : {}),
       input: {
         sourceRecordId: source.id,
         title: source.title,
@@ -354,6 +384,7 @@ async function runSummarizeCase(args: CliArgs) {
     case: evalCase.manifest.name,
     mode,
     sources: examples.length,
+    ...(args.split ? { split: args.split, sampleSize: sampleIds.size } : {}),
     ...(args.stored
       ? { storedSummaries: storedBySourceId.size }
       : { provider, model, concurrency: args.concurrency ?? 4 }),
@@ -422,12 +453,22 @@ async function runSummarizeCase(args: CliArgs) {
     };
   };
 
+  const splits = args.split ? [args.split] : undefined;
+  if (splits && sampleIds.size === 0) {
+    log('This case defines no sample split; re-export to create one', {
+      case: evalCase.manifest.name,
+    });
+    return;
+  }
+
   const experiment = await runExperiment({
     client,
-    dataset: resolved.versionId
-      ? { datasetId: resolved.datasetId, versionId: resolved.versionId }
-      : { datasetId: resolved.datasetId },
-    experimentName: `summary-${mode}-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    dataset: {
+      datasetId: resolved.datasetId,
+      ...(resolved.versionId ? { versionId: resolved.versionId } : {}),
+      ...(splits ? { splits } : {}),
+    },
+    experimentName: `summary-${mode}-${splits ? `${args.split}-` : ''}${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
     experimentDescription: args.stored
       ? `Stored summary quality on case ${evalCase.manifest.name}`
       : `Summary quality for ${provider}/${model} on case ${evalCase.manifest.name}`,
@@ -438,6 +479,7 @@ async function runSummarizeCase(args: CliArgs) {
       model,
       promptVersion: SOURCE_SUMMARY_PROMPT_VERSION,
       datasetVersionId: resolved.versionId,
+      ...(splits ? { split: args.split } : {}),
     },
     task: async (example) => {
       const sourceRecordId = String(
@@ -1230,6 +1272,8 @@ async function main() {
       reportId: args.reportId,
       name: args.caseName,
       summaryModels: args.summaryModels,
+      sampleSize: args.sampleSize,
+      sampleSourceIds: args.sampleSourceIds,
       outDir,
       log,
     });
