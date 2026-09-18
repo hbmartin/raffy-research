@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "name": "aperture-2026-06-15",
+  "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+  "reportId": "sywwll5eir4uzcrmguy7jjti",
+  "periodStart": "2026-06-15T07:00:00.000Z",
+  "periodEnd": "2026-06-22T06:59:59.999Z",
+  "exportedAt": "2026-09-16T22:14:21.605Z",
+  "sourceCount": 101,
+  "phoenix": {
+    "datasetName": "report-generation-aperture-2026-06-15"
+  }
+}

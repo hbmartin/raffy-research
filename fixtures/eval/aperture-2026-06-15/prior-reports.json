@@ -1,0 +1,58 @@
+[
+  {
+    "id": "qzlkehvfh9vuxp0tt3jgenge",
+    "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+    "periodStart": "2026-09-14T07:00:00.000Z",
+    "periodEnd": "2026-09-21T06:59:59.999Z",
+    "timezone": "America/Los_Angeles",
+    "status": "published",
+    "generatedAt": "2026-09-22T00:00:00.000Z",
+    "publishedAt": "2026-09-22T00:00:00.000Z",
+    "title": "Weekly Market Digest: September 14–20, 2026",
+    "failureReason": null,
+    "createdAt": "2026-09-16T21:05:32.251Z",
+    "updatedAt": "2026-09-16T21:05:32.278Z"
+  },
+  {
+    "id": "nhfnlqtxg4eauql34i9gvvtd",
+    "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+    "periodStart": "2026-06-15T07:00:00.000Z",
+    "periodEnd": "2026-06-22T06:59:59.999Z",
+    "timezone": "America/Los_Angeles",
+    "status": "failed",
+    "generatedAt": "2026-06-18T06:14:06.830Z",
+    "publishedAt": null,
+    "title": null,
+    "failureReason": "schema validation failed: response was not valid JSON",
+    "createdAt": "2026-06-18T05:23:44.820Z",
+    "updatedAt": "2026-06-18T06:14:06.864Z"
+  },
+  {
+    "id": "sywwll5eir4uzcrmguy7jjti",
+    "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+    "periodStart": "2026-06-15T07:00:00.000Z",
+    "periodEnd": "2026-06-22T06:59:59.999Z",
+    "timezone": "America/Los_Angeles",
+    "status": "published",
+    "generatedAt": "2026-06-24T00:00:00.000Z",
+    "publishedAt": "2026-06-24T00:00:00.000Z",
+    "title": "AI and Digital Solutions in Healthcare and Dentistry",
+    "failureReason": null,
+    "createdAt": "2026-06-18T06:42:56.428Z",
+    "updatedAt": "2026-06-18T06:42:56.438Z"
+  },
+  {
+    "id": "s7xb418p1dq1ewzxxl2zob6k",
+    "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+    "periodStart": "2026-06-08T07:00:00.000Z",
+    "periodEnd": "2026-06-15T06:59:59.999Z",
+    "timezone": "America/Los_Angeles",
+    "status": "failed",
+    "generatedAt": "2026-06-18T05:03:22.293Z",
+    "publishedAt": null,
+    "title": null,
+    "failureReason": "schema validation failed: response was not valid JSON",
+    "createdAt": "2026-06-17T18:14:50.525Z",
+    "updatedAt": "2026-06-18T05:03:22.300Z"
+  }
+]

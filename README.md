@@ -336,6 +336,45 @@ The judge sees analyst labels (`analyst_label: keep/junk`) on each rendered sour
 
 The intended iteration cadence: change one thing (prompt, provider config, source selection) → regenerate in the lab → run `evaluate_report` → compare verdicts (raw outputs in `.local-ai-runs/` diff cleanly) → ship the change → confirm with the analyst's rubric score on the next real weekly report.
 
+### Eval cases (Arize Phoenix experiments)
+
+Experiments read **eval cases** — git-stored snapshots under `fixtures/eval/<name>/` — not the live database. A case pins everything the report prompt consumes, so an experiment run today is comparable with one run months ago even as the database moves on:
+
+```text
+fixtures/eval/<name>/
+  case.json           # identity, pinned report id, period, Phoenix binding
+  workspace.json      # workspace + keywords + competitors + social accounts
+  sources.json        # the period's source records
+  report.json         # the reference report (the expected output)
+  prior-reports.json  # the prior reports that were in the prompt's context
+```
+
+Mint one from the database, pinning a specific report:
+
+```bash
+pnpm eval:phoenix export --workspace <id> --report <id> --name acme-2026-06-15 \
+  --out fixtures/eval/acme-2026-06-15
+```
+
+Then run experiments against it. With `--case`, no database is touched at all:
+
+```bash
+pnpm eval:phoenix compare --workspace <id> --case fixtures/eval/acme-2026-06-15
+```
+
+**One case, one Phoenix dataset, for life.** `case.json` records the `datasetId` the case was first pushed under, plus a content hash of the pushed example. On each run:
+
+| Case state | What happens |
+|---|---|
+| Hash matches the remote dataset | Reused as-is, nothing written |
+| Case content changed | A new dataset *version* is appended under the case's stable example id — same dataset |
+| Dataset missing from Phoenix | A new one is created and re-pinned |
+| Dataset exists under the case name but is unpinned | Adopted, and its id recorded |
+
+Because the id lives in git, a teammate's run and a run three months from now land on the same Phoenix dataset. Experiments pin the exact `versionId` they used, so a chart of runs compares like with like.
+
+Two guardrails: `export` is the only command that reads live data on purpose, and `--case` is refused for `generate`/`full`, because those publish a report and would move the very baseline the case exists to pin.
+
 ---
 
 ## Split-Brain Mode

@@ -2,15 +2,20 @@
 /**
  * Standalone Phoenix eval pipeline.
  *
+ * Evals read git-stored eval cases (see scripts/eval/case.ts) rather than live
+ * data, so an experiment run today is comparable with one run months ago. A
+ * case pins its own Phoenix dataset id, which is what keeps that history on a
+ * single dataset in the Phoenix UI.
+ *
  * Usage:
- *   node ./run-jiti.js ./scripts/run-phoenix-eval.ts summarize --workspace <id> [--period <date>]
- *   node ./run-jiti.js ./scripts/run-phoenix-eval.ts generate  --workspace <id> [--period <date>]
- *   node ./run-jiti.js ./scripts/run-phoenix-eval.ts evaluate  --workspace <id>
- *   node ./run-jiti.js ./scripts/run-phoenix-eval.ts full      --workspace <id> [--period <date>]
+ *   pnpm eval:phoenix export   --workspace <id> [--report <id>] [--out <dir>]
+ *   pnpm eval:phoenix compare  --workspace <id> --case <dir>
+ *   pnpm eval:phoenix evaluate --workspace <id> --case <dir>
+ *   pnpm eval:phoenix summarize --workspace <id> [--period <date>]
+ *   pnpm eval:phoenix generate --workspace <id> [--period <date>]
+ *   pnpm eval:phoenix full     --workspace <id> [--period <date>]
  */
-import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
 
 import { getIntelligenceRepositories } from '@/composition/intelligence';
 import { getKernel } from '@/composition/kernel';
@@ -18,11 +23,11 @@ import {
   buildEvalPrompt,
   buildReportPrompt,
   computeWeeklyPeriod,
+  type EvalExperimentPort,
   formatPeriodDate,
   generateWeeklyReport,
-  parseGeneratedReportJson,
-  type EvalExperimentPort,
   type LocalAiProviderName,
+  parseGeneratedReportJson,
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
@@ -40,7 +45,22 @@ import {
 } from '@/modules/kernel';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-type Command = 'summarize' | 'generate' | 'evaluate' | 'compare' | 'full';
+import {
+  type CaseSource,
+  type EvalCase,
+  loadCase,
+  usableSources as caseUsableSources,
+} from './eval/case';
+import { exportCase } from './eval/export-case';
+import { ensureDataset } from './eval/phoenix-dataset';
+
+type Command =
+  | 'summarize'
+  | 'generate'
+  | 'evaluate'
+  | 'compare'
+  | 'full'
+  | 'export';
 
 type CliArgs = {
   command: Command;
@@ -48,7 +68,10 @@ type CliArgs = {
   periodDate: Date;
   provider?: string;
   model?: string;
-  fixtureDir?: string;
+  caseDir?: string;
+  reportId?: string;
+  outDir?: string;
+  caseName?: string;
 };
 
 function parseArgs(argv: string[]): CliArgs {
@@ -56,10 +79,37 @@ function parseArgs(argv: string[]): CliArgs {
   const args = allArgs.filter((a) => !a.endsWith('.ts'));
   const command = args[0] as Command;
   if (
-    !['summarize', 'generate', 'evaluate', 'compare', 'full'].includes(command)
+    ![
+      'summarize',
+      'generate',
+      'evaluate',
+      'compare',
+      'full',
+      'export',
+    ].includes(command)
   ) {
     console.error(
-      'Usage: run-phoenix-eval.ts <summarize|generate|evaluate|compare|full> --workspace <id> [--period <date>]'
+      [
+        'Usage: run-phoenix-eval.ts <command> --workspace <id> [options]',
+        '',
+        'Commands:',
+        '  export     Write a git-storable eval case from the database',
+        '  compare    Regenerate a report and score it against the case reference',
+        '  evaluate   Run the adversarial evaluator over a report',
+        '  summarize  Summarize period sources',
+        '  generate   Generate a report (writes to the database)',
+        '  full       summarize + generate + evaluate',
+        '',
+        'Options:',
+        '  --workspace <id>   Workspace to operate on (required)',
+        '  --case <dir>       Read inputs from an eval case; no database access',
+        '  --report <id>      Pin a specific report instead of the latest published',
+        '  --out <dir>        Destination for export (default fixtures/eval/<name>)',
+        '  --name <name>      Case name for export (default <company>-<period start>)',
+        '  --period <date>    Period date for summarize/generate',
+        '  --provider <p>     Override LOCAL_AI_PROVIDER',
+        '  --model <m>        Override LOCAL_AI_MODEL',
+      ].join('\n')
     );
     process.exit(1);
   }
@@ -68,7 +118,10 @@ function parseArgs(argv: string[]): CliArgs {
   let periodDate: Date = new Date();
   let provider: string | undefined;
   let model: string | undefined;
-  let fixtureDir: string | undefined;
+  let caseDir: string | undefined;
+  let reportId: string | undefined;
+  let outDir: string | undefined;
+  let caseName: string | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -88,10 +141,24 @@ function parseArgs(argv: string[]): CliArgs {
       model = args[++i];
     } else if (arg?.startsWith('--model=')) {
       model = arg.slice('--model='.length);
-    } else if (arg === '--fixture') {
-      fixtureDir = args[++i];
+    } else if (arg === '--case' || arg === '--fixture') {
+      caseDir = args[++i];
+    } else if (arg?.startsWith('--case=')) {
+      caseDir = arg.slice('--case='.length);
     } else if (arg?.startsWith('--fixture=')) {
-      fixtureDir = arg.slice('--fixture='.length);
+      caseDir = arg.slice('--fixture='.length);
+    } else if (arg === '--report') {
+      reportId = args[++i];
+    } else if (arg?.startsWith('--report=')) {
+      reportId = arg.slice('--report='.length);
+    } else if (arg === '--out') {
+      outDir = args[++i];
+    } else if (arg?.startsWith('--out=')) {
+      outDir = arg.slice('--out='.length);
+    } else if (arg === '--name') {
+      caseName = args[++i];
+    } else if (arg?.startsWith('--name=')) {
+      caseName = arg.slice('--name='.length);
     }
   }
 
@@ -106,7 +173,10 @@ function parseArgs(argv: string[]): CliArgs {
     periodDate,
     provider,
     model,
-    fixtureDir,
+    caseDir,
+    reportId,
+    outDir,
+    caseName,
   };
 }
 
@@ -155,47 +225,22 @@ type FixtureReport = {
   modelMetadata?: JsonObject | null;
 };
 
-type FixtureSource = {
-  id: string;
-  providerName: string;
-  sourceType: string;
-  title: string | null;
-  authorOrAccount: string | null;
-  externalUrl: string | null;
-  contentText: string | null;
-  diffAddedText: string | null;
-  diffRemovedText: string | null;
-  relevanceLabel: string | null;
-  [key: string]: unknown;
-};
+type FixtureSource = CaseSource;
 
-type FixtureData = {
+/** An eval case, shaped for the code paths that predate cases. */
+function caseAsFixture(evalCase: EvalCase): {
   report: FixtureReport;
   sources: FixtureSource[];
-};
-
-function loadFixture(fixtureDir: string): FixtureData {
-  const dir = resolve(process.cwd(), fixtureDir);
-  const reportData = JSON.parse(
-    readFileSync(resolve(dir, 'published-report.json'), 'utf8')
-  ) as JsonObject;
-  const sourcesFile = JSON.parse(
-    readFileSync(resolve(dir, 'published-report-sources.json'), 'utf8')
-  ) as {
-    workspaceId: string;
-    reportId: string;
-    periodStart: string;
-    periodEnd: string;
-    sources: FixtureData['sources'];
-  };
+} {
   return {
     report: {
-      id: sourcesFile.reportId,
-      reportData,
-      periodStart: new Date(sourcesFile.periodStart),
-      periodEnd: new Date(sourcesFile.periodEnd),
+      id: evalCase.report.id,
+      reportData: evalCase.report.reportData as JsonObject | null,
+      periodStart: new Date(evalCase.report.periodStart),
+      periodEnd: new Date(evalCase.report.periodEnd),
+      modelMetadata: evalCase.report.modelMetadata as JsonObject | null,
     },
-    sources: sourcesFile.sources,
+    sources: evalCase.sources,
   };
 }
 
@@ -391,6 +436,42 @@ async function runGenerate(args: CliArgs, evalAdapter: EvalExperimentPort) {
   }
 }
 
+/**
+ * Resolves the reference report. A pinned `--report` id keeps the baseline
+ * fixed; falling back to "latest published" means a generation run can move the
+ * yardstick it is later measured against.
+ */
+async function resolvePinnedReport(
+  args: CliArgs
+): Promise<FixtureReport | null> {
+  const repositories = getIntelligenceRepositories();
+  if (args.reportId) {
+    const found = await repositories.reportRepository.getById(
+      toWeeklyReportId(args.reportId)
+    );
+    if (found.isError()) throw found.getError();
+    const outcome = found.get();
+    if (outcome.type === 'report_not_found') {
+      log('Report not found', { reportId: args.reportId });
+      return null;
+    }
+    return outcome.report as unknown as FixtureReport;
+  }
+  const latest = await repositories.reportRepository.getLatestPublished(
+    args.workspaceId
+  );
+  if (latest.isError()) throw latest.getError();
+  const latestOutcome = latest.get();
+  if (latestOutcome.type === 'report_none') {
+    log('No published report found');
+    return null;
+  }
+  log('No --report given, using the latest published report', {
+    reportId: latestOutcome.report.id,
+  });
+  return latestOutcome.report as unknown as FixtureReport;
+}
+
 async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
   const config = getLocalAiConfig();
   const provider = (args.provider ?? config.provider) as LocalAiProviderName;
@@ -400,26 +481,20 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
   let report: FixtureReport;
   let sourceList: FixtureSource[];
 
-  if (args.fixtureDir) {
-    const fixture = loadFixture(args.fixtureDir);
-    report = fixture.report;
-    sourceList = fixture.sources;
-    log('Loaded fixtures', {
-      dir: args.fixtureDir,
+  if (args.caseDir) {
+    const evalCase = loadCase(args.caseDir);
+    ({ report, sources: sourceList } = caseAsFixture(evalCase));
+    log('Loaded eval case', {
+      dir: evalCase.dir,
+      name: evalCase.manifest.name,
+      reportId: report.id,
       sources: sourceList.length,
     });
   } else {
     const repositories = getIntelligenceRepositories();
-    const latest = await repositories.reportRepository.getLatestPublished(
-      args.workspaceId
-    );
-    if (latest.isError()) throw latest.getError();
-    const latestOutcome = latest.get();
-    if (latestOutcome.type === 'report_none') {
-      log('No published report found');
-      return;
-    }
-    report = latestOutcome.report as unknown as FixtureReport;
+    const resolved = await resolvePinnedReport(args);
+    if (!resolved) return;
+    report = resolved;
     const sources = await repositories.sourceRepository.listForPeriod({
       workspaceId: args.workspaceId,
       periodStart: report.periodStart,
@@ -512,66 +587,50 @@ async function runCompare(args: CliArgs) {
   let usableSources: FixtureSource[];
   let prompt: string;
 
-  if (args.fixtureDir) {
-    const fixture = loadFixture(args.fixtureDir);
-    report = fixture.report;
-    usableSources = fixture.sources.filter((s) => s.relevanceLabel !== 'junk');
-    log('Loaded fixtures, building prompt from fixture sources', {
-      dir: args.fixtureDir,
+  let evalCase: EvalCase | null = null;
+
+  if (args.caseDir) {
+    // The case carries every prompt input, so this path never touches the DB.
+    evalCase = loadCase(args.caseDir);
+    ({ report } = caseAsFixture(evalCase));
+    usableSources = caseUsableSources(evalCase);
+    const timezone = String(
+      evalCase.workspace.workspace.timezone ?? 'America/Los_Angeles'
+    );
+    log('Loaded eval case', {
+      dir: evalCase.dir,
+      name: evalCase.manifest.name,
+      reportId: report.id,
       sources: usableSources.length,
     });
-    const repositories = getIntelligenceRepositories();
-    const workspace = await repositories.workspaceRepository.getById(
-      args.workspaceId
-    );
-    if (workspace.isError()) throw workspace.getError();
-    const wsOutcome = workspace.get();
-    if (wsOutcome.type === 'workspace_not_found')
-      throw new Error('Workspace not found');
-    const [keywords, competitors, social, priorReports] = await Promise.all([
-      repositories.workspaceRepository.listKeywords(args.workspaceId, {
-        activeOnly: true,
-      }),
-      repositories.workspaceRepository.listCompetitors(args.workspaceId),
-      repositories.workspaceRepository.listSocialAccounts(args.workspaceId),
-      repositories.reportRepository.listByWorkspace(args.workspaceId, {
-        limit: 4,
-      }),
-    ]);
-    if (keywords.isError()) throw keywords.getError();
-    if (competitors.isError()) throw competitors.getError();
-    if (social.isError()) throw social.getError();
-    if (priorReports.isError()) throw priorReports.getError();
     prompt = buildReportPrompt({
-      workspace: wsOutcome.workspace,
-      keywords: keywords.get(),
-      competitors: competitors.get(),
-      socialAccounts: social.get(),
-      sources: usableSources as Parameters<
+      workspace: evalCase.workspace.workspace as unknown as Parameters<
+        typeof buildReportPrompt
+      >[0]['workspace'],
+      keywords: evalCase.workspace.keywords as unknown as Parameters<
+        typeof buildReportPrompt
+      >[0]['keywords'],
+      competitors: evalCase.workspace.competitors as unknown as Parameters<
+        typeof buildReportPrompt
+      >[0]['competitors'],
+      socialAccounts: evalCase.workspace
+        .socialAccounts as unknown as Parameters<
+        typeof buildReportPrompt
+      >[0]['socialAccounts'],
+      sources: usableSources as unknown as Parameters<
         typeof buildReportPrompt
       >[0]['sources'],
-      priorReports: priorReports.get(),
-      periodStartLabel: formatPeriodDate(
-        report.periodStart,
-        wsOutcome.workspace.timezone
-      ),
-      periodEndLabel: formatPeriodDate(
-        report.periodEnd,
-        wsOutcome.workspace.timezone
-      ),
+      priorReports: evalCase.priorReports as unknown as Parameters<
+        typeof buildReportPrompt
+      >[0]['priorReports'],
+      periodStartLabel: formatPeriodDate(report.periodStart, timezone),
+      periodEndLabel: formatPeriodDate(report.periodEnd, timezone),
     });
   } else {
     const repositories = getIntelligenceRepositories();
-    const latest = await repositories.reportRepository.getLatestPublished(
-      args.workspaceId
-    );
-    if (latest.isError()) throw latest.getError();
-    const latestOutcome = latest.get();
-    if (latestOutcome.type === 'report_none') {
-      log('No published report found');
-      return;
-    }
-    report = latestOutcome.report as unknown as FixtureReport;
+    const resolved = await resolvePinnedReport(args);
+    if (!resolved) return;
+    report = resolved;
     const workspace = await repositories.workspaceRepository.getById(
       args.workspaceId
     );
@@ -648,41 +707,67 @@ async function runCompare(args: CliArgs) {
     },
   });
 
-  const datasetName = `report-generation-${args.workspaceId}`;
-  const { datasetId } = await createDataset({
-    client,
-    name: datasetName,
-    description: `Report generation comparison for workspace ${args.workspaceId}`,
-    examples: [
-      {
-        input: {
-          workspaceId: args.workspaceId,
-          reportId: report.id,
-          periodStart: report.periodStart.toISOString(),
-          periodEnd: report.periodEnd.toISOString(),
-          sourceCount: usableSources.length,
-          sources: usableSources.map((s) => ({
-            id: s.id,
-            title: s.title,
-            provider: s.providerName,
-            contentText: s.contentText?.slice(0, 2000),
-          })),
-        },
-        output: (report.reportData ?? {}) as Record<string, unknown>,
-        metadata: {
-          referenceModel: (report.modelMetadata as Record<string, unknown>)
-            ?.modelName,
-        },
-      },
-    ],
-  });
+  const example = {
+    input: {
+      workspaceId: args.workspaceId,
+      reportId: report.id,
+      periodStart: report.periodStart.toISOString(),
+      periodEnd: report.periodEnd.toISOString(),
+      sourceCount: usableSources.length,
+      sources: usableSources.map((s) => ({
+        id: s.id,
+        title: s.title,
+        provider: s.providerName,
+        contentText: s.contentText?.slice(0, 2000),
+      })),
+    },
+    output: (report.reportData ?? {}) as Record<string, unknown>,
+    metadata: {
+      referenceModel: (report.modelMetadata as Record<string, unknown>)
+        ?.modelName,
+    },
+  };
+
+  let datasetId: string;
+  let versionId: string | undefined;
+
+  if (evalCase) {
+    // Cases own their Phoenix dataset for life, so runs weeks apart compare.
+    const resolvedDataset = await ensureDataset({
+      client,
+      evalCase,
+      example,
+      description: `Report generation comparison for eval case ${evalCase.manifest.name}`,
+      log,
+    });
+    datasetId = resolvedDataset.datasetId;
+    versionId = resolvedDataset.versionId;
+  } else {
+    // Ad-hoc run against live data: a throwaway dataset, not comparable across
+    // runs. Export a case to get a stable one.
+    log('No --case given; creating a throwaway dataset from live data');
+    const created = await createDataset({
+      client,
+      name: `report-generation-${args.workspaceId}`,
+      description: `Ad-hoc report generation comparison for workspace ${args.workspaceId}`,
+      examples: [example],
+    });
+    datasetId = created.datasetId;
+  }
 
   const experiment = await runExperiment({
     client,
-    dataset: { datasetId },
+    dataset: versionId ? { datasetId, versionId } : { datasetId },
     experimentName: `compare-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
     experimentDescription: `Generate report with ${provider}/${model} and compare to published report ${report.id}`,
-    experimentMetadata: { provider, model, referenceReportId: report.id },
+    experimentMetadata: {
+      provider,
+      model,
+      referenceReportId: report.id,
+      ...(evalCase
+        ? { caseName: evalCase.manifest.name, datasetVersionId: versionId }
+        : {}),
+    },
     task: async () => {
       const result = await generateLocalText({
         provider,
@@ -923,6 +1008,34 @@ async function runCompare(args: CliArgs) {
 
 async function main() {
   const args = parseArgs(process.argv);
+
+  // Export is the one command that reads live data on purpose, and it needs no
+  // Phoenix credentials.
+  if (args.command === 'export') {
+    const outDir = args.outDir ?? `fixtures/eval/${args.caseName ?? 'case'}`;
+    await exportCase({
+      workspaceId: args.workspaceId,
+      reportId: args.reportId,
+      name: args.caseName,
+      outDir,
+      log,
+    });
+    log('Done');
+    return;
+  }
+
+  // `generate` publishes a weekly report, which would move the baseline that
+  // `evaluate` and `compare` measure against. Refuse to mix it with a case.
+  if (
+    args.caseDir &&
+    (args.command === 'generate' || args.command === 'full')
+  ) {
+    console.error(
+      `[phoenix-eval] --case cannot be combined with "${args.command}": that command writes a published report to the database, which would move the reference a case exists to pin. Use "compare" to score a generation against the case.`
+    );
+    process.exit(1);
+  }
+
   const evalAdapter = getEvalAdapter();
 
   try {
