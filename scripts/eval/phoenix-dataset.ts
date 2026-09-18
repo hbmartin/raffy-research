@@ -31,57 +31,77 @@ export type ResolvedDataset = {
 
 type PhoenixClient = unknown;
 
+/**
+ * Only the calls this module uses, and only the fields it reads.
+ *
+ * `getDataset` resolves a dataset by id *or* name and reports the current
+ * version in one round trip, which is why it is preferred over the narrower
+ * info calls. Note that `getDatasetInfoByName` exists in the package's source
+ * tree but is not re-exported from this entry point, so it cannot be used here.
+ */
 type DatasetApi = {
   createDataset: (args: {
     client: PhoenixClient;
     name: string;
     description?: string;
     examples: DatasetExample[];
-  }) => Promise<{ datasetId: string; versionId?: string }>;
+  }) => Promise<{ datasetId: string }>;
   appendDatasetExamples: (args: {
     client: PhoenixClient;
     dataset: { datasetId: string };
     examples: (DatasetExample & { id?: string })[];
   }) => Promise<{ datasetId: string; versionId: string }>;
-  getDatasetInfo: (args: {
+  getDataset: (args: {
     client: PhoenixClient;
-    dataset: { datasetId: string };
-  }) => Promise<{ id: string }>;
-  getDatasetInfoByName: (args: {
-    client: PhoenixClient;
-    datasetName: string;
-  }) => Promise<{ id: string }>;
+    dataset: { datasetId: string } | { datasetName: string };
+  }) => Promise<{ id: string; versionId?: string }>;
 };
 
+/** The calls ensureDataset cannot work without. */
+export const REQUIRED_DATASET_CALLS = [
+  'createDataset',
+  'appendDatasetExamples',
+  'getDataset',
+] as const;
+
 async function loadDatasetApi(): Promise<DatasetApi> {
-  return (await import('@arizeai/phoenix-client/datasets')) as unknown as DatasetApi;
+  const api =
+    (await import('@arizeai/phoenix-client/datasets')) as unknown as Record<
+      string,
+      unknown
+    >;
+  const missing = REQUIRED_DATASET_CALLS.filter(
+    (name) => typeof api[name] !== 'function'
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `@arizeai/phoenix-client/datasets is missing: ${missing.join(', ')}. The client's export surface changed; scripts/eval/phoenix-dataset.ts needs updating.`
+    );
+  }
+  return api as unknown as DatasetApi;
 }
 
-/** A missing dataset is an expected outcome, not a failure. */
+type RemoteDataset = { id: string; versionId?: string };
+
+/**
+ * A missing dataset is an expected outcome, not a failure — but anything other
+ * than "not found" is a real problem and must not be swallowed.
+ */
 async function findRemote(
   api: DatasetApi,
   client: PhoenixClient,
   binding: { datasetId?: string; datasetName: string }
-): Promise<string | null> {
-  if (binding.datasetId) {
-    try {
-      const info = await api.getDatasetInfo({
-        client,
-        dataset: { datasetId: binding.datasetId },
-      });
-      return info.id;
-    } catch {
-      return null;
-    }
-  }
+): Promise<RemoteDataset | null> {
+  const selector = binding.datasetId
+    ? { datasetId: binding.datasetId }
+    : { datasetName: binding.datasetName };
   try {
-    const info = await api.getDatasetInfoByName({
-      client,
-      datasetName: binding.datasetName,
-    });
-    return info.id;
-  } catch {
-    return null;
+    const dataset = await api.getDataset({ client, dataset: selector });
+    return { id: dataset.id, versionId: dataset.versionId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/not\s*found|404/i.test(message)) return null;
+    throw error;
   }
 }
 
@@ -97,27 +117,39 @@ export async function ensureDataset(input: {
   const binding = evalCase.manifest.phoenix;
   const hash = contentHash(example);
 
-  const remoteId = await findRemote(api, client, binding);
+  const remote = await findRemote(api, client, binding);
 
-  if (remoteId && binding.contentHash === hash && binding.datasetId) {
+  if (remote && binding.contentHash === hash && binding.datasetId) {
+    // The stored version is authoritative for what this case was scored
+    // against; fall back to the dataset's current version when a create never
+    // recorded one.
+    const versionId = binding.versionId ?? remote.versionId;
+    if (!binding.versionId && versionId) {
+      // Backfill a case bound before versions were recorded, so the pin lives
+      // in git from now on rather than being re-resolved every run.
+      writePhoenixBinding(evalCase, { ...binding, versionId });
+      log('Backfilled the missing dataset version into the case', {
+        versionId,
+      });
+    }
     log('Reusing pinned Phoenix dataset', {
-      datasetId: remoteId,
-      versionId: binding.versionId,
+      datasetId: remote.id,
+      versionId,
     });
     return {
-      datasetId: remoteId,
-      versionId: binding.versionId,
+      datasetId: remote.id,
+      versionId,
       action: 'reused',
       contentHash: hash,
     };
   }
 
-  if (remoteId) {
+  if (remote) {
     // Same dataset, changed (or first-seen) content: push a new version under
     // the case's stable example id so history stays on one dataset.
     const appended = await api.appendDatasetExamples({
       client,
-      dataset: { datasetId: remoteId },
+      dataset: { datasetId: remote.id },
       examples: [{ ...example, id: exampleId(evalCase) }],
     });
     const action = binding.datasetId ? 'revised' : 'adopted';
@@ -155,17 +187,31 @@ export async function ensureDataset(input: {
     description: input.description,
     examples: [example],
   });
-  log('Created Phoenix dataset', { datasetId: created.datasetId });
+
+  // createDataset reports only the id, so read the version back — without it
+  // the first experiments on a new case would run unpinned.
+  const createdVersion = await findRemote(api, client, {
+    datasetId: created.datasetId,
+    datasetName: binding.datasetName,
+  });
+  const versionId = createdVersion?.versionId;
+  if (!versionId) {
+    log('Created dataset reported no version; experiments will run unpinned', {
+      datasetId: created.datasetId,
+    });
+  }
+
+  log('Created Phoenix dataset', { datasetId: created.datasetId, versionId });
   writePhoenixBinding(evalCase, {
     datasetName: binding.datasetName,
     datasetId: created.datasetId,
-    versionId: created.versionId,
+    versionId,
     contentHash: hash,
     pushedAt: new Date().toISOString(),
   });
   return {
     datasetId: created.datasetId,
-    versionId: created.versionId,
+    versionId,
     action: 'created',
     contentHash: hash,
   };

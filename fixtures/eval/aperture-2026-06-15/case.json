@@ -8,6 +8,10 @@
   "exportedAt": "2026-09-16T22:14:21.605Z",
   "sourceCount": 101,
   "phoenix": {
-    "datasetName": "report-generation-aperture-2026-06-15"
+    "datasetName": "report-generation-aperture-2026-06-15",
+    "datasetId": "RGF0YXNldDo0",
+    "contentHash": "sha256:cfb41ec0a2a4d4c669f2008effb27278",
+    "pushedAt": "2026-09-18T04:50:34.706Z",
+    "versionId": "RGF0YXNldFZlcnNpb246Nzk="
   }
 }

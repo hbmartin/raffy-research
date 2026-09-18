@@ -6,8 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   createDataset: vi.fn(),
   appendDatasetExamples: vi.fn(),
-  getDatasetInfo: vi.fn(),
-  getDatasetInfoByName: vi.fn(),
+  getDataset: vi.fn(),
 }));
 
 vi.mock('@arizeai/phoenix-client/datasets', () => mocks);
@@ -19,7 +18,10 @@ import {
   loadCase,
   writeCase,
 } from '../../../scripts/eval/case';
-import { ensureDataset } from '../../../scripts/eval/phoenix-dataset';
+import {
+  ensureDataset,
+  REQUIRED_DATASET_CALLS,
+} from '../../../scripts/eval/phoenix-dataset';
 
 const example = {
   input: { reportId: 'report-1', sources: [{ id: 's1' }] },
@@ -68,11 +70,10 @@ describe('eval case Phoenix dataset binding', () => {
 
   it('creates a dataset and records its id in the case on first push', async () => {
     const evalCase = makeCase({ datasetName: 'report-generation-acme' });
-    mocks.getDatasetInfoByName.mockRejectedValue(new Error('not found'));
-    mocks.createDataset.mockResolvedValue({
-      datasetId: 'ds-1',
-      versionId: 'v-1',
-    });
+    mocks.getDataset
+      .mockRejectedValueOnce(new Error('Dataset not found'))
+      .mockResolvedValueOnce({ id: 'ds-1', versionId: 'v-1' });
+    mocks.createDataset.mockResolvedValue({ datasetId: 'ds-1' });
 
     const result = await ensureDataset({
       client: {},
@@ -84,11 +85,14 @@ describe('eval case Phoenix dataset binding', () => {
 
     expect(result.action).toBe('created');
     expect(result.datasetId).toBe('ds-1');
+    // createDataset returns no version, so it is read back explicitly.
+    expect(result.versionId).toBe('v-1');
     const manifest = JSON.parse(
       readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
     ) as CaseManifest;
     expect(manifest.phoenix.datasetId).toBe('ds-1');
     expect(manifest.phoenix.contentHash).toBe(contentHash(example));
+    expect(manifest.phoenix.versionId).toBe('v-1');
   });
 
   it('reuses the pinned dataset without writing when content is unchanged', async () => {
@@ -98,7 +102,7 @@ describe('eval case Phoenix dataset binding', () => {
       versionId: 'v-1',
       contentHash: contentHash(example),
     });
-    mocks.getDatasetInfo.mockResolvedValue({ id: 'ds-1' });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-1' });
 
     const result = await ensureDataset({
       client: {},
@@ -124,7 +128,7 @@ describe('eval case Phoenix dataset binding', () => {
       versionId: 'v-1',
       contentHash: contentHash({ input: { reportId: 'stale' } }),
     });
-    mocks.getDatasetInfo.mockResolvedValue({ id: 'ds-1' });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-1' });
     mocks.appendDatasetExamples.mockResolvedValue({
       datasetId: 'ds-1',
       versionId: 'v-2',
@@ -163,11 +167,10 @@ describe('eval case Phoenix dataset binding', () => {
       versionId: 'v-1',
       contentHash: contentHash(example),
     });
-    mocks.getDatasetInfo.mockRejectedValue(new Error('404'));
-    mocks.createDataset.mockResolvedValue({
-      datasetId: 'ds-2',
-      versionId: 'v-1',
-    });
+    mocks.getDataset
+      .mockRejectedValueOnce(new Error('404'))
+      .mockResolvedValueOnce({ id: 'ds-2', versionId: 'v-1' });
+    mocks.createDataset.mockResolvedValue({ datasetId: 'ds-2' });
 
     const result = await ensureDataset({
       client: {},
@@ -182,7 +185,7 @@ describe('eval case Phoenix dataset binding', () => {
 
   it('adopts a dataset that already exists under the case name', async () => {
     const evalCase = makeCase({ datasetName: 'report-generation-acme' });
-    mocks.getDatasetInfoByName.mockResolvedValue({ id: 'ds-existing' });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-existing' });
     mocks.appendDatasetExamples.mockResolvedValue({
       datasetId: 'ds-existing',
       versionId: 'v-9',
@@ -201,6 +204,55 @@ describe('eval case Phoenix dataset binding', () => {
       datasetId: 'ds-existing',
     });
     expect(mocks.createDataset).not.toHaveBeenCalled();
+  });
+
+  it('backfills a version into a case bound before versions were recorded', async () => {
+    const evalCase = makeCase({
+      datasetName: 'report-generation-acme',
+      datasetId: 'ds-1',
+      contentHash: contentHash(example),
+    });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-7' });
+
+    const result = await ensureDataset({
+      client: {},
+      evalCase,
+      example,
+      description: 'd',
+      log,
+    });
+
+    expect(result).toMatchObject({ action: 'reused', versionId: 'v-7' });
+    const manifest = JSON.parse(
+      readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
+    ) as CaseManifest;
+    expect(manifest.phoenix.versionId).toBe('v-7');
+    expect(mocks.appendDatasetExamples).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a lookup failure that is not a missing dataset', async () => {
+    const evalCase = makeCase({
+      datasetName: 'report-generation-acme',
+      datasetId: 'ds-1',
+      contentHash: contentHash(example),
+    });
+    mocks.getDataset.mockRejectedValue(new Error('503 upstream unavailable'));
+
+    await expect(
+      ensureDataset({ client: {}, evalCase, example, description: 'd', log })
+    ).rejects.toThrow(/503/);
+    expect(mocks.createDataset).not.toHaveBeenCalled();
+  });
+
+  // The mock above cannot catch a call that the real package never exported,
+  // which is how an unreachable code path slipped through once already.
+  it('depends only on calls the real Phoenix client exports', async () => {
+    const actual = await vi.importActual<Record<string, unknown>>(
+      '@arizeai/phoenix-client/datasets'
+    );
+    for (const call of REQUIRED_DATASET_CALLS) {
+      expect(typeof actual[call]).toBe('function');
+    }
   });
 
   it('hashes content independently of key order', () => {
