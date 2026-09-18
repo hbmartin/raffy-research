@@ -92,7 +92,11 @@
           "no-show reduction",
           "healthcare efficiency"
         ],
-        "related_competitors": ["Automaziot AI", "Five9", "ScribeEMR"],
+        "related_competitors": [
+          "Automaziot AI",
+          "Five9",
+          "ScribeEMR"
+        ],
         "why_this_may_matter": "They have the potential to transform how healthcare providers manage appointments and patient engagement.",
         "representative_evidence": [
           {

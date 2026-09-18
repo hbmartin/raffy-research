@@ -5,7 +5,7 @@
   "reportId": "sywwll5eir4uzcrmguy7jjti",
   "periodStart": "2026-06-15T07:00:00.000Z",
   "periodEnd": "2026-06-22T06:59:59.999Z",
-  "exportedAt": "2026-09-18T23:06:01.422Z",
+  "exportedAt": "2026-09-18T23:25:25.069Z",
   "sourceCount": 101,
   "summaryCount": 82,
   "sampleSourceIds": [
@@ -20,7 +20,9 @@
     "d19e4c9yj0ik6gru9f8upgwg",
     "dr1unln5htkh0ka7ti4lx0v2"
   ],
-  "summaryModels": ["qwen3:14b"],
+  "summaryModels": [
+    "qwen3:14b"
+  ],
   "phoenix": {
     "reportGeneration": {
       "datasetName": "report-generation-aperture-2026-06-15",
