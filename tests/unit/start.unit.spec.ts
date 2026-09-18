@@ -12,6 +12,32 @@ vi.mock('@sentry/tanstackstart-react', () => ({
 }));
 
 describe('TanStack Start instance', () => {
+  it('allows screenshot styles only for development tests or validated requests', async () => {
+    const { shouldAllowPlaywrightScreenshotStyles } = await import('@/start');
+
+    expect(
+      shouldAllowPlaywrightScreenshotStyles({
+        isProduction: true,
+        isTestRuntime: true,
+        requestContextAllows: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldAllowPlaywrightScreenshotStyles({
+        isProduction: true,
+        isTestRuntime: true,
+        requestContextAllows: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldAllowPlaywrightScreenshotStyles({
+        isProduction: false,
+        isTestRuntime: true,
+        requestContextAllows: false,
+      })
+    ).toBe(true);
+  });
+
   it('adds Sentry, telemetry, security headers, auth context, browser mutation guard, and server-function CSRF middleware', async () => {
     const { startInstance } = await import('@/start');
     const options = (startInstance as ExplicitAny).options;
@@ -156,7 +182,7 @@ describe('TanStack Start instance', () => {
       `script-src 'self' 'nonce-${cspNonce}'`
     );
     expect(result.response.headers.get('Content-Security-Policy')).toContain(
-      "style-src-elem 'self' 'unsafe-inline'"
+      `style-src-elem 'self' 'nonce-${cspNonce}'`
     );
     expect(result.response.headers.get('Cross-Origin-Opener-Policy')).toBe(
       'same-origin-allow-popups'

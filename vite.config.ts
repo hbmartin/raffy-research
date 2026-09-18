@@ -73,21 +73,24 @@ export default defineConfig(({ mode }) => {
   const privateEnv = loadEnv(mode, envDirectory, '');
   const envName = env.VITE_ENV_NAME?.toLowerCase();
   const isTestRuntime = envName === 'test' || envName === 'tests';
-  const canUpload = Boolean(
+  const sentryUploadConfig =
     privateEnv.SENTRY_ORG &&
     privateEnv.SENTRY_PROJECT &&
     privateEnv.SENTRY_AUTH_TOKEN
-  );
+      ? {
+          authToken: privateEnv.SENTRY_AUTH_TOKEN,
+          org: privateEnv.SENTRY_ORG,
+          project: privateEnv.SENTRY_PROJECT,
+        }
+      : undefined;
   const sentryPlugins =
-    env.VITE_SENTRY_DSN && canUpload
+    env.VITE_SENTRY_DSN && sentryUploadConfig
       ? sentryTanstackStart({
-          org: privateEnv.SENTRY_ORG || undefined,
-          project: privateEnv.SENTRY_PROJECT || undefined,
-          authToken: privateEnv.SENTRY_AUTH_TOKEN || undefined,
+          ...sentryUploadConfig,
           telemetry: false,
           autoInstrumentMiddleware: false,
-          sourcemaps: { disable: !canUpload },
-          release: { create: canUpload, finalize: canUpload },
+          sourcemaps: { disable: false },
+          release: { create: true, finalize: true },
         })
       : [];
 

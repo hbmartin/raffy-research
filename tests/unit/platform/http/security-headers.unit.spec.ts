@@ -34,9 +34,7 @@ describe('security headers', () => {
     expect(policy).toContain("form-action 'self'");
     expect(directiveValue(policy, 'script-src')).toBe("script-src 'self'");
     expect(policy).toContain("script-src-attr 'none'");
-    expect(directiveValue(policy, 'style-src')).toBe(
-      "style-src 'self' 'unsafe-inline'"
-    );
+    expect(directiveValue(policy, 'style-src')).toBe("style-src 'self'");
     expect(policy).toContain("style-src-attr 'unsafe-inline'");
     expect(policy).toContain(
       "img-src 'self' data: blob: https://raw.githubusercontent.com"
@@ -51,7 +49,7 @@ describe('security headers', () => {
     expect(policy).toContain('upgrade-insecure-requests');
   });
 
-  it('adds a CSP nonce for scripts while allowing inline style elements', () => {
+  it('adds the request nonce to script and style element directives', () => {
     const policy = buildContentSecurityPolicy({
       cspNonce: 'test-nonce',
     });
@@ -60,14 +58,17 @@ describe('security headers', () => {
       "script-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(policy, 'style-src')).toBe(
-      "style-src 'self' 'unsafe-inline'"
+      "style-src 'self' 'nonce-test-nonce'"
+    );
+    expect(directiveValue(policy, 'style-src-elem')).toBe(
+      "style-src-elem 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(policy, 'style-src-attr')).toBe(
       "style-src-attr 'unsafe-inline'"
     );
   });
 
-  it('can allow Playwright screenshot styles outside production only', () => {
+  it('allows inline screenshot styles only when the validated fixture flag is present', () => {
     const testPolicy = buildContentSecurityPolicy({
       allowPlaywrightScreenshotStyles: true,
       cspNonce: 'test-nonce',
@@ -79,18 +80,24 @@ describe('security headers', () => {
       isProduction: true,
     });
 
-    expect(directiveValue(testPolicy, 'style-src')).toContain(
-      "'sha256-7kYjkz6pduUs3kVL/X05CBZQltL/7ngRDDedeYMKnCY='" // pragma: allowlist secret
+    expect(directiveValue(testPolicy, 'style-src')).toBe(
+      "style-src 'self' 'unsafe-inline'"
     );
-    expect(directiveValue(testPolicy, 'style-src')).toContain(
-      "'sha256-usAZqtYVSsNUHiWQ9dUUoz3b/VIjZb4D3aBYhD6zD5o='" // pragma: allowlist secret
+    expect(directiveValue(testPolicy, 'style-src-elem')).toBe(
+      "style-src-elem 'self' 'unsafe-inline'"
     );
-    expect(directiveValue(productionPolicy, 'style-src')).not.toContain(
-      'sha256-7kYjkz6pduUs3kVL' // pragma: allowlist secret
+    expect(directiveValue(productionPolicy, 'style-src')).toBe(
+      "style-src 'self' 'unsafe-inline'"
+    );
+    expect(directiveValue(productionPolicy, 'style-src-elem')).toBe(
+      "style-src-elem 'self' 'unsafe-inline'"
+    );
+    expect(directiveValue(productionPolicy, 'script-src')).toBe(
+      "script-src 'self' 'nonce-test-nonce'"
     );
   });
 
-  it('keeps scripts nonce-protected while allowing inline style elements', () => {
+  it('keeps styles nonce-protected when only dev script relaxations apply', () => {
     const testPolicy = buildContentSecurityPolicy({
       allowDevServerCspRelaxations: true,
       cspNonce: 'test-nonce',
@@ -106,19 +113,19 @@ describe('security headers', () => {
       "script-src 'self' 'nonce-test-nonce' 'unsafe-eval'"
     );
     expect(directiveValue(testPolicy, 'style-src')).toBe(
-      "style-src 'self' 'unsafe-inline'"
+      "style-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(testPolicy, 'style-src-elem')).toBe(
-      "style-src-elem 'self' 'unsafe-inline'"
+      "style-src-elem 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(productionPolicy, 'script-src')).toBe(
       "script-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(productionPolicy, 'style-src')).toBe(
-      "style-src 'self' 'unsafe-inline'"
+      "style-src 'self' 'nonce-test-nonce'"
     );
     expect(directiveValue(productionPolicy, 'style-src-elem')).toBe(
-      "style-src-elem 'self' 'unsafe-inline'"
+      "style-src-elem 'self' 'nonce-test-nonce'"
     );
   });
 

@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdir,
-  readFile,
   readdir,
+  readFile,
   rename,
   rm,
   writeFile,
@@ -79,31 +79,64 @@ export const createFixtureEnvironment = async () => {
 };
 
 const buildOutputDirectory = () => resolve('.output');
+const missingBuildOutput = () =>
+  new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+const invalidFixtureManifest = () =>
+  new Error('Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.');
+
+const isMissingPathError = (error: unknown) =>
+  error instanceof Error &&
+  'code' in error &&
+  (error as NodeJS.ErrnoException).code === 'ENOENT';
+
+const collectDeployableFiles = async (directory: string): Promise<string[]> => {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (entry.name === 'node_modules') continue;
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory())
+      paths.push(...(await collectDeployableFiles(path)));
+    else if (entry.isFile()) paths.push(path);
+  }
+  return paths;
+};
 
 export const digestBuiltOutput = async () => {
   const root = buildOutputDirectory();
   const hash = createHash('sha256');
-  let fileCount = 0;
-  const visit = async (directory: string): Promise<void> => {
-    const entries = (await readdir(directory, { withFileTypes: true })).sort(
-      (left, right) => left.name.localeCompare(right.name)
+  try {
+    const paths = await collectDeployableFiles(root);
+    const relativePaths = paths
+      .map((path) => relative(root, path).replaceAll('\\', '/'))
+      .sort();
+    const hasRequiredOutput = [
+      'nitro.json',
+      'server/index.mjs',
+      'server/_ssr/ssr.mjs',
+    ].every((path) => relativePaths.includes(path));
+    const hasManifest = relativePaths.some(
+      (path) =>
+        path.startsWith('server/_tanstack-start-manifest_') &&
+        path.endsWith('.mjs')
     );
-    for (const entry of entries) {
-      const path = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(path);
-      } else if (entry.isFile()) {
-        hash.update(relative(root, path).replaceAll('\\', '/'));
-        hash.update('\0');
-        hash.update(await readFile(path));
-        hash.update('\0');
-        fileCount++;
-      }
+    if (!hasRequiredOutput || !hasManifest) throw missingBuildOutput();
+
+    for (const path of paths
+      .map((path) => ({
+        absolute: path,
+        relative: relative(root, path).replaceAll('\\', '/'),
+      }))
+      .sort((left, right) => left.relative.localeCompare(right.relative))) {
+      hash.update(path.relative);
+      hash.update('\0');
+      hash.update(await readFile(path.absolute));
+      hash.update('\0');
     }
-  };
-  await visit(root);
-  if (!fileCount)
-    throw new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
+  } catch (error) {
+    if (isMissingPathError(error)) throw missingBuildOutput();
+    throw error;
+  }
   return hash.digest('hex');
 };
 
@@ -123,9 +156,12 @@ export const writeFixtureManifest = async (env: NodeJS.ProcessEnv) => {
 };
 
 export const readFixtureEnvironment = async () => {
-  const manifest: unknown = JSON.parse(
-    await readFile(SSR_FIXTURE_MANIFEST, 'utf8')
-  );
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(await readFile(SSR_FIXTURE_MANIFEST, 'utf8'));
+  } catch {
+    throw invalidFixtureManifest();
+  }
   if (
     !manifest ||
     typeof manifest !== 'object' ||
@@ -137,9 +173,7 @@ export const readFixtureEnvironment = async () => {
     !/^[a-f0-9]{64}$/.test(manifest.buildDigest) ||
     manifest.buildDigest !== (await digestBuiltOutput())
   ) {
-    throw new Error(
-      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
-    );
+    throw invalidFixtureManifest();
   }
   return fixtureEnvironment(manifest.authSecret);
 };

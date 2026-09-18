@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { makeTestDatabaseUrl } from '@tests/server/test-database-url';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('server config accessors', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.stubEnv('SKIP_ENV_VALIDATION', undefined);
@@ -237,29 +237,69 @@ describe('server config accessors', () => {
 
   it('requires a dedicated proxy IP header for self-hosted production', async () => {
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL', undefined);
     vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('VERCEL_REGION', undefined);
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
     expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
-  it('selects Vercel-overwritten and explicit self-hosted IP headers', async () => {
+  it('does not trust a stale VERCEL_ENV marker', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
     vi.stubEnv('VERCEL_ENV', 'production');
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('selects Vercel-overwritten headers only in a real Vercel runtime', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
     expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
       'x-vercel-forwarded-for'
     );
-    vi.resetModules();
-    vi.stubEnv('VERCEL_ENV', undefined);
+  });
+
+  it('gives an explicit trusted header precedence over Vercel detection', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
     vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'x-proxy-client-ip');
-    const { getBetterAuthConfig: getSelfHostedConfig } =
+    const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getSelfHostedConfig().trustedClientIpHeader).toBe(
+
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
       'x-proxy-client-ip'
+    );
+  });
+
+  it('diagnoses the accepted shared bucket once under the validation bypass', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', undefined);
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', undefined);
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBeUndefined();
+    getBetterAuthConfig();
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]?.[0]).toBe(
+      '{"event":"auth.rate_limit_shared_bucket","reason":"trusted_client_ip_unconfigured"}\n'
     );
   });
 
@@ -507,18 +547,31 @@ describe('server config accessors', () => {
     });
   });
 
-  it('disables malformed telemetry under the explicit validation bypass', async () => {
+  it('disables only malformed OTLP config under the explicit validation bypass', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
     vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
-    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=abc;metadata');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=secret;metadata');
+    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
+    vi.stubEnv('SENTRY_ENVIRONMENT', 'production');
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const { getTelemetryConfig } =
       await import('@/modules/kernel/infrastructure/config/telemetry');
     const config = getTelemetryConfig();
     expect(config.collectorUrl).toBeUndefined();
-    expect(config.dsn).toBeUndefined();
     expect(config).toMatchObject({
+      dsn: 'https://public@sentry.example/1',
+      environment: 'production',
       resolvedHeaders: { traces: {}, metrics: {}, logs: {} },
     });
+    getTelemetryConfig();
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(String(diagnostic.mock.calls[0]?.[0])).toContain(
+      'telemetry.config_invalid'
+    );
+    expect(String(diagnostic.mock.calls[0]?.[0])).toContain(
+      '"component":"otel"'
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret');
   });
 });

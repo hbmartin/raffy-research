@@ -16,9 +16,7 @@ import {
 
 let initialized = false;
 
-// OpenTelemetry owns tracing; Sentry stays error-only even if
-// VITE_SENTRY_TRACES_SAMPLE_RATE is present to avoid duplicate span reporting.
-const SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE = 0;
+type SentryInitOptions = Parameters<typeof Sentry.init>[0];
 
 /**
  * Initialize Sentry for the browser runtime. Safe to call multiple times.
@@ -43,15 +41,19 @@ export const initTelemetryClient = (_router?: unknown) => {
     return;
   }
 
-  Sentry.init({
+  const options = {
     dsn: envClient.VITE_SENTRY_DSN,
     environment: envClient.VITE_SENTRY_ENVIRONMENT,
-    tracesSampleRate: SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE,
+    // A nullish override prevents the SDK from treating a zero sampling rate as
+    // tracing enabled. OpenTelemetry is the sole trace owner.
+    tracesSampleRate: null,
     sendDefaultPii: false,
     tunnel: envClient.VITE_SENTRY_TUNNEL_PATH,
     beforeSend: sanitizeSentryEvent,
     integrations: [],
-  });
+  };
+
+  Sentry.init(options as unknown as SentryInitOptions);
 
   adapters.push(createSentryTelemetryAdapter(Sentry));
   setTelemetry(

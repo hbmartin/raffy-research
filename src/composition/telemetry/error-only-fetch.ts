@@ -12,14 +12,6 @@ const unhandledHttpError = {
   mechanism: { type: 'auto.http.tanstackstart', handled: false },
 } as const;
 
-const needsStreamObservation = (response: Response) =>
-  Boolean(
-    response.body &&
-    !response.headers.has('Content-Length') &&
-    !response.headers.has('Content-Encoding') &&
-    response.headers.get('Content-Type')?.toLowerCase().includes('text/html')
-  );
-
 /** Observe the final response after Start has assigned stream cleanup ownership.
  * Bytes pass through unchanged; no HTML parsing or trace metadata injection.
  */
@@ -47,11 +39,18 @@ export const createErrorOnlyFetch =
       throw error;
     }
     const responseBody = response.body;
-    if (!responseBody || !needsStreamObservation(response)) {
+    if (!responseBody) {
       await flush();
       return response;
     }
-    const reader = responseBody.getReader();
+    let reader: ReadableStreamDefaultReader<Uint8Array>;
+    try {
+      reader = responseBody.getReader();
+    } catch (error) {
+      reporter.captureException(error, unhandledHttpError);
+      await flush();
+      throw error;
+    }
     let canceled = false;
     let released = false;
     const release = () => {
@@ -90,9 +89,12 @@ export const createErrorOnlyFetch =
       },
       { highWaterMark: 0 }
     );
+    const headers = new Headers(response.headers);
+    headers.delete('Content-Length');
+
     return new Response(body, {
       status: response.status,
       statusText: response.statusText,
-      headers: response.headers,
+      headers,
     });
   };

@@ -11,7 +11,6 @@ const envClientMock = vi.hoisted(() => ({
   VITE_SENTRY_DSN: '',
   VITE_SENTRY_ENVIRONMENT: undefined as string | undefined,
   VITE_SENTRY_TUNNEL_PATH: '/api/telemetry/sentry-tunnel',
-  VITE_SENTRY_TRACES_SAMPLE_RATE: 0,
 }));
 
 vi.mock('@sentry/tanstackstart-react', () => ({
@@ -32,7 +31,6 @@ describe('Sentry telemetry composition', () => {
     envClientMock.VITE_SENTRY_DSN = '';
     envClientMock.VITE_SENTRY_ENVIRONMENT = undefined;
     envClientMock.VITE_SENTRY_TUNNEL_PATH = '/api/telemetry/sentry-tunnel';
-    envClientMock.VITE_SENTRY_TRACES_SAMPLE_RATE = 0;
   });
 
   it('is a no-op when no client DSN is configured', async () => {
@@ -63,7 +61,7 @@ describe('Sentry telemetry composition', () => {
         beforeSend: expect.any(Function),
         integrations: [],
         sendDefaultPii: false,
-        tracesSampleRate: 0,
+        tracesSampleRate: null,
         tunnel: '/api/telemetry/sentry-tunnel',
       })
     );

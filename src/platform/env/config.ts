@@ -10,11 +10,6 @@ const runtimeEnv = (): RuntimeEnv => ({
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
 
-const isProd = () => {
-  const env = runtimeEnv();
-  return env.NODE_ENV ? env.NODE_ENV === 'production' : isTruthy(env.PROD);
-};
-
 const isDev = () => {
   const env = runtimeEnv();
   return env.NODE_ENV ? env.NODE_ENV === 'development' : isTruthy(env.DEV);
@@ -65,11 +60,6 @@ const clientSchema = () =>
       .transform((value) => value ?? (isDev() ? 'gold' : 'plum')),
     VITE_SENTRY_DSN: z.string().url().optional(),
     VITE_SENTRY_ENVIRONMENT: z.string().optional(),
-    VITE_SENTRY_TRACES_SAMPLE_RATE: z.coerce
-      .number()
-      .min(0)
-      .max(1)
-      .prefault(isProd() ? 0.1 : 1),
     VITE_OTEL_BROWSER_ENABLED: z
       .enum(['true', 'false'])
       .optional()

@@ -1,10 +1,4 @@
-import {
-  context,
-  metrics,
-  propagation,
-  ProxyTracerProvider,
-  trace,
-} from '@opentelemetry/api';
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
@@ -82,16 +76,18 @@ describe('server OTLP header precedence', () => {
 
       Sentry.init({
         dsn: 'https://public@sentry.example/1',
-        tracesSampleRate: 0,
+        tracesSampleRate: null,
         skipOpenTelemetrySetup: true,
-      });
+      } as unknown as Parameters<typeof Sentry.init>[0]);
 
       const { initOpenTelemetryServer } =
         await import('@/composition/telemetry/otel.server');
       const adapter = initOpenTelemetryServer();
       expect(adapter).toBeDefined();
-      const tracer = trace.getTracerProvider() as ProxyTracerProvider;
-      const tracerProvider = tracer.getDelegate() as NodeTracerProvider;
+      const tracer = trace.getTracerProvider() as unknown as {
+        getDelegate(): NodeTracerProvider;
+      };
+      const tracerProvider = tracer.getDelegate();
       const meterProvider = metrics.getMeterProvider() as MeterProvider;
       const loggerProvider = logs.getLoggerProvider() as LoggerProvider;
       providers = [tracerProvider, meterProvider, loggerProvider];
@@ -144,6 +140,63 @@ describe('server OTLP header precedence', () => {
     expect(metrics.getMeterProvider()).toBe(existingMeter);
     providers = [existingMeter];
     diagnostic.mockRestore();
+  });
+
+  it('keeps concurrent Sentry isolation scopes request-local', async () => {
+    Sentry.init({
+      dsn: 'https://public@sentry.example/1',
+      skipOpenTelemetrySetup: true,
+      tracesSampleRate: null,
+    } as unknown as Parameters<typeof Sentry.init>[0]);
+    const { initOpenTelemetryServer } =
+      await import('@/composition/telemetry/otel.server');
+    expect(initOpenTelemetryServer()).toBeUndefined();
+
+    const bothReady = Promise.withResolvers<void>();
+    let ready = 0;
+    const run = (id: string, role: string) =>
+      Sentry.withIsolationScope(async (scope) => {
+        scope.setUser({ id });
+        scope.setTag('role', role);
+        ready += 1;
+        if (ready === 2) bothReady.resolve();
+        await bothReady.promise;
+        const active = Sentry.getIsolationScope();
+        return {
+          role: active.getScopeData().tags.role,
+          user: active.getUser()?.id,
+        };
+      });
+
+    await expect(
+      Promise.all([run('user-a', 'admin'), run('user-b', 'member')])
+    ).resolves.toEqual([
+      { role: 'admin', user: 'user-a' },
+      { role: 'member', user: 'user-b' },
+    ]);
+  });
+
+  it('keeps concurrent OpenTelemetry adapter users request-local', async () => {
+    const { createServerTelemetryUserContext } =
+      await import('@/composition/telemetry/otel.server');
+    const users = createServerTelemetryUserContext();
+    const bothReady = Promise.withResolvers<void>();
+    let ready = 0;
+    const run = (id: string) =>
+      users.run(async () => {
+        expect(users.getUser()).toBeNull();
+        users.setUser({ id });
+        ready += 1;
+        if (ready === 2) bothReady.resolve();
+        await bothReady.promise;
+        return users.getUser()?.id;
+      });
+
+    await expect(Promise.all([run('user-a'), run('user-b')])).resolves.toEqual([
+      'user-a',
+      'user-b',
+    ]);
+    expect(users.getUser()).toBeNull();
   });
 });
 
