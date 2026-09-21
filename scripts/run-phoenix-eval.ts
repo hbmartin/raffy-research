@@ -880,6 +880,15 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
 }
 
 async function runCompare(args: CliArgs) {
+  if (args.split) {
+    // One compare example is a whole report, so there is no subset to select.
+    // Saying so beats silently ignoring the flag and looking cheap.
+    log('Ignoring --sample/--split: compare evaluates one report per run', {
+      split: args.split,
+      sources: 'all',
+    });
+  }
+
   const config = getLocalAiConfig();
   const provider = (args.provider ?? config.provider) as LocalAiProviderName;
   const model = args.model ?? config.model;
