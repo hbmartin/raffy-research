@@ -30,9 +30,33 @@ export type ResolvedDataset = {
   datasetId: string;
   /** Pins the experiment to the exact example content this run used. */
   versionId?: string;
-  action: 'reused' | 'revised' | 'adopted' | 'created';
+  action: 'reused' | 'revised' | 'adopted' | 'created' | 'reconciled';
   contentHash: string;
 };
+
+/**
+ * Example ids present remotely that this case no longer pushes.
+ *
+ * These are left behind when an example's id changes — an example pushed
+ * before ids were stable keeps its server-assigned one, and the next push
+ * creates a sibling rather than replacing it. Every run then evaluates the
+ * duplicate too, silently doubling cost and averaging two runs into one score.
+ */
+async function findStaleExampleIds(
+  api: DatasetApi,
+  client: PhoenixClient,
+  datasetId: string,
+  examples: DatasetExample[]
+): Promise<string[]> {
+  const ours = new Set(examples.map((example) => example.id));
+  const remote = await api.getDatasetExamples({
+    client,
+    dataset: { datasetId },
+  });
+  return remote.examples
+    .map((example) => example.id)
+    .filter((id) => !ours.has(id));
+}
 
 type PhoenixClient = unknown;
 
@@ -60,6 +84,10 @@ type DatasetApi = {
     client: PhoenixClient;
     dataset: { datasetId: string } | { datasetName: string };
   }) => Promise<{ id: string; versionId?: string }>;
+  getDatasetExamples: (args: {
+    client: PhoenixClient;
+    dataset: { datasetId: string };
+  }) => Promise<{ examples: { id: string }[] }>;
 };
 
 /** The calls ensureDataset cannot work without. */
@@ -67,6 +95,7 @@ export const REQUIRED_DATASET_CALLS = [
   'createDataset',
   'appendDatasetExamples',
   'getDataset',
+  'getDatasetExamples',
 ] as const;
 
 async function loadDatasetApi(): Promise<DatasetApi> {
@@ -118,6 +147,8 @@ export async function ensureDataset(input: {
   datasetName: string;
   examples: DatasetExample[];
   description: string;
+  /** Check for, and replace, examples the case no longer pushes. */
+  reconcile?: boolean;
   log: (message: string, data?: Record<string, unknown>) => void;
 }): Promise<ResolvedDataset> {
   const { client, evalCase, purpose, examples, log } = input;
@@ -128,6 +159,53 @@ export async function ensureDataset(input: {
   const hash = contentHash(examples);
 
   const remote = await findRemote(api, client, binding);
+
+  if (input.reconcile && remote) {
+    const stale = await findStaleExampleIds(api, client, remote.id, examples);
+    if (stale.length === 0) {
+      log("Dataset holds exactly this case's examples; nothing to reconcile", {
+        purpose,
+        datasetId: remote.id,
+        examples: examples.length,
+      });
+    } else {
+      // A same-name create replaces the example set and keeps the dataset id,
+      // so experiment history survives the repair.
+      log('Replacing stale examples left by an earlier push', {
+        purpose,
+        datasetId: remote.id,
+        stale,
+      });
+      const recreated = await api.createDataset({
+        client,
+        name: binding.datasetName,
+        description: input.description,
+        examples,
+      });
+      const after = await findRemote(api, client, {
+        datasetId: recreated.datasetId,
+        datasetName: binding.datasetName,
+      });
+      writePhoenixBinding(evalCase, purpose, {
+        datasetName: binding.datasetName,
+        datasetId: recreated.datasetId,
+        versionId: after?.versionId,
+        contentHash: hash,
+        pushedAt: new Date().toISOString(),
+      });
+      log('Reconciled Phoenix dataset', {
+        purpose,
+        datasetId: recreated.datasetId,
+        examples: examples.length,
+      });
+      return {
+        datasetId: recreated.datasetId,
+        versionId: after?.versionId,
+        action: 'reconciled',
+        contentHash: hash,
+      };
+    }
+  }
 
   if (remote && binding.contentHash === hash && binding.datasetId) {
     // The stored version is authoritative for what this case was scored

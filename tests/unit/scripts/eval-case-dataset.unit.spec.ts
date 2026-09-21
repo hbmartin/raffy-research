@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createDataset: vi.fn(),
   appendDatasetExamples: vi.fn(),
   getDataset: vi.fn(),
+  getDatasetExamples: vi.fn(),
 }));
 
 vi.mock('@arizeai/phoenix-client/datasets', () => mocks);
@@ -321,6 +322,71 @@ describe('eval case Phoenix dataset binding', () => {
     expect(
       readExistingPhoenixBindings(mkdtempSync(join(tmpdir(), 'empty-')))
     ).toEqual({});
+  });
+
+  it('replaces examples the case no longer pushes', async () => {
+    const evalCase = makeCase({
+      datasetName: 'report-generation-acme',
+      datasetId: 'ds-1',
+      versionId: 'v-1',
+      contentHash: contentHash(examples),
+    });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-2' });
+    // An example pushed before ids were stable keeps its server-assigned id.
+    mocks.getDatasetExamples.mockResolvedValue({
+      examples: [{ id: 'server-assigned-1' }, { id: example.id }],
+    });
+    mocks.createDataset.mockResolvedValue({ datasetId: 'ds-1' });
+
+    const result = await ensureDataset({
+      client: {},
+      evalCase,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
+      description: 'd',
+      reconcile: true,
+      log,
+    });
+
+    expect(result).toMatchObject({ action: 'reconciled', datasetId: 'ds-1' });
+    // A same-name create replaces the set, so the dataset id and its history survive.
+    expect(mocks.createDataset).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'report-generation-acme', examples })
+    );
+    expect(mocks.appendDatasetExamples).not.toHaveBeenCalled();
+    const manifest = JSON.parse(
+      readFileSync(join(evalCase.dir, 'case.json'), 'utf8')
+    ) as CaseManifest;
+    expect(manifest.phoenix.reportGeneration?.versionId).toBe('v-2');
+  });
+
+  it('leaves a clean dataset untouched when reconciling', async () => {
+    const evalCase = makeCase({
+      datasetName: 'report-generation-acme',
+      datasetId: 'ds-1',
+      versionId: 'v-1',
+      contentHash: contentHash(examples),
+    });
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-1' });
+    mocks.getDatasetExamples.mockResolvedValue({
+      examples: [{ id: example.id }],
+    });
+
+    const result = await ensureDataset({
+      client: {},
+      evalCase,
+      purpose: 'reportGeneration',
+      datasetName: 'report-generation-acme',
+      examples,
+      description: 'd',
+      reconcile: true,
+      log,
+    });
+
+    expect(result.action).toBe('reused');
+    expect(mocks.createDataset).not.toHaveBeenCalled();
+    expect(mocks.appendDatasetExamples).not.toHaveBeenCalled();
   });
 
   it('hashes content independently of key order', () => {

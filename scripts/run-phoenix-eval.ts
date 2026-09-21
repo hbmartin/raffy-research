@@ -27,6 +27,7 @@ import {
   type EvalExperimentPort,
   formatPeriodDate,
   generateWeeklyReport,
+  JUDGE_PROMPT_VERSION,
   type LocalAiProviderName,
   parseGeneratedReportJson,
   SOURCE_SUMMARY_CONTENT_LIMIT,
@@ -58,6 +59,7 @@ import {
   usableSources as caseUsableSources,
 } from './eval/case';
 import { exportCase } from './eval/export-case';
+import { createJudgeEvaluators } from './eval/judge-evaluators';
 import { ensureDataset } from './eval/phoenix-dataset';
 import {
   SUMMARY_EVALUATORS,
@@ -90,6 +92,10 @@ type CliArgs = {
   split?: string;
   sampleSize?: number;
   sampleSourceIds?: string[];
+  reconcile?: boolean;
+  judge?: boolean;
+  judgeProvider?: string;
+  judgeModel?: string;
 };
 
 function parseArgs(argv: string[]): CliArgs {
@@ -128,6 +134,21 @@ function parseArgs(argv: string[]): CliArgs {
         '  --period <date>    Period date for summarize/generate',
         '  --provider <p>     Override LOCAL_AI_PROVIDER',
         '  --model <m>        Override LOCAL_AI_MODEL',
+        '',
+        'summarize options:',
+        "  --sample           Run only the case's fixed sample split (default 10 sources)",
+        '  --split <name>     Run only this dataset split',
+        '  --sample-size <n>  Sources in the sample split, set at export (default 10)',
+        '  --sample-source <id>  Pin a specific source into the sample (repeatable)',
+        '  --stored           Score summaries already in the case, without generating',
+        '  --limit <n>        Run only n examples, and do not record to Phoenix',
+        '  --concurrency <n>  Examples processed in parallel (default 4)',
+        '',
+        'compare options:',
+        '  --reconcile        Replace stale dataset examples, then exit without running',
+        '  --judge            Add LLM-judge evaluators (3 extra model calls per run)',
+        '  --judge-provider <p>  Provider for the judge (default: the generation provider)',
+        '  --judge-model <m>  Model for the judge; prefer one that did not write the report',
       ].join('\n')
     );
     process.exit(1);
@@ -148,6 +169,10 @@ function parseArgs(argv: string[]): CliArgs {
   let split: string | undefined;
   let sampleSize: number | undefined;
   let sampleSourceIds: string[] | undefined;
+  let reconcile = false;
+  let judge = false;
+  let judgeProvider: string | undefined;
+  let judgeModel: string | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -181,6 +206,22 @@ function parseArgs(argv: string[]): CliArgs {
       outDir = args[++i];
     } else if (arg?.startsWith('--out=')) {
       outDir = arg.slice('--out='.length);
+    } else if (arg === '--reconcile') {
+      reconcile = true;
+    } else if (arg === '--judge') {
+      judge = true;
+    } else if (arg === '--judge-provider') {
+      judgeProvider = args[++i];
+      judge = true;
+    } else if (arg?.startsWith('--judge-provider=')) {
+      judgeProvider = arg.slice('--judge-provider='.length);
+      judge = true;
+    } else if (arg === '--judge-model') {
+      judgeModel = args[++i];
+      judge = true;
+    } else if (arg?.startsWith('--judge-model=')) {
+      judgeModel = arg.slice('--judge-model='.length);
+      judge = true;
     } else if (arg === '--sample') {
       split = SAMPLE_SPLIT;
     } else if (arg === '--split') {
@@ -246,6 +287,10 @@ function parseArgs(argv: string[]): CliArgs {
     split,
     sampleSize,
     sampleSourceIds,
+    reconcile,
+    judge,
+    judgeProvider,
+    judgeModel,
   };
 }
 
@@ -415,8 +460,14 @@ async function runSummarizeCase(args: CliArgs) {
     datasetName: `summary-quality-${evalCase.manifest.name}`,
     examples,
     description: `Source summaries for eval case ${evalCase.manifest.name}`,
+    reconcile: args.reconcile,
     log,
   });
+
+  if (args.reconcile) {
+    log('Reconcile complete', { datasetId: resolved.datasetId });
+    return;
+  }
 
   const summarizeSource = async (
     sourceRecordId: string
@@ -992,6 +1043,7 @@ async function runCompare(args: CliArgs) {
       datasetName: `report-generation-${evalCase.manifest.name}`,
       examples: [example],
       description: `Report generation comparison for eval case ${evalCase.manifest.name}`,
+      reconcile: args.reconcile,
       log,
     });
     datasetId = resolvedDataset.datasetId;
@@ -1009,6 +1061,40 @@ async function runCompare(args: CliArgs) {
     datasetId = created.datasetId;
   }
 
+  if (args.reconcile) {
+    // Repair only: generating a report here would burn a model call nobody
+    // asked for.
+    log('Reconcile complete', { datasetId });
+    return;
+  }
+
+  const judgeProvider = (args.judgeProvider ?? provider) as LocalAiProviderName;
+  const judgeModel = args.judgeModel ?? model;
+  if (args.judge && judgeProvider === provider && judgeModel === model) {
+    log(
+      'Judge and generator are the same model; scores will flatter the report',
+      { model: judgeModel }
+    );
+  }
+  const judgeEvaluators = args.judge
+    ? createJudgeEvaluators(async ({ prompt, label }) => {
+        const result = await generateLocalText({
+          provider: judgeProvider,
+          model: judgeModel,
+          prompt,
+          action: 'judge_report',
+          label,
+          runId,
+          rawOutputDir: config.rawOutputDir,
+          ollamaBaseUrl: config.ollamaBaseUrl,
+          ollamaNumCtx: config.ollamaNumCtx,
+          // Judges are graders, not authors: variance is noise here.
+          temperature: 0,
+        });
+        return result.text;
+      })
+    : [];
+
   const experiment = await runExperiment({
     client,
     dataset: versionId ? { datasetId, versionId } : { datasetId },
@@ -1020,6 +1106,13 @@ async function runCompare(args: CliArgs) {
       referenceReportId: report.id,
       ...(evalCase
         ? { caseName: evalCase.manifest.name, datasetVersionId: versionId }
+        : {}),
+      ...(args.judge
+        ? {
+            judgeProvider,
+            judgeModel,
+            judgePromptVersion: JUDGE_PROMPT_VERSION,
+          }
         : {}),
     },
     task: async () => {
@@ -1250,6 +1343,33 @@ async function runCompare(args: CliArgs) {
           };
         },
       }),
+      ...judgeEvaluators.map((judge) =>
+        asEvaluator({
+          name: judge.name,
+          kind: 'LLM',
+          evaluate: async ({ input, output }) => {
+            const generated = output as Record<string, unknown> | null;
+            if (!generated || generated.parseError) {
+              return { score: null, label: 'no-report' };
+            }
+            const inputData = input as Record<string, unknown>;
+            const sourceIds = new Set(
+              (Array.isArray(inputData.sources) ? inputData.sources : []).map(
+                (source) => String((source as Record<string, unknown>).id)
+              )
+            );
+            return judge.evaluate({
+              reportJson: JSON.stringify(generated, null, 1),
+              reportData: generated,
+              // The judge reads full source text, not the truncated copy the
+              // dataset carries for display.
+              sources: usableSources.filter((source) =>
+                sourceIds.has(source.id)
+              ) as unknown as Parameters<typeof judge.evaluate>[0]['sources'],
+            });
+          },
+        })
+      ),
     ],
     setGlobalTracerProvider: false,
   });
@@ -1313,6 +1433,9 @@ async function main() {
       await runCompare(args);
     }
     log('Done');
+    // Telemetry exporters and DB pools can keep the loop alive; every path
+    // above has awaited its work, so leaving is safe and avoids a hang.
+    process.exit(0);
   } catch (error) {
     console.error(
       '[phoenix-eval] Fatal error:',
