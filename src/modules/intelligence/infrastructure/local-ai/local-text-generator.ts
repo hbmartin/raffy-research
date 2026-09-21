@@ -179,6 +179,9 @@ export async function generateLocalText(
       }),
       prompt: input.prompt,
       includeRawChunks: true,
+      ...(input.temperature === undefined
+        ? {}
+        : { temperature: input.temperature }),
       abortSignal: input.abortSignal,
       experimental_telemetry: { isEnabled: true },
       ...ollamaProviderOptions(input),

@@ -81,6 +81,8 @@ export type LocalTextGenerationInput = {
   rawOutputDir: string;
   ollamaBaseUrl?: string;
   ollamaNumCtx?: number;
+  /** Pinned to 0 by judges, where run-to-run variance is the enemy. */
+  temperature?: number;
   abortSignal?: AbortSignal;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
 };
