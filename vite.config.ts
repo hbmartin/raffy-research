@@ -8,8 +8,6 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 
-import { CSP_NONCE_PLACEHOLDER } from './src/platform/http/csp-nonce';
-
 function srcJsonImportPlugin(): Plugin {
   return {
     name: 'start-ui:src-json-import',
@@ -68,30 +66,43 @@ function srcJsonImportPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // Load env file based on `mode` in the current working directory.
-  const env = loadEnv(mode, process.cwd(), 'VITE_');
-  const privateEnv = loadEnv(mode, process.cwd(), '');
+  const envDirectory = process.env.SSR_FIXTURE_ENV_DIR ?? process.cwd();
+  const env = loadEnv(mode, envDirectory, 'VITE_');
+  const privateEnv = loadEnv(mode, envDirectory, '');
   const envName = env.VITE_ENV_NAME?.toLowerCase();
   const isTestRuntime = envName === 'test' || envName === 'tests';
-  const sentryPlugins =
-    env.VITE_SENTRY_DSN &&
+  const sentryUploadConfig =
     privateEnv.SENTRY_ORG &&
     privateEnv.SENTRY_PROJECT &&
     privateEnv.SENTRY_AUTH_TOKEN
-      ? sentryTanstackStart({
+      ? {
+          authToken: privateEnv.SENTRY_AUTH_TOKEN,
           org: privateEnv.SENTRY_ORG,
           project: privateEnv.SENTRY_PROJECT,
-          authToken: privateEnv.SENTRY_AUTH_TOKEN,
+        }
+      : undefined;
+  const sentryPlugins =
+    env.VITE_SENTRY_DSN && sentryUploadConfig
+      ? sentryTanstackStart({
+          ...sentryUploadConfig,
+          telemetry: false,
+          autoInstrumentMiddleware: false,
+          sourcemaps: { disable: false },
+          release: { create: true, finalize: true },
         })
       : [];
 
   return {
+    envDir: envDirectory,
+    define: {
+      'import.meta.env.RAFFY_PRODUCTION_BUILD': JSON.stringify(
+        command === 'build'
+      ),
+    },
     build: {
       target: 'baseline-widely-available',
-    },
-    html: {
-      cspNonce: CSP_NONCE_PLACEHOLDER,
     },
     server: {
       port: env.VITE_PORT ? Number(env.VITE_PORT) : 3000,
@@ -100,11 +111,19 @@ export default defineConfig(({ mode }) => {
     resolve: {
       tsconfigPaths: true,
     },
+    // The core client entry needs Start's isomorphic/server-function transforms
+    // in development; prebundling it would retain server-only Node imports.
+    optimizeDeps: { exclude: ['@tanstack/start-client-core'] },
     plugins: [
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
       tanstackStart(),
-      nitro(),
+      nitro({
+        plugins: ['./src/composition/telemetry/bootstrap.ts'],
+        // These packages are loaded dynamically at runtime, so Nitro cannot
+        // discover them from static imports when tracing Vercel functions.
+        traceDeps: ['@sentry/core*', 'ws*'],
+      }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),
       babel({ presets: [reactCompilerPreset()] }),

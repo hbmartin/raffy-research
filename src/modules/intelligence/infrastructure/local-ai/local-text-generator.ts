@@ -178,16 +178,18 @@ export async function generateLocalText(
         ollamaBaseUrl: input.ollamaBaseUrl,
       }),
       prompt: input.prompt,
-      includeRawChunks: true,
       ...(input.temperature === undefined
         ? {}
         : { temperature: input.temperature }),
       abortSignal: input.abortSignal,
+      include: {
+        rawChunks: true,
+      },
       experimental_telemetry: { isEnabled: true },
       ...ollamaProviderOptions(input),
     });
 
-    for await (const part of result.fullStream) {
+    for await (const part of result.stream) {
       throwIfAborted(input.abortSignal);
       rawEvents.push(toJsonValue(part));
 

@@ -1,3 +1,4 @@
+import { validateHeaderName } from 'node:http';
 import { filter, isTruthy, map, pipe } from 'remeda';
 import { z } from 'zod';
 
@@ -11,6 +12,28 @@ import { ConfigurationError } from '../../domain/errors/configuration-error';
 
 const zOptionalProviderSecret = () => z.string().optional();
 const AUTH_SECRET_MIN_LENGTH = 32;
+const isFixtureLoopbackAddress = (env: {
+  HOST?: string;
+  NITRO_HOST?: string;
+  VITE_BASE_URL?: string;
+}) => {
+  if (
+    env.HOST !== '127.0.0.1' ||
+    (env.NITRO_HOST !== undefined && env.NITRO_HOST !== '127.0.0.1')
+  )
+    return false;
+  try {
+    const url = new URL(env.VITE_BASE_URL ?? '');
+    return (
+      url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+};
 const AUTH_SECRET_PLACEHOLDERS = new Set([
   'changeme',
   'change-me',
@@ -37,6 +60,13 @@ const authProviderEnvSchema = baseEnvSchema.extend({
   AUTH_PROVIDER: z.enum(['better-auth', 'workos']).prefault('better-auth'),
 });
 
+const ssrFixtureMarkerEnvSchema = baseEnvSchema.extend({
+  SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+  HOST: z.string().optional(),
+  NITRO_HOST: z.string().optional(),
+  VITE_BASE_URL: z.string().optional(),
+});
+
 const betterAuthEnvSchema = baseEnvSchema
   .extend({
     AUTH_SECRET: z.string().trim(),
@@ -52,6 +82,12 @@ const betterAuthEnvSchema = baseEnvSchema
       .prefault(86_400),
     AUTH_ALLOWED_HOSTS: z.string().optional(),
     AUTH_TRUSTED_ORIGINS: z.string().optional(),
+    AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
+    VERCEL: z.string().optional(),
+    SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+    HOST: z.string().optional(),
+    NITRO_HOST: z.string().optional(),
+    VITE_BASE_URL: z.string().optional(),
     GITHUB_CLIENT_ID: zOptionalProviderSecret(),
     GITHUB_CLIENT_SECRET: zOptionalProviderSecret(),
   })
@@ -75,6 +111,51 @@ const betterAuthEnvSchema = baseEnvSchema
     }
 
     if (!isProdRuntimeEnvironment(env)) return;
+
+    const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
+    // VERCEL_REGION exists only at runtime, but this schema also runs at build time.
+    const isVercelDeployment = env.VERCEL === '1';
+    const fixtureIsLoopback = isFixtureLoopbackAddress(env);
+    if (fixtureMode && !fixtureIsLoopback) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SSR_FIXTURE_MODE'],
+        message: 'SSR fixture mode requires a loopback host and base URL',
+      });
+    }
+    if (
+      !shouldSkipEnvValidation(env) &&
+      !isVercelDeployment &&
+      !fixtureMode &&
+      !env.AUTH_TRUSTED_CLIENT_IP_HEADER
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+        message:
+          'A proxy-owned client IP header is required for self-hosted production',
+      });
+    }
+    if (env.AUTH_TRUSTED_CLIENT_IP_HEADER) {
+      try {
+        validateHeaderName(env.AUTH_TRUSTED_CLIENT_IP_HEADER);
+      } catch {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+          message: 'Use a valid proxy-owned client IP header',
+        });
+      }
+      if (
+        env.AUTH_TRUSTED_CLIENT_IP_HEADER.toLowerCase() === 'x-forwarded-for'
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+          message: 'Use a dedicated proxy-owned header, not X-Forwarded-For',
+        });
+      }
+    }
 
     for (const field of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'] as const) {
       if (env[field] === 'REPLACE ME') {
@@ -108,6 +189,8 @@ export type BetterAuthConfig = {
   sessionUpdateAgeInSeconds: number;
   allowedHosts?: string[];
   trustedOrigins?: string[];
+  trustedClientIpHeader?: string;
+  fixtureSignInRateLimit: boolean;
   githubClientId?: string;
   githubClientSecret?: string;
 };
@@ -116,39 +199,92 @@ export type AuthConfig = BetterAuthConfig;
 
 let cachedAuthProviderConfig: AuthProviderConfig | undefined;
 let cachedBetterAuthConfig: BetterAuthConfig | undefined;
+let reportedSharedRateLimitBucket = false;
 
-export function getAuthProviderConfig(): AuthProviderConfig {
-  if (cachedAuthProviderConfig) return cachedAuthProviderConfig;
+const reportSharedRateLimitBucket = () => {
+  if (reportedSharedRateLimitBucket) return;
+  reportedSharedRateLimitBucket = true;
+  process.stderr.write(
+    '{"event":"auth.rate_limit_shared_bucket","reason":"trusted_client_ip_unconfigured"}\n'
+  );
+};
 
-  const env = parseEnv(authProviderEnvSchema);
-  cachedAuthProviderConfig = {
+export function getAuthProviderConfig(
+  source?: Record<string, unknown>
+): AuthProviderConfig {
+  if (!source && cachedAuthProviderConfig) return cachedAuthProviderConfig;
+
+  const env = parseEnv(authProviderEnvSchema, source);
+  const config = {
     provider: env.AUTH_PROVIDER,
   };
-  return cachedAuthProviderConfig;
+  if (!source) cachedAuthProviderConfig = config;
+  return config;
 }
 
-export function getBetterAuthConfig(): BetterAuthConfig {
-  if (cachedBetterAuthConfig) return cachedBetterAuthConfig;
+export function getBetterAuthConfig(
+  source?: Record<string, unknown>
+): BetterAuthConfig {
+  if (!source && cachedBetterAuthConfig) return cachedBetterAuthConfig;
 
-  const env = parseEnv(betterAuthEnvSchema);
-  cachedBetterAuthConfig = {
+  const env = parseEnv(betterAuthEnvSchema, source);
+  const isVercelDeployment = env.VERCEL === '1';
+  const trustedClientIpHeader =
+    env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
+    (isVercelDeployment ? 'x-vercel-forwarded-for' : undefined);
+  const fixtureSignInRateLimit = env.SSR_FIXTURE_MODE === 'true';
+  if (
+    isProdRuntimeEnvironment(env) &&
+    shouldSkipEnvValidation(env) &&
+    !fixtureSignInRateLimit &&
+    !trustedClientIpHeader
+  ) {
+    reportSharedRateLimitBucket();
+  }
+
+  const config = {
     secret: env.AUTH_SECRET,
     sessionExpirationInSeconds: env.AUTH_SESSION_EXPIRATION_IN_SECONDS,
     sessionUpdateAgeInSeconds: env.AUTH_SESSION_UPDATE_AGE_IN_SECONDS,
     allowedHosts: splitCsv(env.AUTH_ALLOWED_HOSTS),
     trustedOrigins: splitCsv(env.AUTH_TRUSTED_ORIGINS),
+    trustedClientIpHeader,
+    fixtureSignInRateLimit,
     githubClientId: env.GITHUB_CLIENT_ID,
     githubClientSecret: env.GITHUB_CLIENT_SECRET,
   };
-  return cachedBetterAuthConfig;
+  if (!source) cachedBetterAuthConfig = config;
+  return config;
 }
 
-export function getAuthConfig(): AuthConfig {
-  const { provider } = getAuthProviderConfig();
+export function getAuthConfig(source?: Record<string, unknown>): AuthConfig {
+  const { provider } = getAuthProviderConfig(source);
   if (provider !== 'better-auth') {
     throw new ConfigurationError(
       `AUTH_PROVIDER=${provider} is not implemented in this build.`
     );
   }
-  return getBetterAuthConfig();
+  return getBetterAuthConfig(source);
+}
+
+export function isValidatedSsrFixtureRuntime(
+  isProductionBuild: boolean,
+  source?: Record<string, unknown>
+) {
+  const env = parseEnv(ssrFixtureMarkerEnvSchema, source);
+  if (env.SSR_FIXTURE_MODE !== 'true') return false;
+
+  if (
+    !isProductionBuild ||
+    env.NODE_ENV !== 'production' ||
+    shouldSkipEnvValidation(env) ||
+    !isFixtureLoopbackAddress(env)
+  ) {
+    throw new ConfigurationError(
+      'SSR fixture mode requires a production build and loopback host and base URL.'
+    );
+  }
+
+  getAuthConfig(source);
+  return true;
 }

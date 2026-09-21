@@ -1,3 +1,4 @@
+import { CSPProvider } from '@base-ui/react/csp-provider';
 import type { QueryClient } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
 import { type ReactNode, useEffect } from 'react';
@@ -22,17 +23,19 @@ export const Providers = (props: {
   const cspNonce = props.cspNonce ?? readCspNonceFromMeta();
 
   return (
-    <ThemeProvider
-      attribute="class"
-      storageKey="theme"
-      disableTransitionOnChange
-      nonce={cspNonce}
-      forcedTheme={props.forcedTheme}
-    >
-      <QueryClientProvider client={props.client}>
-        <ProviderContent>{props.children}</ProviderContent>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <CSPProvider nonce={cspNonce} disableStyleElements>
+      <ThemeProvider
+        attribute="class"
+        storageKey="theme"
+        disableTransitionOnChange
+        nonce={cspNonce}
+        forcedTheme={props.forcedTheme}
+      >
+        <QueryClientProvider client={props.client}>
+          <ProviderContent>{props.children}</ProviderContent>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </CSPProvider>
   );
 };
 

@@ -130,7 +130,7 @@ On `/manager/workspaces/:id` when `DEV` is true. Controls:
 | **Reprocess callbacks** | Re-runs normalization for selected raw callbacks |
 | **Summarize sources** | One LLM call per selected source → stored `sourceSummary` rows |
 | **Generate report** | Full generation against the selected sources |
-| **Evaluate report** | LLM-judge pass over the latest published report ([details](#the-llm-judge-evaluate_report)) |
+| **Evaluate report** | LLM-judge pass over the latest published report ([details](#signal-3--the-llm-judge-evaluate_report)) |
 | **Full workflow** | Ingest → reprocess → summarize → generate in one run |
 | **Stop** | Aborts the in-flight run (the abort reason is preserved end-to-end) |
 
@@ -559,6 +559,100 @@ Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStu
 
 * Node.js 24.x, pnpm, Docker (or a PostgreSQL database)
 
+### TanStack SSR compatibility
+
+The tested compatibility set is `@tanstack/react-start@1.168.54`,
+`@tanstack/react-router@1.170.36`,
+`@tanstack/react-router-ssr-query@1.167.2`, and
+`@tanstack/react-query@5.102.8`. Query Core is pinned to `5.102.8`, Router
+Core to `1.171.30`, and SSR Query Core resolves to `1.169.2`;
+`@tanstack/start-client-core@1.170.30` matches Start's requirement.
+The core pins keep peer dependencies on the same versions. Do not override Router Core independently:
+`pnpm check:ssr-compatibility` checks the versions required by Start and Router.
+
+Two SSR failure modes make a successful build insufficient evidence for an upgrade:
+
+* **Query stream hang:** [TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529) describes Router Core and SSR Query combinations where a fast path skips the query-stream close listener. The page may paint while `curl` or a bot waits until the serialization timeout. The `1.171.32` fast path also moved from `reserveStreamFastPath` to `hydrationScripts.reserveFastPath`, breaking this repo's stream fixture; the pinned `1.171.30` set retains the tested contract.
+* **Reload hydration race:** a pending hydration promise from an old WebKit document can signal completion on its replacement after a hard reload. The local `start-hydration-compat` shim binds completion to the original document; `UPSTREAM_TANSTACK_HYDRATION.md` contains the upstream reproduction and proposed fix.
+
+Before changing this set, run `pnpm check:ssr-compatibility`, the SSR lifecycle
+integration tests, and `pnpm test:e2e:ssr`. The SSR gate must consume complete
+login and authenticated responses without a serialization timeout, then exercise
+hydration and reloads in Chromium, Firefox, and WebKit.
+
+Start's response stream owns SSR cleanup. Request middleware preserves the
+original response body; replacing it with a transformed body can dispose the
+underlying stream before serialization completes. Script nonces are supplied
+during rendering through the router and theme provider. Production CSP allows
+inline style elements with `style-src-elem 'self' 'unsafe-inline'`; scripts still
+require a nonce. Base UI's scrollbar CSS remains in the external app stylesheet.
+The browser entry disables Zod JIT
+probing so Firefox can validate forms without triggering unsafe-eval violations.
+Client hydration also retains the original document and bootstrap state while
+route chunks load. Completion after a hard reload must not clear the replacement
+document's state through a reused WebKit window. The core hydration API and the
+isolated `start-hydration-compat` shim check ownership before signaling
+completion. An upstream repro and public API proposal are in
+`UPSTREAM_TANSTACK_HYDRATION.md`.
+
+Sentry `11.0.0` reports errors only. The server entry observes stream failures
+and preserves SDK serverless flushing without the fetch wrapper that injects
+trace metadata into HTML. OpenTelemetry remains the sole owner of tracing.
+The Sentry Vite plugin runs only with a browser DSN and upload credentials;
+middleware auto-instrumentation and plugin telemetry are disabled. Runtime
+Sentry error capture and local SSR tests work without upload credentials.
+
+Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
+`pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages
+separately: the build has a ten-minute budget; database initialization and server
+readiness have two minutes. Both use the same generated fixture manifest under
+`.ssr-fixture/`, an explicit environment, and an empty Vite env
+directory. Developer `.env` files and application credentials are not inherited.
+The manifest is written after a successful build and includes a digest of the
+`.output` files; built-only tests reject a stale or overwritten build.
+The fixture reserves local ports 3011 (app), 54331 (database), and 43191 (receiver).
+
+Desktop/mobile Chromium, Firefox, and mobile WebKit checks consume complete
+login and authenticated SSR responses within ten seconds, exercise sign-in,
+compare head metadata and nonces, and check browser proxy authentication and
+CSP/hydration errors. A server-only case verifies invalid headers stop startup
+before readiness. Integration tests cover immediate and delayed query streams,
+cleanup, error propagation, cancellation, and backpressure. Chromium/Firefox
+screenshots and failure traces are saved under `test-results/ssr/` for all
+three browser engines. This gate is independent of
+the Docker-backed E2E matrix. Dependency PRs must pass it before merging.
+
+Sentry's project OTLP integration accepts traces and logs at `/v1/traces` and
+`/v1/logs`. The app reads authentication from the standard
+`OTEL_EXPORTER_OTLP_HEADERS` format (including percent-encoded values). As of
+this setup, the same Sentry integration returns HTTP 404 for `/v1/metrics`, so
+native OTLP metrics cannot be treated as delivered until Sentry exposes that
+signal for the project. Keep the metrics exporter configured for a compatible
+collector, or verify Sentry adds project-level OTLP metrics support before
+making it the metrics destination.
+
+Server exporters and the browser proxy resolve headers identically: general
+`OTEL_EXPORTER_OTLP_HEADERS`, then the matching
+`OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_HEADERS`, then explicit
+`OTEL_COLLECTOR_BEARER_TOKEN` authorization. Names are case-insensitive, and
+the last entry for a name wins within each variable. The
+proxy preserves its validated payload Content-Type. Percent escapes are decoded;
+malformed escapes, empty entries, and semicolon metadata fail configuration
+validation so credentials cannot disappear silently. Resolved signal headers are
+cached for server exporters and browser proxy requests.
+
+For an active collector, invalid decoded HTTP headers, invalid bearer values,
+and transport-controlled headers fail build/runtime configuration validation.
+The prohibited names are `connection`, `keep-alive`, `proxy-connection`,
+`transfer-encoding`, `upgrade`, `expect`, `te`, `trailer`, `host`, and
+`content-length`.
+Errors identify the variable without exposing credentials. Production requires
+a collector and refuses startup on invalid active configuration. Outside
+production, unused collector header settings are ignored when no collector URL
+is configured, preserving independent Sentry reporting. Upstream transport
+failures return a sanitized 502 and a fixed-field stderr diagnostic that bypasses
+telemetry exporters. The optional local SQLite sink also records the failure.
+
 ### IDE setup
 
 ```bash
@@ -608,6 +702,17 @@ pnpm start    # node .output/server/index.mjs
 ```
 
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
+
+Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header
+when its `VERCEL=1` deployment marker is present during build or runtime. An
+explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence.
+Self-hosted production requires `AUTH_TRUSTED_CLIENT_IP_HEADER` set to a dedicated
+header that the reverse proxy overwrites on every request; block direct access
+to the Nitro origin. `X-Forwarded-For` is not accepted as that trusted header.
+Setting `SKIP_ENV_VALIDATION=true` bypasses this startup requirement, but leaves
+Better Auth using one shared sign-in rate-limit bucket. A few abusive sign-in
+attempts can then temporarily lock out every user; production operators accept
+that risk when enabling the bypass.
 
 Environment hint banner for non-production deploys:
 

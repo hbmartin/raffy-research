@@ -235,3 +235,32 @@
     animation: float-in-space 8s ease-in-out infinite;
   }
 }
+
+/* Base UI's shared scrollbar rules live in the external stylesheet. React's
+   hoisted style resources do not preserve the element's nonce during SSR. */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
+}
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Recovery UI supplied by the tiny client entry when the hydration chunk fails. */
+.hydration-failure {
+  position: fixed;
+  z-index: 10000;
+  inset: 1rem 1rem auto;
+  max-width: 32rem;
+  padding: 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
+}
+
+.hydration-failure button {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 0.25rem;
+}

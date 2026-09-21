@@ -18,11 +18,6 @@ import type {
 import { hashUserIdForMetrics } from '@/platform/telemetry/metadata';
 
 const tracer = trace.getTracer('start-ui-web');
-const meter = metrics.getMeter('start-ui-web');
-const otelLogger = logs.getLogger('start-ui-web');
-
-const counters = new Map<string, ReturnType<typeof meter.createCounter>>();
-const histograms = new Map<string, ReturnType<typeof meter.createHistogram>>();
 
 const severityByLevel = {
   debug: SeverityNumber.DEBUG,
@@ -75,26 +70,6 @@ const spanAttributes = (
   ...(user?.id ? { 'user.id': user.id } : {}),
 });
 
-const getCounter = (name: string, unit: string | undefined) => {
-  const key = `${name}:${unit ?? ''}`;
-  const existing = counters.get(key);
-  if (existing) return existing;
-
-  const created = meter.createCounter(name, unit ? { unit } : {});
-  counters.set(key, created);
-  return created;
-};
-
-const getHistogram = (name: string, unit: string | undefined) => {
-  const key = `${name}:${unit ?? ''}`;
-  const existing = histograms.get(key);
-  if (existing) return existing;
-
-  const created = meter.createHistogram(name, unit ? { unit } : {});
-  histograms.set(key, created);
-  return created;
-};
-
 const manualSpanHandle = (
   span: ReturnType<typeof tracer.startSpan>,
   user: TelemetryUser | null
@@ -119,9 +94,49 @@ const manualSpanHandle = (
   },
 });
 
-export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
-  let activeUser: TelemetryUser | null = null;
+export type TelemetryUserContext = {
+  getUser(): TelemetryUser | null;
+  setUser(user: TelemetryUser | null): void;
+};
 
+const createProcessUserContext = (): TelemetryUserContext => {
+  let user: TelemetryUser | null = null;
+
+  return {
+    getUser: () => user,
+    setUser: (nextUser) => {
+      user = nextUser;
+    },
+  };
+};
+
+export const createOpenTelemetryAdapter = (
+  userContext: TelemetryUserContext = createProcessUserContext()
+): TelemetryAdapter => {
+  // The metrics API does not proxy meters obtained before global registration.
+  const meter = metrics.getMeter('start-ui-web');
+  const otelLogger = logs.getLogger('start-ui-web');
+  const counters = new Map<string, ReturnType<typeof meter.createCounter>>();
+  const histograms = new Map<
+    string,
+    ReturnType<typeof meter.createHistogram>
+  >();
+  const getCounter = (name: string, unit: string | undefined) => {
+    const key = `${name}:${unit ?? ''}`;
+    const existing = counters.get(key);
+    if (existing) return existing;
+    const created = meter.createCounter(name, unit ? { unit } : {});
+    counters.set(key, created);
+    return created;
+  };
+  const getHistogram = (name: string, unit: string | undefined) => {
+    const key = `${name}:${unit ?? ''}`;
+    const existing = histograms.get(key);
+    if (existing) return existing;
+    const created = meter.createHistogram(name, unit ? { unit } : {});
+    histograms.set(key, created);
+    return created;
+  };
   return {
     captureException: () => {},
     currentCorrelation: () => {
@@ -136,6 +151,7 @@ export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
       };
     },
     emitLog: (record) => {
+      const activeUser = userContext.getUser();
       const correlation = trace.getActiveSpan()?.spanContext();
       otelLogger.emit({
         attributes: {
@@ -159,6 +175,7 @@ export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
       });
     },
     recordMetric: (input) => {
+      const activeUser = userContext.getUser();
       if (input.type === 'counter') {
         getCounter(input.name, input.unit).add(
           input.value,
@@ -173,16 +190,19 @@ export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
       );
     },
     setUser: (user) => {
-      activeUser = user;
+      userContext.setUser(user);
     },
     startManualSpan: (options) => {
+      const activeUser = userContext.getUser();
       const span = tracer.startSpan(options.name, {
         attributes: spanAttributes(options.attributes, activeUser),
       });
       return manualSpanHandle(span, activeUser);
     },
-    startSpan: (options: TelemetrySpanOptions, fn) =>
-      tracer.startActiveSpan(
+    startSpan: (options: TelemetrySpanOptions, fn) => {
+      const activeUser = userContext.getUser();
+
+      return tracer.startActiveSpan(
         options.name,
         { attributes: spanAttributes(options.attributes, activeUser) },
         (span) => {
@@ -220,6 +240,7 @@ export const createOpenTelemetryAdapter = (): TelemetryAdapter => {
             throw error;
           }
         }
-      ),
+      );
+    },
   };
 };

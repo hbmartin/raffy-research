@@ -27,6 +27,27 @@ rules:
       include:
         - src/modules/intelligence/application/generation/**/*.ts
 
+  - id: intelligence-report-score-read-requires-workspace-ownership
+    message: Report score reads must verify reportBelongsToWorkspace before reading by reportId and userId.
+    severity: ERROR
+    languages:
+      - typescript
+    patterns:
+      - pattern-inside: |
+          export async function getReportRubricScore(...) {
+            ...
+          }
+      - pattern: deps.rubricScoreRepository.getForReportAndUser(...)
+      - pattern-not-inside: |
+          export async function getReportRubricScore(...) {
+            ...
+            reportBelongsToWorkspace(...)
+            ...
+          }
+    paths:
+      include:
+        - src/modules/intelligence/application/use-cases/score-report.ts
+
   - id: no-ignored-intelligence-ingestion-status-result
     message: Check ingestion status update Results; ignored finishRun/updateCallbackNormalization errors can create false success.
     severity: ERROR

@@ -48,18 +48,27 @@ export const apifyAdapter: ProviderAdapter = {
     const sourceRecords: SourceRecordWriteInput[] = asArray(items.get()).map(
       (rawItem) => {
         const item = asObject(rawItem);
-        const url = asString(item.url) ?? asString(item.postUrl);
+        const author = asObject(item.author);
+        const postedAt = asObject(item.postedAt);
+        const url =
+          asString(item.url) ??
+          asString(item.postUrl) ??
+          asString(item.linkedinUrl);
+        const authorName =
+          asString(item.authorName) ??
+          asString(item.author) ??
+          asString(author.name);
         return {
           workspaceId: ctx.workspaceId,
           providerName: 'apify',
           providerSourceId: asString(item.id) ?? asString(item.urn),
           sourceType: 'linkedin_post',
-          sourceName: asString(item.authorName) ?? 'LinkedIn',
+          sourceName: authorName ?? 'LinkedIn',
           externalUrl: url,
           sourceUrl: url,
           title: asString(item.title),
-          authorOrAccount: asString(item.authorName) ?? asString(item.author),
-          publishedAt: toDate(item.publishedAt ?? item.date),
+          authorOrAccount: authorName,
+          publishedAt: toDate(item.publishedAt ?? item.date ?? postedAt.date),
           contentText: asString(item.text) ?? asString(item.content),
           rawPayload: rawItem,
         };

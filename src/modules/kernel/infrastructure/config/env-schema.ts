@@ -2,14 +2,18 @@
 import { join, map, pipe, unique } from 'remeda';
 import { z } from 'zod';
 
+import {
+  mergeRuntimeEnv,
+  type RuntimeEnv,
+} from '@/platform/env/merge-runtime-env';
+
 import { ConfigurationError } from '../../domain/errors/configuration-error';
 
-type RuntimeEnv = Record<string, unknown>;
-
-const runtimeEnv = (): RuntimeEnv => ({
-  ...(typeof process === 'undefined' ? {} : process.env),
-  ...(import.meta as ImportMeta & { env?: RuntimeEnv }).env,
-});
+const runtimeEnv = (): RuntimeEnv =>
+  mergeRuntimeEnv(
+    typeof process === 'undefined' ? {} : process.env,
+    (import.meta as ImportMeta & { env?: RuntimeEnv }).env
+  );
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
 

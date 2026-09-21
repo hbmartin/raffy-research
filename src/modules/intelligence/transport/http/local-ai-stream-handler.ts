@@ -6,6 +6,7 @@ import {
   buildEvalPrompt,
   buildSourceSummaryPrompt,
   computeWeeklyPeriod,
+  EVAL_PROMPT_VERSION,
   generateWeeklyReport,
   handleProviderCallback,
   type IngestionDeps,
@@ -466,6 +467,7 @@ async function evaluateLatestReport(
     artifact: {
       kind: 'report_evaluation',
       reportId: report.id,
+      promptVersion: EVAL_PROMPT_VERSION,
       modelName: result.modelName,
       modelProvider: result.modelProvider,
       evaluation: verdict ?? result.text,

@@ -57,6 +57,7 @@ build-info.gen.json
 
 # playwright
 /test-results/
+/.ssr-fixture/
 /playwright-report/
 /playwright/.cache/
 /tests/e2e/.auth/
@@ -78,7 +79,11 @@ app.config.timestamp_*.js
 
 reviews_triage/
 triage_decisions.db
-docs
+docs/*
+!docs/adr/
+docs/adr/*
+!docs/adr/*.md
+!docs/ai-sdk-v7-opportunities.md
 *.pptx
 *.zip
 audio_docs/

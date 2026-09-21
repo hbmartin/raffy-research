@@ -1,8 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const configMock = vi.hoisted(() => ({
   browserDsn: undefined as string | undefined,
   collectorBearerToken: undefined as string | undefined,
+  signalHeaders: { traces: {}, metrics: {}, logs: {} } as Record<
+    string,
+    Record<string, string>
+  >,
+  collectorHeaders: {} as Readonly<Record<string, string>>,
   collectorUrl: undefined as string | undefined,
   logMaxEvents: 2,
   proxyMaxBytes: 1_000,
@@ -22,9 +27,26 @@ const telemetryMock = vi.hoisted(() => ({
 
 const localSummaryMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/modules/kernel/infrastructure/config/telemetry', () => ({
-  getTelemetryConfig: () => configMock,
-}));
+vi.mock(
+  '@/modules/kernel/infrastructure/config/telemetry',
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    getTelemetryConfig: () => configMock,
+    resolveCollectorHeaders: (
+      config: typeof configMock,
+      signal: 'traces' | 'metrics' | 'logs'
+    ) => {
+      const headers = new Headers(config.collectorHeaders);
+      for (const [name, value] of Object.entries(
+        config.signalHeaders[signal] ?? {}
+      ))
+        headers.set(name, value);
+      if (config.collectorBearerToken)
+        headers.set('authorization', `Bearer ${config.collectorBearerToken}`);
+      return Object.fromEntries(headers.entries());
+    },
+  })
+);
 
 vi.mock('@/composition/kernel', () => ({
   getKernel: () => ({ logger: loggerMock }),
@@ -52,14 +74,91 @@ const request = (path: string, contentType: string, body: BodyInit) =>
   });
 
 describe('telemetry transport handlers', () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     configMock.browserDsn = undefined;
     configMock.collectorBearerToken = undefined;
+    configMock.collectorHeaders = {};
+    configMock.signalHeaders = { traces: {}, metrics: {}, logs: {} };
     configMock.collectorUrl = undefined;
     configMock.logMaxEvents = 2;
     configMock.proxyMaxBytes = 1_000;
     vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it.each(['traces', 'metrics'] as const)(
+    'uses %s-specific proxy credentials',
+    async (signal) => {
+      configMock.collectorUrl = 'https://collector.example';
+      configMock.collectorHeaders = { authorization: 'Basic general' };
+      configMock.signalHeaders[signal] = { Authorization: 'Basic signal' };
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+      expect(
+        (
+          await handleOtlpProxyRequest(
+            request('/api/telemetry/otel', 'application/x-protobuf', 'payload'),
+            signal
+          )
+        ).status
+      ).toBe(202);
+      expect(
+        new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).get(
+          'authorization'
+        )
+      ).toBe('Basic signal');
+    }
+  );
+
+  it('maps collector connection failure to a sanitized gateway failure', async () => {
+    configMock.collectorUrl = 'https://collector.example';
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.mocked(fetch).mockRejectedValue(new Error('private-token'));
+    const { handleOtlpProxyRequest } =
+      await import('@/composition/telemetry/transport');
+    const response = await handleOtlpProxyRequest(
+      request('/api/telemetry/otel', 'application/x-protobuf', 'payload'),
+      'traces'
+    );
+    expect(response.status).toBe(502);
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.stringContaining('telemetry.proxy_failure')
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(await response.text()).not.toContain('private-token');
+    expect(JSON.stringify(localSummaryMock.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(telemetryMock.captureException).not.toHaveBeenCalled();
+  });
+
+  it('maps Sentry tunnel connection failures to gateway failures', async () => {
+    configMock.browserDsn = 'https://public@collector.example/1';
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    vi.mocked(fetch).mockRejectedValue(new Error('private-token'));
+    const { handleSentryTunnelRequest } =
+      await import('@/composition/telemetry/transport');
+    const response = await handleSentryTunnelRequest(
+      request(
+        '/api/telemetry/sentry-tunnel',
+        'application/x-sentry-envelope',
+        'payload'
+      )
+    );
+    expect(response.status).toBe(502);
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.stringContaining('telemetry.proxy_failure')
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain(
+      'private-token'
+    );
+    expect(JSON.stringify(localSummaryMock.mock.calls)).not.toContain(
+      'private-token'
+    );
   });
 
   it('no-ops OTLP proxy requests when Collector env is missing', async () => {
@@ -103,17 +202,97 @@ describe('telemetry transport handlers', () => {
     );
 
     expect(response.status).toBe(202);
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+    expect(headers.get('authorization')).toBe('Bearer collector-token');
+    expect(headers.get('content-type')).toBe('application/x-protobuf');
     expect(fetch).toHaveBeenCalledWith(
       'https://collector.example/v1/metrics',
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer collector-token',
-          'Content-Type': 'application/x-protobuf',
-        }),
+        headers: expect.any(Headers),
         method: 'POST',
       })
     );
   });
+
+  it('forwards standard OTLP exporter headers to the Collector', async () => {
+    configMock.collectorHeaders = {
+      'x-sentry-auth': 'Sentry sentry_key=public-key',
+    };
+    configMock.collectorUrl = 'https://collector.example';
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const { handleOtlpProxyRequest } =
+      await import('@/composition/telemetry/transport');
+
+    const response = await handleOtlpProxyRequest(
+      request(
+        '/api/telemetry/otel/v1/traces',
+        'application/x-protobuf',
+        new Uint8Array([1])
+      ),
+      'traces'
+    );
+
+    expect(response.status).toBe(202);
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+    expect(headers.get('x-sentry-auth')).toBe('Sentry sentry_key=public-key');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://collector.example/v1/traces',
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      })
+    );
+  });
+
+  it.each(['authorization', 'Authorization', 'AUTHORIZATION'])(
+    'replaces configured %s with the explicit bearer token',
+    async (name) => {
+      configMock.collectorHeaders = { [name]: 'Basic configured' };
+      configMock.collectorBearerToken = 'collector-token';
+      configMock.collectorUrl = 'https://collector.example';
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+
+      await handleOtlpProxyRequest(
+        request(
+          '/api/telemetry/otel/v1/traces',
+          'application/x-protobuf',
+          new Uint8Array([1])
+        ),
+        'traces'
+      );
+
+      const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+      expect(headers.get('authorization')).toBe('Bearer collector-token');
+    }
+  );
+
+  it.each([
+    ['Content-Type', 'application/json'],
+    ['content-type', 'application/json'],
+    ['content-type', 'application/x-protobuf'],
+  ])(
+    'preserves protobuf content type with configured %s=%s',
+    async (name, value) => {
+      configMock.collectorHeaders = { [name]: value };
+      configMock.collectorUrl = 'https://collector.example';
+      vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+      const { handleOtlpProxyRequest } =
+        await import('@/composition/telemetry/transport');
+
+      await handleOtlpProxyRequest(
+        request(
+          '/api/telemetry/otel/v1/metrics',
+          'application/x-protobuf',
+          new Uint8Array([1])
+        ),
+        'metrics'
+      );
+
+      const headers = new Headers(vi.mocked(fetch).mock.calls[0]?.[1]?.headers);
+      expect(headers.get('content-type')).toBe('application/x-protobuf');
+    }
+  );
 
   it('rejects telemetry mutations with unsupported content types', async () => {
     const { handleOtlpProxyRequest } =

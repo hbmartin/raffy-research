@@ -29,7 +29,7 @@ vi.mock('ai', () => ({
 
 const rawOutputDir = 'test-results/local-ai-unit';
 
-async function* fullStreamFixture() {
+async function* streamFixture() {
   yield { type: 'start-step', request: {}, warnings: [] };
   yield {
     type: 'tool-input-start',
@@ -54,7 +54,7 @@ describe('local AI text generation', () => {
     mocks.createCodexCli.mockReturnValue(() => mocks.codexModel);
     mocks.createClaudeCode.mockReturnValue(() => mocks.codexModel);
     mocks.createOllama.mockReturnValue(() => mocks.ollamaModel);
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
   });
 
   afterEach(async () => {
@@ -98,8 +98,10 @@ describe('local AI text generation', () => {
       expect.objectContaining({
         model: mocks.codexModel,
         prompt: 'Return JSON',
-        includeRawChunks: true,
         abortSignal: abortController.signal,
+        include: {
+          rawChunks: true,
+        },
       })
     );
     expect(mocks.createCodexCli).toHaveBeenCalledWith({
@@ -195,7 +197,7 @@ describe('local AI text generation', () => {
   });
 
   it('configures ollama with custom base URL', async () => {
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
 
@@ -222,7 +224,7 @@ describe('local AI text generation', () => {
   });
 
   it('uses default ollama base URL when none provided', async () => {
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
 
@@ -242,7 +244,7 @@ describe('local AI text generation', () => {
   });
 
   it('sends num_ctx to ollama when a context window is configured', async () => {
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
 
@@ -265,7 +267,7 @@ describe('local AI text generation', () => {
   });
 
   it('omits provider options when no context window is configured', async () => {
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
 
@@ -285,7 +287,7 @@ describe('local AI text generation', () => {
   });
 
   it('ignores num_ctx for non-ollama providers', async () => {
-    mocks.streamText.mockReturnValue({ fullStream: fullStreamFixture() });
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
 

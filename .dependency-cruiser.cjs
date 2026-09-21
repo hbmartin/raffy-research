@@ -360,18 +360,33 @@ module.exports = {
         'Sentry SDK imports stay in app entrypoints and telemetry composition.',
       from: {
         pathNot:
-          '^(instrument\\.server\\.mjs$|src/(server\\.ts$|start\\.ts$|composition/telemetry/sentry\\.(client|server)\\.ts$))',
+          '^(instrument\\.server\\.mjs$|src/(server\\.ts$|start\\.ts$|composition/telemetry/(sentry\\.(client|server)|sentry-bootstrap\\.server|otel\\.server)\\.ts$))',
       },
       to: { path: 'node_modules/@sentry/' },
     },
     {
       name: 'opentelemetry-sdk-confined',
       severity: 'error',
-      comment: 'OpenTelemetry SDK imports stay in telemetry composition.',
+      comment:
+        'OpenTelemetry SDK imports stay in telemetry composition; kernel configuration may use the core header parser.',
       from: {
-        pathNot: '^src/composition/telemetry/',
+        pathNot: [
+          '^src/composition/telemetry/',
+          '^src/modules/kernel/infrastructure/config/telemetry\\.ts$',
+        ],
       },
       to: { path: 'node_modules/@opentelemetry/' },
+    },
+    {
+      name: 'telemetry-config-only-imports-otel-core',
+      severity: 'error',
+      from: {
+        path: '^src/modules/kernel/infrastructure/config/telemetry\\.ts$',
+      },
+      to: {
+        path: 'node_modules/@opentelemetry/',
+        pathNot: 'node_modules/@opentelemetry/core/',
+      },
     },
     {
       name: 'pino-confined-to-kernel-logger',

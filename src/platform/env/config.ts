@@ -1,19 +1,15 @@
 /* oxlint-disable no-process-env */
 import { z } from 'zod';
 
-type RuntimeEnv = Record<string, unknown>;
+import { mergeRuntimeEnv, type RuntimeEnv } from './merge-runtime-env';
 
-const runtimeEnv = (): RuntimeEnv => ({
-  ...(typeof process === 'undefined' ? {} : process.env),
-  ...import.meta.env,
-});
+const runtimeEnv = (): RuntimeEnv =>
+  mergeRuntimeEnv(
+    typeof process === 'undefined' ? {} : process.env,
+    import.meta.env
+  );
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
-
-const isProd = () => {
-  const env = runtimeEnv();
-  return env.NODE_ENV ? env.NODE_ENV === 'production' : isTruthy(env.PROD);
-};
 
 const isDev = () => {
   const env = runtimeEnv();
@@ -65,11 +61,6 @@ const clientSchema = () =>
       .transform((value) => value ?? (isDev() ? 'gold' : 'plum')),
     VITE_SENTRY_DSN: z.string().url().optional(),
     VITE_SENTRY_ENVIRONMENT: z.string().optional(),
-    VITE_SENTRY_TRACES_SAMPLE_RATE: z.coerce
-      .number()
-      .min(0)
-      .max(1)
-      .prefault(isProd() ? 0.1 : 1),
     VITE_OTEL_BROWSER_ENABLED: z
       .enum(['true', 'false'])
       .optional()

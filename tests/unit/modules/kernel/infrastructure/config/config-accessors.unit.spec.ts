@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { makeTestDatabaseUrl } from '@tests/server/test-database-url';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('server config accessors', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.resetModules();
     vi.unstubAllEnvs();
     vi.stubEnv('SKIP_ENV_VALIDATION', undefined);
@@ -235,6 +235,179 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig().secret).toBe('a'.repeat(32));
   });
 
+  it('requires a dedicated proxy IP header for self-hosted production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_ENV', undefined);
+    vi.stubEnv('VERCEL_REGION', undefined);
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('does not trust a stale VERCEL_ENV marker', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL_ENV', 'production');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('selects Vercel-overwritten headers during Vercel builds without a region', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('VERCEL_REGION', undefined);
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
+      'x-vercel-forwarded-for'
+    );
+  });
+
+  it('does not infer Vercel from a region without its deployment marker', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('gives an explicit trusted header precedence over Vercel detection', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'x-proxy-client-ip');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
+      'x-proxy-client-ip'
+    );
+  });
+
+  it('diagnoses the accepted shared bucket once under the validation bypass', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', undefined);
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', undefined);
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig().trustedClientIpHeader).toBeUndefined();
+    getBetterAuthConfig();
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]?.[0]).toBe(
+      '{"event":"auth.rate_limit_shared_bucket","reason":"trusted_client_ip_unconfigured"}\n'
+    );
+  });
+
+  it('rejects X-Forwarded-For as the self-hosted trusted header', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'X-Forwarded-For');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+  });
+
+  it('limits SSR sign-in relaxation to the loopback fixture', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(getBetterAuthConfig({ ...process.env }).fixtureSignInRateLimit).toBe(
+      true
+    );
+    vi.resetModules();
+    vi.stubEnv('HOST', '0.0.0.0');
+    const { getBetterAuthConfig: getPublicConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(() => getPublicConfig({ ...process.env })).toThrow(
+      'SSR_FIXTURE_MODE'
+    );
+  });
+
+  it('validates the fixture build, runtime, loopback, and auth config', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(isValidatedSsrFixtureRuntime(true, { ...process.env })).toBe(true);
+    expect(() =>
+      isValidatedSsrFixtureRuntime(false, { ...process.env })
+    ).toThrow('production build');
+  });
+
+  it('rejects a runtime loopback URL when the built VITE URL differs', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow(
+      'SSR fixture mode'
+    );
+  });
+
+  it.each([
+    ['NODE_ENV', 'development'],
+    ['HOST', '0.0.0.0'],
+    ['NITRO_HOST', '0.0.0.0'],
+    ['SKIP_ENV_VALIDATION', 'true'],
+    ['VITE_BASE_URL', 'https://example.test'],
+    ['VITE_BASE_URL', 'http://user@127.0.0.1:3011'],
+  ])('rejects an invalid fixture %s', async (key, value) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv(key, value);
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() =>
+      isValidatedSsrFixtureRuntime(true, { ...process.env })
+    ).toThrow('SSR fixture mode');
+  });
+
+  it('rejects invalid auth configuration for the fixture', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'too-short');
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() =>
+      isValidatedSsrFixtureRuntime(true, { ...process.env })
+    ).toThrow('AUTH_SECRET');
+  });
+
   it('allows weak AUTH_SECRET values only when env validation is skipped', async () => {
     const weakAuthValue = ['too', 'short', 'fixture'].join('-');
     vi.stubEnv('AUTH_PROVIDER', 'better-auth');
@@ -318,5 +491,167 @@ describe('server config accessors', () => {
     expect(getTelemetryConfig().collectorUrl).toBe(
       'https://collector.example/v1'
     );
+  });
+
+  it('parses standard OTLP exporter headers without truncating values', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'x-sentry-auth=Sentry%20sentry_key%3Dpublic-key'
+    );
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+
+    expect(getTelemetryConfig().collectorHeaders).toEqual({
+      'x-sentry-auth': 'Sentry sentry_key=public-key',
+    });
+  });
+  it('normalizes names and preserves encoded delimiters and source order', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(
+      'OTEL_EXPORTER_OTLP_HEADERS',
+      'X-Key=old,x-key=middle,X-Key=new,x-value=a%2Cb%3Dc%3Bf'
+    );
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig().collectorHeaders).toEqual({
+      'x-key': 'new',
+      'x-value': 'a,b=c;f',
+    });
+  });
+
+  it.each([
+    'x-token=literal%ZZ',
+    'x-token=abc;metadata',
+    'x-token=valid,',
+    'missing',
+    '=empty-name',
+    'empty-value=',
+  ])('rejects a silently dropped collector credential: %s', async (value) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', value);
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_EXPORTER_OTLP_HEADERS');
+  });
+
+  it.each([
+    'bad%0Aname=credential-sentinel',
+    'bad%20name=credential-sentinel',
+    'x-token=credential-sentinel%0D%0Avalue',
+    'x-token=credential-sentinel%00value',
+  ])(
+    'rejects invalid decoded HTTP headers without exposing their values: %s',
+    async (value) => {
+      vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+      vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', value);
+      const { getTelemetryConfig } =
+        await import('@/modules/kernel/infrastructure/config/telemetry');
+      expect(getTelemetryConfig).toThrow(
+        'Invalid OTEL_EXPORTER_OTLP_HEADERS: expected supported HTTP header names and values.'
+      );
+      let failure: unknown;
+      try {
+        getTelemetryConfig();
+      } catch (error) {
+        failure = error;
+      }
+      const serialized = JSON.stringify(
+        failure,
+        Object.getOwnPropertyNames(failure)
+      );
+      expect(serialized).not.toContain(value);
+      expect(serialized).not.toContain(decodeURIComponent(value));
+      expect(failure).toHaveProperty('cause', undefined);
+      expect(failure).toHaveProperty('details', undefined);
+      expect((failure as Error).message).not.toContain(
+        decodeURIComponent(value.split('=').slice(1).join('='))
+      );
+      expect(serialized).not.toContain('credential-sentinel');
+    }
+  );
+  it.each([
+    'OTEL_EXPORTER_OTLP_HEADERS',
+    'OTEL_EXPORTER_OTLP_TRACES_HEADERS',
+    'OTEL_EXPORTER_OTLP_METRICS_HEADERS',
+    'OTEL_EXPORTER_OTLP_LOGS_HEADERS',
+  ])('validates %s after SDK parsing', async (variable) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv(variable, 'x-token=secret%0Avalue');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow(variable);
+    expect(getTelemetryConfig).not.toThrow('secret');
+  });
+
+  it.each([
+    'connection',
+    'keep-alive',
+    'proxy-connection',
+    'transfer-encoding',
+    'upgrade',
+    'expect',
+    'te',
+    'trailer',
+    'host',
+    'content-length',
+  ])('rejects transport-controlled %s', async (name) => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', `${name}=value`);
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_EXPORTER_OTLP_HEADERS');
+  });
+
+  it('rejects invalid explicit bearer credentials', async () => {
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_COLLECTOR_BEARER_TOKEN', 'secret\nvalue');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig).toThrow('OTEL_COLLECTOR_BEARER_TOKEN');
+    expect(getTelemetryConfig).not.toThrow('secret');
+  });
+
+  it('ignores unused invalid collector headers in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('OTEL_COLLECTOR_URL', undefined);
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=secret%0Avalue');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_HEADERS', 'host=invalid');
+    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getTelemetryConfig()).toMatchObject({
+      dsn: 'https://public@sentry.example/1',
+      collectorHeaders: {},
+      signalHeaders: { traces: {}, metrics: {}, logs: {} },
+    });
+  });
+
+  it('disables only malformed OTLP config under the explicit validation bypass', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
+    vi.stubEnv('OTEL_EXPORTER_OTLP_HEADERS', 'x-token=secret;metadata');
+    vi.stubEnv('SENTRY_DSN', 'https://public@sentry.example/1');
+    vi.stubEnv('SENTRY_ENVIRONMENT', 'production');
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    const config = getTelemetryConfig();
+    expect(config.collectorUrl).toBeUndefined();
+    expect(config).toMatchObject({
+      dsn: 'https://public@sentry.example/1',
+      environment: 'production',
+      resolvedHeaders: { traces: {}, metrics: {}, logs: {} },
+    });
+    getTelemetryConfig();
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(String(diagnostic.mock.calls[0]?.[0])).toContain(
+      'telemetry.config_invalid'
+    );
+    expect(String(diagnostic.mock.calls[0]?.[0])).toContain(
+      '"component":"otel"'
+    );
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret');
   });
 });

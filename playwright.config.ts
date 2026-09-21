@@ -11,8 +11,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   testIgnore:
     process.env.CI || !shouldRunVisualTests
-      ? /visual[/\\].*\.visual\.spec\.ts/
-      : undefined,
+      ? [/visual[/\\].*\.visual\.spec\.ts/, /(?:^|[/\\])ssr\.spec\.ts$/]
+      : /(?:^|[/\\])ssr\.spec\.ts$/,
   /* Max time for the full CI tests */
   globalTimeout: 15 * 60 * 1000,
   /* Max test failure */
@@ -71,5 +71,6 @@ export default defineConfig({
     command: 'pnpm e2e:webserver',
     url: process.env.VITE_BASE_URL,
     reuseExistingServer: false,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
   },
 });

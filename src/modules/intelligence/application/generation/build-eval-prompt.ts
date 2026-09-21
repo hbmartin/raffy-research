@@ -34,6 +34,7 @@ export type BuildEvalPromptInput = {
 export function buildEvalPrompt(input: BuildEvalPromptInput): string {
   const { report, sources } = input;
   return [
+    `Evaluator prompt version: ${EVAL_PROMPT_VERSION}`,
     'You are an adversarial evaluator for a weekly market-intelligence report.',
     'Judge ONLY what is verifiable from the source records below. Do not reward fluent writing.',
     UNTRUSTED_SOURCE_GUIDANCE,

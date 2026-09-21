@@ -17,7 +17,6 @@ import {
   shouldProtectBrowserMutation,
   validateSameOriginBrowserMutationRequest,
 } from '@/platform/http/browser-mutation-protection';
-import { replaceCspNoncePlaceholderInHtmlResponse } from '@/platform/http/csp-nonce';
 import { createCspNonce } from '@/platform/http/csp-nonce-server';
 import { applySecurityHeaders } from '@/platform/http/security-headers';
 import { createNoOpTelemetry } from '@/platform/telemetry';
@@ -25,6 +24,7 @@ import { createNoOpTelemetry } from '@/platform/telemetry';
 export type AppStartRequestContext = {
   requestId: string;
   cspNonce?: string;
+  allowPlaywrightScreenshotStyles?: boolean;
   auth?: {
     getSession: () => Promise<AuthSession | null>;
   };
@@ -44,6 +44,7 @@ let browserMutationGuardLoggerPromise:
   | undefined;
 
 type RequestContextWithCspNonce = {
+  allowPlaywrightScreenshotStyles?: unknown;
   cspNonce?: unknown;
 };
 
@@ -73,12 +74,36 @@ const mergeRequestContext = (
   ...overrides,
 });
 
+export const shouldAllowPlaywrightScreenshotStyles = ({
+  isProduction,
+  isTestRuntime,
+  isVisualTestRuntime,
+  requestContextAllows,
+}: {
+  isProduction: boolean;
+  isTestRuntime: boolean;
+  isVisualTestRuntime: boolean;
+  requestContextAllows: boolean;
+}) =>
+  (!isProduction && isTestRuntime && isVisualTestRuntime) ||
+  requestContextAllows;
+
 const getSecurityHeaderOptions = (context?: unknown) => {
   const isTestRuntime = envClient.VITE_ENV_NAME === 'tests';
+  const requestContext =
+    typeof context === 'object' && context !== null
+      ? (context as RequestContextWithCspNonce)
+      : undefined;
 
   return {
     allowDevServerCspRelaxations: isTestRuntime,
-    allowPlaywrightScreenshotStyles: isTestRuntime,
+    allowPlaywrightScreenshotStyles: shouldAllowPlaywrightScreenshotStyles({
+      isProduction: import.meta.env.PROD,
+      isTestRuntime,
+      isVisualTestRuntime: envClient.VITE_VISUAL_TEST,
+      requestContextAllows:
+        requestContext?.allowPlaywrightScreenshotStyles === true,
+    }),
     baseUrl: envClient.VITE_BASE_URL,
     cspNonce: getCspNonceFromContext(context),
     isProduction: import.meta.env.PROD,
@@ -153,10 +178,7 @@ export const securityHeadersMiddleware = createMiddleware({
   const cspNonce = createCspNonce();
   const nextContext = mergeRequestContext(context, { cspNonce });
   const result = await next({ context: nextContext });
-  const response = applyAppSecurityHeaders(
-    await replaceCspNoncePlaceholderInHtmlResponse(result.response, cspNonce),
-    nextContext
-  );
+  const response = applyAppSecurityHeaders(result.response, nextContext);
 
   return {
     ...result,

@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/tanstackstart-react';
 
-import { getTelemetryConfig } from '@/modules/kernel/infrastructure/config/telemetry';
 import {
   createNoOpTelemetry,
   type TelemetryAdapter,
@@ -9,16 +8,10 @@ import {
 import { createTelemetryAdapterChain } from './adapter-chain';
 import { setTelemetry } from './index';
 import { initOpenTelemetryServer } from './otel.server';
-import {
-  createSentryTelemetryAdapter,
-  sanitizeSentryEvent,
-} from './sentry-adapter';
+import { createSentryTelemetryAdapter } from './sentry-adapter';
+import { initSentryServer } from './sentry-bootstrap.server';
 
 let initialized = false;
-
-// OpenTelemetry owns tracing; Sentry stays error-only even if
-// SENTRY_TRACES_SAMPLE_RATE is present to avoid duplicate span reporting.
-const SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE = 0;
 
 const isTelemetryAdapter = (
   adapter: TelemetryAdapter | undefined
@@ -32,29 +25,17 @@ const isTelemetryAdapter = (
  */
 export const initTelemetryServer = () => {
   if (initialized) return;
-  initialized = true;
 
-  const telemetryConfig = getTelemetryConfig();
-  const adapters = [initOpenTelemetryServer()].filter(isTelemetryAdapter);
-  if (!telemetryConfig.dsn) {
-    if (adapters.length > 0) {
-      setTelemetry(createTelemetryAdapterChain(adapters));
-    }
-    return;
+  const sentryEnabled = initSentryServer();
+  const otelAdapter = initOpenTelemetryServer();
+  const adapters = [otelAdapter].filter(isTelemetryAdapter);
+  if (sentryEnabled) {
+    adapters.push(createSentryTelemetryAdapter(Sentry));
   }
-
-  Sentry.init({
-    dsn: telemetryConfig.dsn,
-    environment: telemetryConfig.environment,
-    tracesSampleRate: SENTRY_ERROR_ONLY_TRACES_SAMPLE_RATE,
-    sendDefaultPii: false,
-    beforeSend: sanitizeSentryEvent,
-  });
-
-  adapters.push(createSentryTelemetryAdapter(Sentry));
   setTelemetry(
     createTelemetryAdapterChain(
       adapters.length > 0 ? adapters : [createNoOpTelemetry()]
     )
   );
+  initialized = true;
 };

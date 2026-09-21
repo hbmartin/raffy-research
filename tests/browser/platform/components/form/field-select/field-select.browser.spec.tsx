@@ -66,7 +66,7 @@ test('default value', async () => {
 
   await expect
     .element(page.getByRole('combobox', { name: 'Bearstronaut' }))
-    .toHaveTextContent('Yuri Grizzlyrin');
+    .toMatchTextContent('Yuri Grizzlyrin');
 
   await user.click(page.getByRole('button', { name: 'Submit' }));
   expect(mockedSubmit).toHaveBeenCalledWith({ bear: 'grizzlyrin' });

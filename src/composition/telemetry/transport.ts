@@ -1,7 +1,10 @@
 import { sanitizeLogFields } from '@/platform/lib/redaction/sanitize-log-fields';
 
 import { getKernel } from '@/composition/kernel';
-import { getTelemetryConfig } from '@/modules/kernel/infrastructure/config/telemetry';
+import {
+  getTelemetryConfig,
+  resolveCollectorHeaders,
+} from '@/modules/kernel/infrastructure/config/telemetry';
 import {
   appendBrowserMutationVaryHeader,
   validateSameOriginBrowserMutationRequest,
@@ -139,6 +142,22 @@ const readBoundedBody = async (request: Request) => {
   return { ok: true as const, body: body.buffer };
 };
 
+// Write directly to stderr: routing this through the application's telemetry
+// logger would export a proxy failure through the same unavailable collector.
+const recordProxyFailure = (
+  kind: 'otlp_proxy' | 'sentry_tunnel',
+  signal?: OtlpSignal,
+  upstreamStatus?: number
+) => {
+  try {
+    process.stderr.write(
+      `${JSON.stringify({ event: 'telemetry.proxy_failure', kind, signal, upstreamStatus })}\n`
+    );
+  } catch {
+    // A diagnostic sink failure must not replace the controlled HTTP response.
+  }
+};
+
 const forwardToCollector = async (
   signal: OtlpSignal,
   body: ArrayBuffer,
@@ -156,21 +175,29 @@ const forwardToCollector = async (
     return noContent();
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': requestContentType,
-    ...(config.collectorBearerToken
-      ? { Authorization: `Bearer ${config.collectorBearerToken}` }
-      : {}),
-  };
-  const collectorResponse = await fetch(
-    signalUrl(config.collectorUrl, signal),
-    {
+  const headers = new Headers(resolveCollectorHeaders(config, signal));
+  headers.set('Content-Type', requestContentType);
+  let collectorResponse: Response;
+  try {
+    collectorResponse = await fetch(signalUrl(config.collectorUrl, signal), {
       body,
       headers,
       method: 'POST',
-    }
-  );
+    });
+  } catch {
+    recordProxyFailure('otlp_proxy', signal);
+    recordLocalTelemetrySummary({
+      kind: 'otlp_proxy',
+      signal,
+      bytes: body.byteLength,
+      statusCode: 502,
+      summary: { forwarded: false, reason: 'collector_transport_failure' },
+    });
+    return new Response(null, { status: 502 });
+  }
   const status = collectorResponse.ok ? 202 : 502;
+  if (!collectorResponse.ok)
+    recordProxyFailure('otlp_proxy', signal, collectorResponse.status);
 
   recordLocalTelemetrySummary({
     bytes: body.byteLength,
@@ -206,12 +233,26 @@ const forwardSentryEnvelope = async (body: ArrayBuffer) => {
     return noContent();
   }
 
-  const sentryResponse = await fetch(endpoint, {
-    body,
-    headers: { 'Content-Type': 'application/x-sentry-envelope' },
-    method: 'POST',
-  });
+  let sentryResponse: Response;
+  try {
+    sentryResponse = await fetch(endpoint, {
+      body,
+      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      method: 'POST',
+    });
+  } catch {
+    recordProxyFailure('sentry_tunnel');
+    recordLocalTelemetrySummary({
+      kind: 'sentry_tunnel',
+      bytes: body.byteLength,
+      statusCode: 502,
+      summary: { forwarded: false, reason: 'sentry_transport_failure' },
+    });
+    return new Response(null, { status: 502 });
+  }
   const status = sentryResponse.ok ? 202 : 502;
+  if (!sentryResponse.ok)
+    recordProxyFailure('sentry_tunnel', undefined, sentryResponse.status);
 
   recordLocalTelemetrySummary({
     bytes: body.byteLength,

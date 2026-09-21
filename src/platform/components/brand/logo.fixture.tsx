@@ -1,13 +1,22 @@
 import { Logo } from '@/platform/components/brand/logo';
 const Default = () => {
-  return <Logo className="w-32" />;
+  return <Logo />;
 };
 
 const Color = () => {
-  return <Logo className="w-32 text-neutral-400" />;
+  return <Logo className="text-neutral-400" />;
+};
+
+const Collapsed = () => {
+  return (
+    <div className="group" data-collapsible="icon">
+      <Logo />
+    </div>
+  );
 };
 
 export default {
   Default,
   Color,
+  Collapsed,
 };
