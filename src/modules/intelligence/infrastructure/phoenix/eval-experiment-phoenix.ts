@@ -6,7 +6,6 @@ import type {
   EvalExperimentPort,
   ReportEvalInput,
   ReportGenerationInput,
-  SummaryEvalInput,
 } from '../../application/ports/eval-experiment-repository';
 
 type PhoenixClientConfig = {
@@ -188,63 +187,6 @@ export function createPhoenixEvalAdapter(
               return typeof scores?.noise === 'number' ? scores.noise : null;
             }),
           ],
-          setGlobalTracerProvider: false,
-        });
-
-        return Result.Ok({ experimentId: experiment.id });
-      } catch (error) {
-        return Result.Error(wrapError(error));
-      }
-    },
-
-    async recordSummaryEvaluation(input: SummaryEvalInput) {
-      try {
-        const sdk = await getPhoenixSdk();
-        const client = makeClient(config, sdk.createClient);
-        const datasetName = `summary-evals-${input.workspaceId}`;
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-        const { datasetId } = await sdk.createDataset({
-          client,
-          name: datasetName,
-          description: `Source summary evaluation dataset for workspace ${input.workspaceId}`,
-          examples: [
-            {
-              input: {
-                workspaceId: input.workspaceId,
-                sourceRecordId: input.sourceRecordId,
-                title: input.sourceContent.title,
-                provider: input.sourceContent.provider,
-                contentText: input.sourceContent.contentText?.slice(0, 8000),
-              },
-              output: {
-                summaryText: input.summary.summaryText,
-                evidenceCandidateText: input.summary.evidenceCandidateText,
-              },
-              metadata: {
-                modelName: input.modelName,
-                modelProvider: input.modelProvider,
-              },
-            },
-          ],
-        });
-
-        const experiment = await sdk.runExperiment({
-          client,
-          dataset: { datasetId },
-          experimentName: `summary-eval-${input.sourceRecordId}-${timestamp}`,
-          experimentDescription: `Summary evaluation for source ${input.sourceRecordId}`,
-          experimentMetadata: {
-            workspaceId: input.workspaceId,
-            sourceRecordId: input.sourceRecordId,
-            modelName: input.modelName,
-            modelProvider: input.modelProvider,
-            sourceProvider: input.sourceContent.provider,
-          },
-          task: () => ({
-            summaryText: input.summary.summaryText,
-            evidenceCandidateText: input.summary.evidenceCandidateText,
-          }),
           setGlobalTracerProvider: false,
         });
 

@@ -10,8 +10,5 @@ export function createNoopEvalAdapter(): EvalExperimentPort {
     async recordReportEvaluation() {
       return Result.Ok({ experimentId: 'noop' });
     },
-    async recordSummaryEvaluation() {
-      return Result.Ok({ experimentId: 'noop' });
-    },
   };
 }

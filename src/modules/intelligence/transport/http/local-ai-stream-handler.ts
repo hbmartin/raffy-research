@@ -323,18 +323,6 @@ async function summarizeSources(
       },
       at: nowIso(),
     });
-    await deps.evalExperiment.recordSummaryEvaluation({
-      workspaceId: input.data.workspaceId,
-      sourceRecordId: source.id,
-      sourceContent: {
-        title: source.title,
-        provider: source.providerName,
-        contentText: source.contentText,
-      },
-      summary: { summaryText, evidenceCandidateText },
-      modelName: result.modelName,
-      modelProvider: result.modelProvider,
-    });
   }
 
   return summaries;

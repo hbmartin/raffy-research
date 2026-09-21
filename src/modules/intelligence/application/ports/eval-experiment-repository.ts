@@ -37,22 +37,6 @@ export type ReportGenerationInput = {
   modelProvider: string;
 };
 
-export type SummaryEvalInput = {
-  workspaceId: WorkspaceId;
-  sourceRecordId: SourceRecordId;
-  sourceContent: {
-    title?: string | null;
-    provider: string;
-    contentText?: string | null;
-  };
-  summary: {
-    summaryText: string;
-    evidenceCandidateText: string | null;
-  };
-  modelName: string;
-  modelProvider: string;
-};
-
 export interface EvalExperimentPort {
   recordReportGeneration(
     input: ReportGenerationInput
@@ -60,9 +44,5 @@ export interface EvalExperimentPort {
 
   recordReportEvaluation(
     input: ReportEvalInput
-  ): Promise<ApplicationResult<{ experimentId: string }>>;
-
-  recordSummaryEvaluation(
-    input: SummaryEvalInput
   ): Promise<ApplicationResult<{ experimentId: string }>>;
 }

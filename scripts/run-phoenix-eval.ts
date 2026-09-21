@@ -18,24 +18,19 @@
 import { randomUUID } from 'node:crypto';
 
 import { getIntelligenceRepositories } from '@/composition/intelligence';
-import { getKernel } from '@/composition/kernel';
 import {
   buildEvalPrompt,
   buildReportPrompt,
   buildSourceSummaryPrompt,
-  computeWeeklyPeriod,
   type EvalExperimentPort,
   formatPeriodDate,
-  generateWeeklyReport,
   JUDGE_PROMPT_VERSION,
   type LocalAiProviderName,
   parseGeneratedReportJson,
   SOURCE_SUMMARY_CONTENT_LIMIT,
   SOURCE_SUMMARY_PROMPT_VERSION,
-  type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
-  createLocalAiReportGenerator,
   createPhoenixEvalAdapter,
   generateLocalText,
   getLocalAiConfig,
@@ -67,13 +62,7 @@ import {
   type SummaryExampleOutput,
 } from './eval/summary-evaluators';
 
-type Command =
-  | 'summarize'
-  | 'generate'
-  | 'evaluate'
-  | 'compare'
-  | 'full'
-  | 'export';
+type Command = 'summarize' | 'evaluate' | 'compare' | 'export';
 
 type CliArgs = {
   command: Command;
@@ -119,10 +108,8 @@ function parseArgs(argv: string[]): CliArgs {
         'Commands:',
         '  export     Write a git-storable eval case from the database',
         '  compare    Regenerate a report and score it against the case reference',
-        '  evaluate   Run the adversarial evaluator over a report',
-        "  summarize  Score a case's stored summaries, or summarize from the DB",
-        '  generate   Generate a report (writes to the database)',
-        '  full       summarize + generate + evaluate',
+        "  summarize  Summarize a case's sources and score the result",
+        '  evaluate   Judge a published report (reads live data; case support pending)',
         '',
         'Options:',
         '  --workspace <id>   Workspace to operate on (required)',
@@ -131,7 +118,6 @@ function parseArgs(argv: string[]): CliArgs {
         '  --out <dir>        Destination for export (default fixtures/eval/<name>)',
         '  --name <name>      Case name for export (default <company>-<period start>)',
         "  --summary-model <m>  Export only this model's summaries (repeatable)",
-        '  --period <date>    Period date for summarize/generate',
         '  --provider <p>     Override LOCAL_AI_PROVIDER',
         '  --model <m>        Override LOCAL_AI_MODEL',
         '',
@@ -569,179 +555,10 @@ async function runSummarizeCase(args: CliArgs) {
   });
 }
 
-async function runSummarize(args: CliArgs, evalAdapter: EvalExperimentPort) {
-  const repositories = getIntelligenceRepositories();
-  const workspace = await repositories.workspaceRepository.getById(
-    args.workspaceId
-  );
-  if (workspace.isError()) throw workspace.getError();
-  const outcome = workspace.get();
-  if (outcome.type === 'workspace_not_found')
-    throw new Error('Workspace not found');
-
-  const period = computeWeeklyPeriod(
-    args.periodDate,
-    outcome.workspace.timezone
-  );
-  const sources = await repositories.sourceRepository.listForPeriod({
-    workspaceId: args.workspaceId,
-    periodStart: period.periodStart,
-    periodEnd: period.periodEnd,
-  });
-  if (sources.isError()) throw sources.getError();
-
-  const config = getLocalAiConfig();
-  const provider = (args.provider ?? config.provider) as LocalAiProviderName;
-  const model = args.model ?? config.model;
-  const runId = randomUUID();
-
-  log('Starting source summarization', {
-    sources: sources.get().length,
-    provider,
-    model,
-    period: {
-      start: period.periodStart.toISOString(),
-      end: period.periodEnd.toISOString(),
-    },
-  });
-
-  for (const source of sources.get()) {
-    // Shared with the workspace console, so CLI and UI summaries are
-    // comparable rather than produced under subtly different instructions.
-    const prompt = buildSourceSummaryPrompt(source);
-
-    const result = await generateLocalText({
-      provider,
-      model,
-      prompt,
-      action: 'summarize_sources',
-      label: `source-summary-${source.id}`,
-      runId,
-      rawOutputDir: config.rawOutputDir,
-      ollamaBaseUrl: config.ollamaBaseUrl,
-      ollamaNumCtx: config.ollamaNumCtx,
-    });
-
-    const parsed = extractJsonObject(result.text);
-    const summaryText =
-      (typeof parsed?.summary === 'string' ? parsed.summary : null) ??
-      result.text.trim().slice(0, 4000);
-    const evidenceCandidateText =
-      (typeof parsed?.evidence_candidate === 'string'
-        ? parsed.evidence_candidate
-        : null) ?? null;
-
-    const evalResult = await evalAdapter.recordSummaryEvaluation({
-      workspaceId: args.workspaceId,
-      sourceRecordId: source.id,
-      sourceContent: {
-        title: source.title,
-        provider: source.providerName,
-        contentText: source.contentText,
-      },
-      summary: { summaryText, evidenceCandidateText },
-      modelName: result.modelName,
-      modelProvider: result.modelProvider,
-    });
-
-    if (evalResult.isOk()) {
-      log(`Recorded summary eval for source ${source.id}`, {
-        experimentId: evalResult.get().experimentId,
-      });
-    } else {
-      log(`Failed to record summary eval for source ${source.id}`, {
-        error: evalResult.getError().message,
-      });
-    }
-  }
-
-  log('Summarization complete', { sources: sources.get().length });
-}
-
-async function runGenerate(args: CliArgs, evalAdapter: EvalExperimentPort) {
-  const config = getLocalAiConfig();
-  const provider = (args.provider ?? config.provider) as LocalAiProviderName;
-  const model = args.model ?? config.model;
-  const runId = randomUUID();
-  const abortController = new AbortController();
-
-  const deps: WeeklyReportGenerationDeps = {
-    ...(() => {
-      const kernel = getKernel();
-      const repositories = getIntelligenceRepositories();
-      return {
-        workspaceRepository: repositories.workspaceRepository,
-        sourceRepository: repositories.sourceRepository,
-        reportRepository: repositories.reportRepository,
-        reportGenerator: createLocalAiReportGenerator({
-          provider,
-          model,
-          rawOutputDir: config.rawOutputDir,
-          runId,
-          action: 'generate_report',
-          abortSignal: abortController.signal,
-          ollamaBaseUrl: config.ollamaBaseUrl,
-          ollamaNumCtx: config.ollamaNumCtx,
-          onEvent: (event) => {
-            log(
-              'generation-event',
-              toJsonValue(event) as Record<string, unknown>
-            );
-          },
-        }),
-        alert: {
-          async sendAlert() {
-            return (await import('@swan-io/boxed')).Result.Ok({
-              type: 'alert_skipped' as const,
-            });
-          },
-        },
-        clock: kernel.clock,
-        logger: kernel.logger,
-      };
-    })(),
-  };
-
-  log('Starting report generation', {
-    workspace: args.workspaceId,
-    provider,
-    model,
-  });
-
-  const result = await generateWeeklyReport(deps, {
-    workspaceId: args.workspaceId,
-    now: args.periodDate,
-  });
-
-  if (result.isError()) {
-    log('Report generation failed', { error: result.getError().message });
-    return;
-  }
-
-  const outcome = result.get();
-  log('Report generation completed', { type: outcome.type });
-
-  if (outcome.type === 'report_published') {
-    const evalResult = await evalAdapter.recordReportGeneration({
-      workspaceId: args.workspaceId,
-      reportId: outcome.report.id,
-      prompt: 'report-generation',
-      reportData: toJsonValue(outcome.report) as JsonObject,
-      modelName: model,
-      modelProvider: provider,
-    });
-    if (evalResult.isOk()) {
-      log('Recorded report generation', {
-        datasetId: evalResult.get().datasetId,
-      });
-    }
-  }
-}
-
 /**
- * Resolves the reference report. A pinned `--report` id keeps the baseline
- * fixed; falling back to "latest published" means a generation run can move the
- * yardstick it is later measured against.
+ * Resolves the reference report for the one command that still reads live
+ * data. A pinned --report id keeps the baseline fixed; "latest published"
+ * moves whenever a report is generated.
  */
 async function resolvePinnedReport(
   args: CliArgs
@@ -894,104 +711,43 @@ async function runCompare(args: CliArgs) {
   const model = args.model ?? config.model;
   const runId = randomUUID();
 
-  let report: FixtureReport;
-  let usableSources: FixtureSource[];
-  let prompt: string;
+  if (!args.caseDir) throw new Error('--case is required');
 
-  let evalCase: EvalCase | null = null;
-
-  if (args.caseDir) {
-    // The case carries every prompt input, so this path never touches the DB.
-    evalCase = loadCase(args.caseDir);
-    ({ report } = caseAsFixture(evalCase));
-    usableSources = caseUsableSources(evalCase);
-    const timezone = String(
-      evalCase.workspace.workspace.timezone ?? 'America/Los_Angeles'
-    );
-    log('Loaded eval case', {
-      dir: evalCase.dir,
-      name: evalCase.manifest.name,
-      reportId: report.id,
-      sources: usableSources.length,
-    });
-    prompt = buildReportPrompt({
-      workspace: evalCase.workspace.workspace as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['workspace'],
-      keywords: evalCase.workspace.keywords as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['keywords'],
-      competitors: evalCase.workspace.competitors as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['competitors'],
-      socialAccounts: evalCase.workspace
-        .socialAccounts as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['socialAccounts'],
-      sources: usableSources as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['sources'],
-      priorReports: evalCase.priorReports as unknown as Parameters<
-        typeof buildReportPrompt
-      >[0]['priorReports'],
-      periodStartLabel: formatPeriodDate(report.periodStart, timezone),
-      periodEndLabel: formatPeriodDate(report.periodEnd, timezone),
-    });
-  } else {
-    const repositories = getIntelligenceRepositories();
-    const resolved = await resolvePinnedReport(args);
-    if (!resolved) return;
-    report = resolved;
-    const workspace = await repositories.workspaceRepository.getById(
-      args.workspaceId
-    );
-    if (workspace.isError()) throw workspace.getError();
-    const wsOutcome = workspace.get();
-    if (wsOutcome.type === 'workspace_not_found')
-      throw new Error('Workspace not found');
-    const [sources, keywords, competitors, social, priorReports] =
-      await Promise.all([
-        repositories.sourceRepository.listForPeriod({
-          workspaceId: args.workspaceId,
-          periodStart: report.periodStart,
-          periodEnd: report.periodEnd,
-        }),
-        repositories.workspaceRepository.listKeywords(args.workspaceId, {
-          activeOnly: true,
-        }),
-        repositories.workspaceRepository.listCompetitors(args.workspaceId),
-        repositories.workspaceRepository.listSocialAccounts(args.workspaceId),
-        repositories.reportRepository.listByWorkspace(args.workspaceId, {
-          limit: 4,
-        }),
-      ]);
-    if (sources.isError()) throw sources.getError();
-    if (keywords.isError()) throw keywords.getError();
-    if (competitors.isError()) throw competitors.getError();
-    if (social.isError()) throw social.getError();
-    if (priorReports.isError()) throw priorReports.getError();
-    usableSources = sources
-      .get()
-      .filter((s) => s.relevanceLabel !== 'junk') as unknown as FixtureSource[];
-    prompt = buildReportPrompt({
-      workspace: wsOutcome.workspace,
-      keywords: keywords.get(),
-      competitors: competitors.get(),
-      socialAccounts: social.get(),
-      sources: usableSources as Parameters<
-        typeof buildReportPrompt
-      >[0]['sources'],
-      priorReports: priorReports.get(),
-      periodStartLabel: formatPeriodDate(
-        report.periodStart,
-        wsOutcome.workspace.timezone
-      ),
-      periodEndLabel: formatPeriodDate(
-        report.periodEnd,
-        wsOutcome.workspace.timezone
-      ),
-    });
-  }
+  // The case carries every prompt input, so compare never touches the DB.
+  const evalCase = loadCase(args.caseDir);
+  const { report } = caseAsFixture(evalCase);
+  const usableSources = caseUsableSources(evalCase);
+  const timezone = String(
+    evalCase.workspace.workspace.timezone ?? 'America/Los_Angeles'
+  );
+  log('Loaded eval case', {
+    dir: evalCase.dir,
+    name: evalCase.manifest.name,
+    reportId: report.id,
+    sources: usableSources.length,
+  });
+  const prompt = buildReportPrompt({
+    workspace: evalCase.workspace.workspace as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['workspace'],
+    keywords: evalCase.workspace.keywords as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['keywords'],
+    competitors: evalCase.workspace.competitors as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['competitors'],
+    socialAccounts: evalCase.workspace.socialAccounts as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['socialAccounts'],
+    sources: usableSources as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['sources'],
+    priorReports: evalCase.priorReports as unknown as Parameters<
+      typeof buildReportPrompt
+    >[0]['priorReports'],
+    periodStartLabel: formatPeriodDate(report.periodStart, timezone),
+    periodEndLabel: formatPeriodDate(report.periodEnd, timezone),
+  });
 
   log('Starting report generation comparison', {
     referenceReportId: report.id,
@@ -1410,14 +1166,11 @@ async function main() {
     return;
   }
 
-  // `generate` publishes a weekly report, which would move the baseline that
-  // `evaluate` and `compare` measure against. Refuse to mix it with a case.
-  if (
-    args.caseDir &&
-    (args.command === 'generate' || args.command === 'full')
-  ) {
+  // Experiments read pinned cases, never live data: a run against whatever the
+  // database happens to hold today is not comparable with anything.
+  if (!args.caseDir && args.command !== 'evaluate') {
     console.error(
-      `[phoenix-eval] --case cannot be combined with "${args.command}": that command writes a published report to the database, which would move the reference a case exists to pin. Use "compare" to score a generation against the case.`
+      `[phoenix-eval] "${args.command}" requires --case <dir>. Mint one with: pnpm eval:phoenix export --workspace ${args.workspaceId} --report <id> --out fixtures/eval/<name>`
     );
     process.exit(1);
   }
@@ -1425,17 +1178,10 @@ async function main() {
   const evalAdapter = getEvalAdapter();
 
   try {
-    if (args.command === 'summarize' || args.command === 'full') {
-      if (args.caseDir) {
-        await runSummarizeCase(args);
-      } else {
-        await runSummarize(args, evalAdapter);
-      }
+    if (args.command === 'summarize') {
+      await runSummarizeCase(args);
     }
-    if (args.command === 'generate' || args.command === 'full') {
-      await runGenerate(args, evalAdapter);
-    }
-    if (args.command === 'evaluate' || args.command === 'full') {
+    if (args.command === 'evaluate') {
       await runEvaluate(args, evalAdapter);
     }
     if (args.command === 'compare') {
