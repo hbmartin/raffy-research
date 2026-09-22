@@ -28,7 +28,6 @@ import {
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
-import type { EvalExperimentPort } from '../../application/ports/eval-experiment-repository';
 import {
   LOCAL_AI_PROVIDERS,
   type LocalAiConfig,
@@ -66,7 +65,6 @@ export type LocalAiStreamHandlerDeps = {
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }) => WeeklyReportGenerationDeps;
   generateLocalText: LocalTextGenerator;
-  evalExperiment: EvalExperimentPort;
 };
 
 const zLocalAiAction = z.enum([
@@ -462,46 +460,6 @@ async function evaluateLatestReport(
     },
     at: nowIso(),
   });
-
-  if (verdict) {
-    await deps.evalExperiment.recordReportEvaluation({
-      workspaceId: input.data.workspaceId,
-      reportId: report.id,
-      reportData: (report.reportData ?? {}) as JsonObject,
-      sources: sources.get().map((s) => ({
-        id: s.id,
-        title: s.title,
-        provider: s.providerName,
-        contentText: s.contentText,
-      })),
-      evaluation: {
-        claim_support: Number(
-          (verdict.scores as JsonObject | undefined)?.claim_support ??
-            verdict.claim_support ??
-            0
-        ),
-        coverage: Number(
-          (verdict.scores as JsonObject | undefined)?.coverage ??
-            verdict.coverage ??
-            0
-        ),
-        noise: Number(
-          (verdict.scores as JsonObject | undefined)?.noise ??
-            verdict.noise ??
-            0
-        ),
-        violations: Array.isArray(verdict.violations)
-          ? (verdict.violations as JsonObject[])
-          : [],
-        missed_signals: Array.isArray(verdict.missed_signals)
-          ? (verdict.missed_signals as JsonObject[])
-          : [],
-        summary: typeof verdict.summary === 'string' ? verdict.summary : '',
-      },
-      modelName: result.modelName,
-      modelProvider: result.modelProvider,
-    });
-  }
 
   return { reportId: report.id, parsedVerdict: verdict !== null };
 }
