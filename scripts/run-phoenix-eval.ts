@@ -54,7 +54,7 @@ import {
   usableSources as caseUsableSources,
 } from './eval/case';
 import { exportCase } from './eval/export-case';
-import { createJudgeEvaluators } from './eval/judge-evaluators';
+import { createJudgeEvaluators, parseFiveScale } from './eval/judge-evaluators';
 import { ensureDataset } from './eval/phoenix-dataset';
 import {
   SUMMARY_EVALUATORS,
@@ -653,6 +653,28 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
 
   log('Evaluation verdict', verdict as Record<string, unknown>);
 
+  // A judge that answered "high" or "N/A" has not scored the report. Recording
+  // that as 0 would put a parse failure on the chart as the worst possible
+  // verdict, so refuse the whole record and say why.
+  const dimensions = ['claim_support', 'coverage', 'noise'] as const;
+  const raw = (verdict.scores ?? verdict) as JsonObject;
+  const parsed = dimensions.map(
+    (name) => [name, parseFiveScale(raw[name])] as const
+  );
+  const unparseable = parsed.filter(([, value]) => value === null);
+  if (unparseable.length > 0) {
+    log('Judge returned no usable scores; not recording this evaluation', {
+      reportId: report.id,
+      dimensions: unparseable.map(([name]) => name),
+      rawScores: raw,
+    });
+    return;
+  }
+  const scores = Object.fromEntries(parsed) as Record<
+    (typeof dimensions)[number],
+    number
+  >;
+
   const evalResult = await evalAdapter.recordReportEvaluation({
     workspaceId: args.workspaceId,
     reportId: toWeeklyReportId(report.id),
@@ -664,19 +686,9 @@ async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
       contentText: s.contentText,
     })),
     evaluation: {
-      claim_support: Number(
-        (verdict.scores as JsonObject | undefined)?.claim_support ??
-          verdict.claim_support ??
-          0
-      ),
-      coverage: Number(
-        (verdict.scores as JsonObject | undefined)?.coverage ??
-          verdict.coverage ??
-          0
-      ),
-      noise: Number(
-        (verdict.scores as JsonObject | undefined)?.noise ?? verdict.noise ?? 0
-      ),
+      claim_support: scores.claim_support,
+      coverage: scores.coverage,
+      noise: scores.noise,
       violations: Array.isArray(verdict.violations)
         ? (verdict.violations as JsonObject[])
         : [],

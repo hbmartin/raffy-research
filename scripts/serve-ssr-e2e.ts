@@ -2,14 +2,14 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 
 import {
   readFixtureEnvironment,
-  SSR_DATABASE_PORT,
   SSR_COLLECTOR_PORT,
+  SSR_DATABASE_PORT,
 } from './ssr-fixture-env';
 
 const env = await readFixtureEnvironment();

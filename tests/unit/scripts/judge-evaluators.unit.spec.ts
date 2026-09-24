@@ -13,6 +13,7 @@ import {
   createJudgeEvaluators,
   extractVerdict,
   normalizeScore,
+  parseFiveScale,
 } from '../../../scripts/eval/judge-evaluators';
 
 const source = (id: string, content = 'x'.repeat(9000)) =>
@@ -91,6 +92,21 @@ describe('verdict parsing', () => {
   it('clamps out-of-range scores rather than trusting the model', () => {
     expect(normalizeScore(9)).toBe(1);
     expect(normalizeScore(0)).toBe(0);
+  });
+
+  it('reports a non-numeric answer as no score rather than zero', () => {
+    // 0 is off the 1-5 scale, so coercing would put a parse failure on the
+    // chart as the worst possible verdict.
+    expect(parseFiveScale('high')).toBeNull();
+    expect(parseFiveScale('N/A')).toBeNull();
+    expect(parseFiveScale(undefined)).toBeNull();
+    expect(parseFiveScale(Number.NaN)).toBeNull();
+  });
+
+  it('accepts a numeric string and clamps to the scale', () => {
+    expect(parseFiveScale('4')).toBe(4);
+    expect(parseFiveScale(9)).toBe(5);
+    expect(parseFiveScale(-2)).toBe(1);
   });
 
   it('returns null for a score that is not a number', () => {

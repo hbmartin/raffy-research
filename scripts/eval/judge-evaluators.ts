@@ -44,14 +44,29 @@ const SCORE_MIN = 1;
 const SCORE_MAX = 5;
 
 /**
+ * A judge's 1-5 answer, or null when it did not give one.
+ *
+ * Models answer "high" or "N/A" often enough to matter, and Number() turns
+ * those into NaN, which JSON serialises to null further downstream -- a score
+ * that silently becomes nothing. Coercing to 0 instead would be worse: 0 is
+ * off the 1-5 scale and reads as the worst possible verdict, so a parse
+ * failure would look like a real, terrible score. Say null and let the caller
+ * decide.
+ */
+export function parseFiveScale(raw: unknown): number | null {
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return Math.min(SCORE_MAX, Math.max(SCORE_MIN, value));
+}
+
+/**
  * Judges answer on a 1-5 scale, but every other evaluator on this experiment
  * reports 0-1. Normalising keeps a chart of averages meaningful; the raw score
  * survives in the label and metadata.
  */
 export function normalizeScore(raw: unknown): number | null {
-  const value = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(value)) return null;
-  const clamped = Math.min(SCORE_MAX, Math.max(SCORE_MIN, value));
+  const clamped = parseFiveScale(raw);
+  if (clamped === null) return null;
   return (clamped - SCORE_MIN) / (SCORE_MAX - SCORE_MIN);
 }
 
