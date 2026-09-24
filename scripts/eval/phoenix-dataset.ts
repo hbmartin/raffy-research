@@ -10,6 +10,7 @@
  * in the Phoenix UI.
  */
 import {
+  type CasePhoenixBinding,
   type CasePhoenixPurpose,
   contentHash,
   type EvalCase,
@@ -139,6 +140,202 @@ async function findRemote(
   }
 }
 
+/** Everything the four resolution paths share. */
+type ResolveContext = {
+  api: DatasetApi;
+  client: PhoenixClient;
+  evalCase: EvalCase;
+  purpose: CasePhoenixPurpose;
+  binding: CasePhoenixBinding;
+  examples: DatasetExample[];
+  hash: string;
+  description: string;
+  log: (message: string, data?: Record<string, unknown>) => void;
+};
+
+/** Record where this case now lives, and report it. */
+function commit(
+  ctx: ResolveContext,
+  resolved: Omit<ResolvedDataset, 'contentHash'>
+): ResolvedDataset {
+  writePhoenixBinding(ctx.evalCase, ctx.purpose, {
+    datasetName: ctx.binding.datasetName,
+    datasetId: resolved.datasetId,
+    versionId: resolved.versionId,
+    contentHash: ctx.hash,
+    pushedAt: new Date().toISOString(),
+  });
+  return { ...resolved, contentHash: ctx.hash };
+}
+
+/**
+ * Replace the example set when the dataset holds examples this case no longer
+ * pushes. A same-name create replaces the set and keeps the dataset id, so the
+ * experiments recorded against it survive the repair.
+ *
+ * Returns null when there is nothing stale, leaving the normal paths to run.
+ */
+async function reconcileStaleExamples(
+  ctx: ResolveContext,
+  remote: RemoteDataset
+): Promise<ResolvedDataset | null> {
+  const stale = await findStaleExampleIds(
+    ctx.api,
+    ctx.client,
+    remote.id,
+    ctx.examples
+  );
+  if (stale.length === 0) {
+    ctx.log(
+      "Dataset holds exactly this case's examples; nothing to reconcile",
+      {
+        purpose: ctx.purpose,
+        datasetId: remote.id,
+        examples: ctx.examples.length,
+      }
+    );
+    return null;
+  }
+
+  ctx.log('Replacing stale examples left by an earlier push', {
+    purpose: ctx.purpose,
+    datasetId: remote.id,
+    stale,
+  });
+  const recreated = await ctx.api.createDataset({
+    client: ctx.client,
+    name: ctx.binding.datasetName,
+    description: ctx.description,
+    examples: ctx.examples,
+  });
+  const after = await findRemote(ctx.api, ctx.client, {
+    datasetId: recreated.datasetId,
+    datasetName: ctx.binding.datasetName,
+  });
+  ctx.log('Reconciled Phoenix dataset', {
+    purpose: ctx.purpose,
+    datasetId: recreated.datasetId,
+    examples: ctx.examples.length,
+  });
+  return commit(ctx, {
+    datasetId: recreated.datasetId,
+    versionId: after?.versionId,
+    action: 'reconciled',
+  });
+}
+
+/** Content unchanged: keep the pinned dataset and write nothing. */
+function reusePinnedDataset(
+  ctx: ResolveContext,
+  remote: RemoteDataset
+): ResolvedDataset {
+  // The stored version is authoritative for what this case was scored
+  // against; fall back to the dataset's current version when a create never
+  // recorded one.
+  const versionId = ctx.binding.versionId ?? remote.versionId;
+  if (!ctx.binding.versionId && versionId) {
+    // Backfill a case bound before versions were recorded, so the pin lives
+    // in git from now on rather than being re-resolved every run.
+    writePhoenixBinding(ctx.evalCase, ctx.purpose, {
+      ...ctx.binding,
+      versionId,
+    });
+    ctx.log('Backfilled the missing dataset version into the case', {
+      purpose: ctx.purpose,
+      versionId,
+    });
+  }
+  ctx.log('Reusing pinned Phoenix dataset', {
+    purpose: ctx.purpose,
+    datasetId: remote.id,
+    versionId,
+    examples: ctx.examples.length,
+  });
+  return {
+    datasetId: remote.id,
+    versionId,
+    action: 'reused',
+    contentHash: ctx.hash,
+  };
+}
+
+/**
+ * Same dataset, changed (or first-seen) content: push a new version under each
+ * example's stable id so history stays on one dataset.
+ */
+async function appendNewVersion(
+  ctx: ResolveContext,
+  remote: RemoteDataset
+): Promise<ResolvedDataset> {
+  const appended = await ctx.api.appendDatasetExamples({
+    client: ctx.client,
+    dataset: { datasetId: remote.id },
+    examples: ctx.examples,
+  });
+  const action = ctx.binding.datasetId ? 'revised' : 'adopted';
+  ctx.log(
+    action === 'revised'
+      ? 'Case content changed, pushed new dataset version'
+      : 'Adopted existing Phoenix dataset by name',
+    {
+      purpose: ctx.purpose,
+      datasetId: appended.datasetId,
+      versionId: appended.versionId,
+      examples: ctx.examples.length,
+    }
+  );
+  return commit(ctx, {
+    datasetId: appended.datasetId,
+    versionId: appended.versionId,
+    action,
+  });
+}
+
+/** No dataset to reuse: create one and pin the version it starts at. */
+async function createPinnedDataset(
+  ctx: ResolveContext
+): Promise<ResolvedDataset> {
+  if (ctx.binding.datasetId) {
+    ctx.log('Pinned dataset no longer exists in Phoenix, creating a new one', {
+      purpose: ctx.purpose,
+      missingDatasetId: ctx.binding.datasetId,
+    });
+  }
+
+  const created = await ctx.api.createDataset({
+    client: ctx.client,
+    name: ctx.binding.datasetName,
+    description: ctx.description,
+    examples: ctx.examples,
+  });
+
+  // createDataset reports only the id, so read the version back — without it
+  // the first experiments on a new case would run unpinned.
+  const createdVersion = await findRemote(ctx.api, ctx.client, {
+    datasetId: created.datasetId,
+    datasetName: ctx.binding.datasetName,
+  });
+  const versionId = createdVersion?.versionId;
+  if (!versionId) {
+    ctx.log(
+      'Created dataset reported no version; experiments will run unpinned',
+      { purpose: ctx.purpose, datasetId: created.datasetId }
+    );
+  }
+
+  ctx.log('Created Phoenix dataset', {
+    purpose: ctx.purpose,
+    datasetId: created.datasetId,
+    versionId,
+    examples: ctx.examples.length,
+  });
+  return commit(ctx, {
+    datasetId: created.datasetId,
+    versionId,
+    action: 'created',
+  });
+}
+
 export async function ensureDataset(input: {
   client: PhoenixClient;
   evalCase: EvalCase;
@@ -151,171 +348,32 @@ export async function ensureDataset(input: {
   reconcile?: boolean;
   log: (message: string, data?: Record<string, unknown>) => void;
 }): Promise<ResolvedDataset> {
-  const { client, evalCase, purpose, examples, log } = input;
   const api = await loadDatasetApi();
-  const binding = evalCase.manifest.phoenix[purpose] ?? {
+  const binding = input.evalCase.manifest.phoenix[input.purpose] ?? {
     datasetName: input.datasetName,
   };
-  const hash = contentHash(examples);
-
-  const remote = await findRemote(api, client, binding);
-
-  if (input.reconcile && remote) {
-    const stale = await findStaleExampleIds(api, client, remote.id, examples);
-    if (stale.length === 0) {
-      log("Dataset holds exactly this case's examples; nothing to reconcile", {
-        purpose,
-        datasetId: remote.id,
-        examples: examples.length,
-      });
-    } else {
-      // A same-name create replaces the example set and keeps the dataset id,
-      // so experiment history survives the repair.
-      log('Replacing stale examples left by an earlier push', {
-        purpose,
-        datasetId: remote.id,
-        stale,
-      });
-      const recreated = await api.createDataset({
-        client,
-        name: binding.datasetName,
-        description: input.description,
-        examples,
-      });
-      const after = await findRemote(api, client, {
-        datasetId: recreated.datasetId,
-        datasetName: binding.datasetName,
-      });
-      writePhoenixBinding(evalCase, purpose, {
-        datasetName: binding.datasetName,
-        datasetId: recreated.datasetId,
-        versionId: after?.versionId,
-        contentHash: hash,
-        pushedAt: new Date().toISOString(),
-      });
-      log('Reconciled Phoenix dataset', {
-        purpose,
-        datasetId: recreated.datasetId,
-        examples: examples.length,
-      });
-      return {
-        datasetId: recreated.datasetId,
-        versionId: after?.versionId,
-        action: 'reconciled',
-        contentHash: hash,
-      };
-    }
-  }
-
-  if (remote && binding.contentHash === hash && binding.datasetId) {
-    // The stored version is authoritative for what this case was scored
-    // against; fall back to the dataset's current version when a create never
-    // recorded one.
-    const versionId = binding.versionId ?? remote.versionId;
-    if (!binding.versionId && versionId) {
-      // Backfill a case bound before versions were recorded, so the pin lives
-      // in git from now on rather than being re-resolved every run.
-      writePhoenixBinding(evalCase, purpose, { ...binding, versionId });
-      log('Backfilled the missing dataset version into the case', {
-        purpose,
-        versionId,
-      });
-    }
-    log('Reusing pinned Phoenix dataset', {
-      purpose,
-      datasetId: remote.id,
-      versionId,
-      examples: examples.length,
-    });
-    return {
-      datasetId: remote.id,
-      versionId,
-      action: 'reused',
-      contentHash: hash,
-    };
-  }
-
-  if (remote) {
-    // Same dataset, changed (or first-seen) content: push a new version under
-    // each example's stable id so history stays on one dataset.
-    const appended = await api.appendDatasetExamples({
-      client,
-      dataset: { datasetId: remote.id },
-      examples,
-    });
-    const action = binding.datasetId ? 'revised' : 'adopted';
-    log(
-      action === 'revised'
-        ? 'Case content changed, pushed new dataset version'
-        : 'Adopted existing Phoenix dataset by name',
-      {
-        purpose,
-        datasetId: appended.datasetId,
-        versionId: appended.versionId,
-        examples: examples.length,
-      }
-    );
-    const resolved: ResolvedDataset = {
-      datasetId: appended.datasetId,
-      versionId: appended.versionId,
-      action,
-      contentHash: hash,
-    };
-    writePhoenixBinding(evalCase, purpose, {
-      datasetName: binding.datasetName,
-      datasetId: resolved.datasetId,
-      versionId: resolved.versionId,
-      contentHash: hash,
-      pushedAt: new Date().toISOString(),
-    });
-    return resolved;
-  }
-
-  if (binding.datasetId) {
-    log('Pinned dataset no longer exists in Phoenix, creating a new one', {
-      purpose,
-      missingDatasetId: binding.datasetId,
-    });
-  }
-
-  const created = await api.createDataset({
-    client,
-    name: binding.datasetName,
+  const ctx: ResolveContext = {
+    api,
+    client: input.client,
+    evalCase: input.evalCase,
+    purpose: input.purpose,
+    binding,
+    examples: input.examples,
+    hash: contentHash(input.examples),
     description: input.description,
-    examples,
-  });
+    log: input.log,
+  };
 
-  // createDataset reports only the id, so read the version back — without it
-  // the first experiments on a new case would run unpinned.
-  const createdVersion = await findRemote(api, client, {
-    datasetId: created.datasetId,
-    datasetName: binding.datasetName,
-  });
-  const versionId = createdVersion?.versionId;
-  if (!versionId) {
-    log('Created dataset reported no version; experiments will run unpinned', {
-      purpose,
-      datasetId: created.datasetId,
-    });
+  const remote = await findRemote(api, input.client, binding);
+  if (!remote) return createPinnedDataset(ctx);
+
+  if (input.reconcile) {
+    const reconciled = await reconcileStaleExamples(ctx, remote);
+    if (reconciled) return reconciled;
   }
 
-  log('Created Phoenix dataset', {
-    purpose,
-    datasetId: created.datasetId,
-    versionId,
-    examples: examples.length,
-  });
-  writePhoenixBinding(evalCase, purpose, {
-    datasetName: binding.datasetName,
-    datasetId: created.datasetId,
-    versionId,
-    contentHash: hash,
-    pushedAt: new Date().toISOString(),
-  });
-  return {
-    datasetId: created.datasetId,
-    versionId,
-    action: 'created',
-    contentHash: hash,
-  };
+  const unchanged = binding.contentHash === ctx.hash && binding.datasetId;
+  return unchanged
+    ? reusePinnedDataset(ctx, remote)
+    : appendNewVersion(ctx, remote);
 }
