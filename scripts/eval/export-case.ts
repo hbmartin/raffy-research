@@ -5,7 +5,11 @@
  * the exported files, so experiments stay reproducible as the database moves on.
  */
 import { getIntelligenceRepositories } from '@/composition/intelligence';
-import { toWeeklyReportId, type WorkspaceId } from '@/modules/kernel';
+import {
+  type SourceRecordId,
+  toWeeklyReportId,
+  type WorkspaceId,
+} from '@/modules/kernel';
 
 import {
   CASE_FORMAT_VERSION,
@@ -23,6 +27,129 @@ import {
 const toPlain = <T>(value: T): Record<string, unknown> =>
   JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 
+/** Repository results are all shaped alike; unwrapping inline buried the flow. */
+type Unwrappable<T> = {
+  isError: () => boolean;
+  getError: () => unknown;
+  get: () => T;
+};
+
+function unwrap<T>(result: Unwrappable<T>): T {
+  if (result.isError()) throw result.getError();
+  return result.get();
+}
+
+type ExportReport = {
+  id: string;
+  reportData: unknown;
+  periodStart: Date;
+  periodEnd: Date;
+  modelMetadata?: unknown;
+};
+
+type Repositories = ReturnType<typeof getIntelligenceRepositories>;
+
+/**
+ * A pinned report id is what keeps the reference output from drifting; the
+ * latest published report is only a convenience default for a first export.
+ */
+async function resolveExportReport(
+  repositories: Repositories,
+  input: {
+    workspaceId: WorkspaceId;
+    reportId?: string;
+    log: (message: string, data?: Record<string, unknown>) => void;
+  }
+): Promise<ExportReport> {
+  if (input.reportId) {
+    const outcome = unwrap(
+      await repositories.reportRepository.getById(
+        toWeeklyReportId(input.reportId)
+      )
+    );
+    if (outcome.type === 'report_not_found') {
+      throw new Error(`Report ${input.reportId} not found`);
+    }
+    return outcome.report as ExportReport;
+  }
+
+  const outcome = unwrap(
+    await repositories.reportRepository.getLatestPublished(input.workspaceId)
+  );
+  if (outcome.type === 'report_none') {
+    throw new Error('No published report to export');
+  }
+  input.log('No --report given, pinning the latest published report', {
+    reportId: outcome.report.id,
+  });
+  return outcome.report as ExportReport;
+}
+
+/**
+ * Summaries are pinned like everything else, so summary-quality experiments
+ * are reproducible from git rather than from a database that keeps moving.
+ * Without a model filter this takes the latest summary per source, whichever
+ * model wrote it.
+ */
+async function loadCaseSummaries(
+  repositories: Repositories,
+  input: {
+    workspaceId: WorkspaceId;
+    sourceRecordIds: SourceRecordId[];
+    summaryModels: string[];
+  }
+): Promise<CaseSummary[]> {
+  const queries =
+    input.summaryModels.length > 0
+      ? input.summaryModels.map((modelName) => ({ modelName }))
+      : [{ modelName: undefined }];
+
+  const results = await Promise.all(
+    queries.map(({ modelName }) =>
+      repositories.sourceRepository.listLatestSummariesForSources({
+        workspaceId: input.workspaceId,
+        sourceRecordIds: input.sourceRecordIds,
+        ...(modelName ? { modelName } : {}),
+      })
+    )
+  );
+
+  return results.flatMap((result) =>
+    unwrap(result).map((summary) => ({
+      id: summary.id,
+      sourceRecordId: summary.sourceRecordId,
+      summaryText: summary.summaryText,
+      evidenceCandidateText: summary.evidenceCandidateText,
+      modelName: summary.modelName,
+      modelProvider: summary.modelProvider,
+      promptVersion: summary.promptVersion,
+      createdAt: summary.createdAt.toISOString(),
+    }))
+  );
+}
+
+/**
+ * modelMetadata carries the full raw generation transcript -- hundreds of KB
+ * of stream events. Only the model identity is ever read back, and the rest
+ * would bloat every diff of this case.
+ */
+function trimModelMetadata(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const metadata = raw as Record<string, unknown>;
+  return {
+    modelName: metadata.modelName,
+    modelProvider: metadata.modelProvider,
+    promptVersion: metadata.promptVersion,
+  };
+}
+
+function deriveCaseName(companyName: string | null, periodStart: Date): string {
+  return `${companyName ?? 'workspace'}-${periodStart.toISOString().slice(0, 10)}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 export async function exportCase(input: {
   workspaceId: WorkspaceId;
   reportId?: string;
@@ -38,49 +165,15 @@ export async function exportCase(input: {
 }): Promise<string> {
   const repositories = getIntelligenceRepositories();
 
-  const workspaceResult = await repositories.workspaceRepository.getById(
-    input.workspaceId
+  const workspaceOutcome = unwrap(
+    await repositories.workspaceRepository.getById(input.workspaceId)
   );
-  if (workspaceResult.isError()) throw workspaceResult.getError();
-  const workspaceOutcome = workspaceResult.get();
   if (workspaceOutcome.type === 'workspace_not_found') {
     throw new Error(`Workspace ${input.workspaceId} not found`);
   }
   const workspace = workspaceOutcome.workspace;
 
-  // A pinned report id is what keeps the reference output from drifting; the
-  // latest published report is only a convenience default for the first export.
-  let report: {
-    id: string;
-    reportData: unknown;
-    periodStart: Date;
-    periodEnd: Date;
-    modelMetadata?: unknown;
-  };
-  if (input.reportId) {
-    const found = await repositories.reportRepository.getById(
-      toWeeklyReportId(input.reportId)
-    );
-    if (found.isError()) throw found.getError();
-    const outcome = found.get();
-    if (outcome.type === 'report_not_found') {
-      throw new Error(`Report ${input.reportId} not found`);
-    }
-    report = outcome.report as typeof report;
-  } else {
-    const latest = await repositories.reportRepository.getLatestPublished(
-      input.workspaceId
-    );
-    if (latest.isError()) throw latest.getError();
-    const outcome = latest.get();
-    if (outcome.type === 'report_none') {
-      throw new Error('No published report to export');
-    }
-    report = outcome.report as typeof report;
-    input.log('No --report given, pinning the latest published report', {
-      reportId: report.id,
-    });
-  }
+  const report = await resolveExportReport(repositories, input);
 
   const [sources, keywords, competitors, social, priorReports] =
     await Promise.all([
@@ -98,87 +191,32 @@ export async function exportCase(input: {
         limit: 4,
       }),
     ]);
-  if (sources.isError()) throw sources.getError();
-  if (keywords.isError()) throw keywords.getError();
-  if (competitors.isError()) throw competitors.getError();
-  if (social.isError()) throw social.getError();
-  if (priorReports.isError()) throw priorReports.getError();
 
-  // Summaries are pinned like everything else, so summary-quality experiments
-  // are reproducible from git rather than from a database that keeps moving.
+  const caseSources = unwrap(sources).map(toPlain) as CaseSource[];
   const summaryModels = input.summaryModels ?? [];
-  const sourceIds = sources.get().map((source) => source.id);
-  const summaryResults = await Promise.all(
-    summaryModels.length > 0
-      ? summaryModels.map((modelName) =>
-          repositories.sourceRepository.listLatestSummariesForSources({
-            workspaceId: input.workspaceId,
-            sourceRecordIds: sourceIds,
-            modelName,
-          })
-        )
-      : [
-          repositories.sourceRepository.listLatestSummariesForSources({
-            workspaceId: input.workspaceId,
-            sourceRecordIds: sourceIds,
-          }),
-        ]
-  );
-  const caseSummaries: CaseSummary[] = [];
-  for (const result of summaryResults) {
-    if (result.isError()) throw result.getError();
-    for (const summary of result.get()) {
-      caseSummaries.push({
-        id: summary.id,
-        sourceRecordId: summary.sourceRecordId,
-        summaryText: summary.summaryText,
-        evidenceCandidateText: summary.evidenceCandidateText,
-        modelName: summary.modelName,
-        modelProvider: summary.modelProvider,
-        promptVersion: summary.promptVersion,
-        createdAt: summary.createdAt.toISOString(),
-      });
-    }
-  }
+  const caseSummaries = await loadCaseSummaries(repositories, {
+    workspaceId: input.workspaceId,
+    sourceRecordIds: unwrap(sources).map((source) => source.id),
+    summaryModels,
+  });
 
   const caseWorkspace: CaseWorkspace = {
     workspace: toPlain(workspace),
-    keywords: keywords.get().map(toPlain),
-    competitors: competitors.get().map(toPlain),
-    socialAccounts: social.get().map(toPlain),
+    keywords: unwrap(keywords).map(toPlain),
+    competitors: unwrap(competitors).map(toPlain),
+    socialAccounts: unwrap(social).map(toPlain),
   };
-
-  const caseSources = sources.get().map(toPlain) as CaseSource[];
-
-  // modelMetadata carries the full raw generation transcript (hundreds of KB of
-  // stream events). Only the model identity is ever read back, and the rest
-  // would bloat every diff of this case, so keep just those fields.
-  const rawMetadata = (report.modelMetadata ?? null) as Record<
-    string,
-    unknown
-  > | null;
-  const modelMetadata = rawMetadata
-    ? {
-        modelName: rawMetadata.modelName,
-        modelProvider: rawMetadata.modelProvider,
-        promptVersion: rawMetadata.promptVersion,
-      }
-    : null;
 
   const caseReport: CaseReport = {
     id: report.id,
     reportData: (report.reportData ?? null) as Record<string, unknown> | null,
     periodStart: report.periodStart.toISOString(),
     periodEnd: report.periodEnd.toISOString(),
-    modelMetadata,
+    modelMetadata: trimModelMetadata(report.modelMetadata),
   };
 
   const name =
-    input.name ??
-    `${workspace.companyName ?? 'workspace'}-${report.periodStart.toISOString().slice(0, 10)}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+    input.name ?? deriveCaseName(workspace.companyName, report.periodStart);
 
   const manifest: CaseManifest = {
     formatVersion: CASE_FORMAT_VERSION,
@@ -190,15 +228,14 @@ export async function exportCase(input: {
     exportedAt: new Date().toISOString(),
     sourceCount: caseSources.length,
     summaryCount: caseSummaries.length,
-    sampleSourceIds:
-      input.sampleSourceIds && input.sampleSourceIds.length > 0
-        ? input.sampleSourceIds
-        : pickSampleSourceIds(
-            caseSources
-              .filter((source) => source.relevanceLabel !== 'junk')
-              .map((source) => source.id),
-            input.sampleSize ?? DEFAULT_SAMPLE_SIZE
-          ),
+    sampleSourceIds: input.sampleSourceIds?.length
+      ? input.sampleSourceIds
+      : pickSampleSourceIds(
+          caseSources
+            .filter((source) => source.relevanceLabel !== 'junk')
+            .map((source) => source.id),
+          input.sampleSize ?? DEFAULT_SAMPLE_SIZE
+        ),
     summaryModels: summaryModels.length > 0 ? summaryModels : undefined,
     // Carried over from a previous export so a refreshed case keeps the
     // datasets it has already been pushed to.
@@ -210,7 +247,7 @@ export async function exportCase(input: {
     workspace: caseWorkspace,
     sources: caseSources,
     report: caseReport,
-    priorReports: priorReports.get().map(toPlain),
+    priorReports: unwrap(priorReports).map(toPlain),
     summaries: caseSummaries,
   });
 
