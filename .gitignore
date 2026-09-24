@@ -80,6 +80,9 @@ app.config.timestamp_*.js
 reviews_triage/
 triage_decisions.db
 docs/*
+!docs/adr/
+docs/adr/*
+!docs/adr/*.md
 !docs/ai-sdk-v7-opportunities.md
 *.pptx
 *.zip
