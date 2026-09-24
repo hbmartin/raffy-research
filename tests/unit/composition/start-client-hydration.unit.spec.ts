@@ -43,23 +43,39 @@ describe('initial hydration coordinator', () => {
     );
   });
 
-  it.each(['beforeunload', 'pagehide'])(
-    'suppresses a delayed chunk failure after %s',
-    async (eventName) => {
-      const { document, view } = fixture();
-      const loading = Promise.withResolvers<never>();
-      const hydration = startClientHydration({
-        document,
-        loadHydrationModule: () => loading.promise,
-      });
+  it('suppresses a delayed chunk failure after pagehide', async () => {
+    const { document, view } = fixture();
+    const loading = Promise.withResolvers<never>();
+    const hydration = startClientHydration({
+      document,
+      loadHydrationModule: () => loading.promise,
+    });
 
-      view.dispatchEvent(new Event(eventName));
-      loading.reject(new Error('navigation canceled the chunk'));
-      await hydration;
+    view.dispatchEvent(new Event('pagehide'));
+    loading.reject(new Error('navigation canceled the chunk'));
+    await hydration;
 
-      expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
-    }
-  );
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('restores a pending document after a bfcache round trip', async () => {
+    const { document, view } = fixture();
+    const loading = Promise.withResolvers<never>();
+    const hydration = startClientHydration({
+      document,
+      loadHydrationModule: () => loading.promise,
+    });
+
+    view.dispatchEvent(new Event('pagehide'));
+    expect(isInitialHydrationDocumentActive(document)).toBe(false);
+    view.dispatchEvent(
+      Object.assign(new Event('pageshow'), { persisted: true })
+    );
+    expect(isInitialHydrationDocumentActive(document)).toBe(true);
+    loading.reject(new Error('restored chunk failed'));
+    await hydration;
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+  });
 
   it('does not hydrate or report after the document is replaced', async () => {
     const { document, view } = fixture();
@@ -99,21 +115,30 @@ describe('initial hydration coordinator', () => {
     );
   });
 
-  it.each(['beforeunload', 'pagehide'])(
-    'keeps tracking %s after the hydration module resolves',
-    async (eventName) => {
-      const { document, view } = fixture();
+  it('removes lifecycle listeners when initial hydration work settles', async () => {
+    const { document, view } = fixture();
 
-      await startClientHydration({
-        document,
-        loadHydrationModule: async () => ({
-          hydrateClient: vi.fn(async () => undefined),
-        }),
-      });
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({
+        hydrateClient: vi.fn(async () => undefined),
+      }),
+    });
 
-      view.dispatchEvent(new Event(eventName));
+    view.dispatchEvent(new Event('pagehide'));
+    expect(isInitialHydrationDocumentActive(document)).toBe(true);
+  });
 
-      expect(isInitialHydrationDocumentActive(document)).toBe(false);
-    }
-  );
+  it('does not suppress a failure on beforeunload alone', async () => {
+    const { document, view } = fixture();
+    const loading = Promise.withResolvers<never>();
+    const hydration = startClientHydration({
+      document,
+      loadHydrationModule: () => loading.promise,
+    });
+    view.dispatchEvent(new Event('beforeunload'));
+    loading.reject(new Error('chunk failed'));
+    await hydration;
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createErrorOnlyFetch } from '@/composition/telemetry/error-only-fetch';
+import { createServerTelemetryUserContext } from '@/composition/telemetry/otel.server';
 
 const request = new Request('https://app.example');
 const reporter = () => ({
@@ -14,7 +15,10 @@ describe('error-only server entry', () => {
     const html = '<html><head></head><body>hello</body></html>';
     const fetch = createErrorOnlyFetch(
       async () =>
-        new Response(html, { status: 201, headers: { 'x-test': 'value' } }),
+        new Response(html, {
+          status: 201,
+          headers: { 'Content-Type': 'text/html', 'x-test': 'value' },
+        }),
       report
     );
     const result = await fetch(request, { context: { requestId: 'test' } });
@@ -26,7 +30,7 @@ describe('error-only server entry', () => {
     expect(report.captureException).not.toHaveBeenCalled();
   });
 
-  it('rewraps a known-length response and removes Content-Length', async () => {
+  it('returns a known-length response unchanged and preserves Content-Length', async () => {
     const report = reporter();
     const original = new Response('<html>ready</html>', {
       headers: { 'Content-Length': '18', 'Content-Type': 'text/html' },
@@ -35,13 +39,14 @@ describe('error-only server entry', () => {
     const response = await fetch(request, {
       context: { requestId: 'test' },
     });
-    expect(response).not.toBe(original);
-    expect(response.headers.get('Content-Length')).toBeNull();
+    expect(response).toBe(original);
+    expect(response.headers.get('Content-Length')).toBe('18');
+    expect(report.flush).toHaveBeenCalledOnce();
     expect(await response.text()).toBe('<html>ready</html>');
     expect(report.flush).toHaveBeenCalledOnce();
   });
 
-  it('observes non-HTML response bodies too', async () => {
+  it('returns ordinary response bodies unchanged and flushes promptly', async () => {
     const report = reporter();
     const original = new Response(JSON.stringify({ ready: true }), {
       headers: { 'Content-Type': 'application/json' },
@@ -50,15 +55,31 @@ describe('error-only server entry', () => {
     const response = await fetch(request, {
       context: { requestId: 'test' },
     });
-    expect(response).not.toBe(original);
-    expect(report.flush).not.toHaveBeenCalled();
+    expect(response).toBe(original);
+    expect(report.flush).toHaveBeenCalledOnce();
     await expect(response.json()).resolves.toEqual({ ready: true });
+    expect(report.flush).toHaveBeenCalledOnce();
+  });
+
+  it('returns encoded HTML unchanged', async () => {
+    const report = reporter();
+    const original = new Response('compressed', {
+      headers: {
+        'Content-Type': 'text/html',
+        'Content-Encoding': 'gzip',
+      },
+    });
+    const fetch = createErrorOnlyFetch(async () => original, report);
+    const response = await fetch(request, { context: { requestId: 'test' } });
+    expect(response).toBe(original);
     expect(report.flush).toHaveBeenCalledOnce();
   });
 
   it('captures and flushes when the returned body is already locked', async () => {
     const report = reporter();
-    const original = new Response(new ReadableStream());
+    const original = new Response(new ReadableStream(), {
+      headers: { 'Content-Type': 'text/html' },
+    });
     const upstreamReader = original.body!.getReader();
     const fetch = createErrorOnlyFetch(async () => original, report);
 
@@ -88,6 +109,59 @@ describe('error-only server entry', () => {
       mechanism: { type: 'auto.http.tanstackstart', handled: false },
     });
     expect(report.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps interleaved stream failures in their mutable request user contexts', async () => {
+    const users = createServerTelemetryUserContext();
+    const captured: Array<{ failure: string; user: string | null }> = [];
+    const flushed: Array<string | null> = [];
+    const fetch = createErrorOnlyFetch(
+      async (request) => {
+        const id = new URL(request.url).pathname.slice(1);
+        users.setUser({ id });
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new Error(id));
+            },
+          }),
+          { headers: { 'Content-Type': 'text/html' } }
+        );
+      },
+      {
+        captureException(error) {
+          captured.push({
+            failure: (error as Error).message,
+            user: users.getUser()?.id ?? null,
+          });
+        },
+        async flush() {
+          flushed.push(users.getUser()?.id ?? null);
+        },
+      },
+      users.capture
+    );
+    const [first, second] = await Promise.all([
+      users.run(() =>
+        fetch(new Request('https://app.example/first'), {
+          context: { requestId: 'first' },
+        })
+      ),
+      users.run(() =>
+        fetch(new Request('https://app.example/second'), {
+          context: { requestId: 'second' },
+        })
+      ),
+    ]);
+
+    expect(users.getUser()).toBeNull();
+    await expect(second.text()).rejects.toThrow('second');
+    await expect(first.text()).rejects.toThrow('first');
+    expect(captured).toEqual([
+      { failure: 'second', user: 'second' },
+      { failure: 'first', user: 'first' },
+    ]);
+    expect(flushed).toEqual(['second', 'first']);
   });
 
   it.each(['text/html', 'application/x-ndjson', 'text/event-stream'])(

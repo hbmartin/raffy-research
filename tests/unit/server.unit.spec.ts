@@ -6,6 +6,11 @@ const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   initialize: vi.fn(),
   runWithUserContext: vi.fn(<T>(fn: () => T) => fn()),
+  captureUserContext: vi.fn(
+    () =>
+      <T>(fn: () => T) =>
+        fn()
+  ),
 }));
 
 vi.mock('@sentry/tanstackstart-react', () => ({
@@ -18,6 +23,7 @@ vi.mock('@/composition/telemetry/sentry.server', () => ({
 
 vi.mock('@/composition/telemetry/otel.server', () => ({
   runWithServerTelemetryUserContext: mocks.runWithUserContext,
+  captureServerTelemetryUserContext: mocks.captureUserContext,
 }));
 
 vi.mock('@tanstack/react-start/server-entry', () => ({
@@ -57,6 +63,7 @@ describe('server entry', () => {
   it('enables screenshot styles only for the validated loopback SSR fixture', async () => {
     vi.resetModules();
     vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PROD', true);
     vi.stubEnv('SSR_FIXTURE_MODE', 'true');
     vi.stubEnv('HOST', '127.0.0.1');
     vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
@@ -76,5 +83,26 @@ describe('server entry', () => {
         }),
       })
     );
+    await server.fetch(new Request('http://example.test/'));
+    expect(mocks.handlerFetch).toHaveBeenLastCalledWith(
+      expect.any(Request),
+      expect.objectContaining({
+        context: expect.objectContaining({
+          allowPlaywrightScreenshotStyles: false,
+        }),
+      })
+    );
+  });
+
+  it('fails startup when a fixture marker is present in a non-production runtime', async () => {
+    vi.resetModules();
+    vi.stubEnv('PROD', true);
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+
+    await expect(import('@/server')).rejects.toThrow('production build');
   });
 });

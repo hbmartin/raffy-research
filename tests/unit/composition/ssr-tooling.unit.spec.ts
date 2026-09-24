@@ -143,11 +143,12 @@ describe('SSR tooling guardrails', () => {
 
     await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
     mkdirSync(join(path, '.output/server'), { recursive: true });
-    writeFileSync(join(path, '.output/server/index.mjs'), 'partial');
-    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+    await expect(digest()).rejects.toThrow('Missing SSR runtime entry');
+    writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
+    await expect(digest()).resolves.toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('hashes deployable output but ignores dependency trees', async () => {
+  it('hashes all deployable output, including dependency trees and symlink targets', async () => {
     const path = temporary();
     vi.spyOn(process, 'cwd').mockReturnValue(path);
     writeSsrBuild(path);
@@ -160,7 +161,20 @@ describe('SSR tooling guardrails', () => {
       join(path, '.output/server/node_modules/example/index.js'),
       'dependency v1'
     );
-    expect(await digestBuiltOutput()).toBe(initial);
+    const withDependency = await digestBuiltOutput();
+    expect(withDependency).not.toBe(initial);
+
+    writeFileSync(
+      join(path, '.output/server/node_modules/example/index.js'),
+      'dependency v2'
+    );
+    expect(await digestBuiltOutput()).not.toBe(withDependency);
+
+    symlinkSync('example', join(path, '.output/server/node_modules/alias'));
+    const withSymlink = await digestBuiltOutput();
+    rmSync(join(path, '.output/server/node_modules/alias'));
+    symlinkSync('different', join(path, '.output/server/node_modules/alias'));
+    expect(await digestBuiltOutput()).not.toBe(withSymlink);
 
     writeFileSync(join(path, '.output/server/_ssr/route.mjs'), 'route v1');
     expect(await digestBuiltOutput()).not.toBe(initial);
@@ -179,6 +193,15 @@ describe('SSR tooling guardrails', () => {
     expect(await digestBuiltOutput()).not.toBe(initial);
   });
 
+  it('accepts a build without optional Nitro internal filenames', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    mkdirSync(join(path, '.output/server'), { recursive: true });
+    writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
+
+    await expect(digestBuiltOutput()).resolves.toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it('maps missing and malformed fixture manifests to an actionable error', async () => {
     const path = temporary();
     vi.spyOn(process, 'cwd').mockReturnValue(path);
@@ -186,14 +209,31 @@ describe('SSR tooling guardrails', () => {
     const { readFixtureEnvironment } =
       await import('../../../scripts/ssr-fixture-env');
 
-    await expect(readFixtureEnvironment()).rejects.toThrow(
-      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
-    );
+    await expect(readFixtureEnvironment()).rejects.toMatchObject({
+      message: 'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.',
+      cause: { code: 'ENOENT' },
+    });
     mkdirSync(join(path, '.ssr-fixture'), { recursive: true });
     writeFileSync(join(path, '.ssr-fixture/environment.json'), '{');
-    await expect(readFixtureEnvironment()).rejects.toThrow(
-      'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.'
-    );
+    await expect(readFixtureEnvironment()).rejects.toMatchObject({
+      message: 'Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.',
+      cause: expect.any(SyntaxError),
+    });
+  });
+
+  it('retains unexpected manifest I/O errors', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    vi.resetModules();
+    const { readFixtureEnvironment } =
+      await import('../../../scripts/ssr-fixture-env');
+    mkdirSync(join(path, '.ssr-fixture/environment.json'), {
+      recursive: true,
+    });
+
+    await expect(readFixtureEnvironment()).rejects.toMatchObject({
+      code: 'EISDIR',
+    });
   });
 
   it('rejects a router override and incompatible dependency resolutions', () => {

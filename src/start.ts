@@ -77,12 +77,16 @@ const mergeRequestContext = (
 export const shouldAllowPlaywrightScreenshotStyles = ({
   isProduction,
   isTestRuntime,
+  isVisualTestRuntime,
   requestContextAllows,
 }: {
   isProduction: boolean;
   isTestRuntime: boolean;
+  isVisualTestRuntime: boolean;
   requestContextAllows: boolean;
-}) => (!isProduction && isTestRuntime) || requestContextAllows;
+}) =>
+  (!isProduction && isTestRuntime && isVisualTestRuntime) ||
+  requestContextAllows;
 
 const getSecurityHeaderOptions = (context?: unknown) => {
   const isTestRuntime = envClient.VITE_ENV_NAME === 'tests';
@@ -96,6 +100,7 @@ const getSecurityHeaderOptions = (context?: unknown) => {
     allowPlaywrightScreenshotStyles: shouldAllowPlaywrightScreenshotStyles({
       isProduction: import.meta.env.PROD,
       isTestRuntime,
+      isVisualTestRuntime: envClient.VITE_VISUAL_TEST,
       requestContextAllows:
         requestContext?.allowPlaywrightScreenshotStyles === true,
     }),

@@ -328,6 +328,55 @@ describe('server config accessors', () => {
     expect(getPublicConfig).toThrow('SSR_FIXTURE_MODE');
   });
 
+  it('validates the fixture build, runtime, loopback, and auth config', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(isValidatedSsrFixtureRuntime(true)).toBe(true);
+    expect(() => isValidatedSsrFixtureRuntime(false)).toThrow(
+      'production build'
+    );
+  });
+
+  it.each([
+    ['NODE_ENV', 'development'],
+    ['HOST', '0.0.0.0'],
+    ['NITRO_HOST', '0.0.0.0'],
+    ['SKIP_ENV_VALIDATION', 'true'],
+    ['VITE_BASE_URL', 'https://example.test'],
+    ['VITE_BASE_URL', 'http://user@127.0.0.1:3011'],
+  ])('rejects an invalid fixture %s', async (key, value) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv(key, value);
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow(
+      'SSR fixture mode'
+    );
+  });
+
+  it('rejects invalid auth configuration for the fixture', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'too-short');
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow('AUTH_SECRET');
+  });
+
   it('allows weak AUTH_SECRET values only when env validation is skipped', async () => {
     const weakAuthValue = ['too', 'short', 'fixture'].join('-');
     vi.stubEnv('AUTH_PROVIDER', 'better-auth');

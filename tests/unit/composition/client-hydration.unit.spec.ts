@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   hydrateStart: vi.fn(),
   hydrateRoot: vi.fn(),
   reportHydrationFailure: vi.fn(),
+  reportRootFailure: vi.fn(),
 }));
 vi.mock('@tanstack/start-client-core/client', () => ({
   hydrateStart: mocks.hydrateStart,
@@ -16,6 +17,7 @@ vi.mock('react-dom/client', () => ({ hydrateRoot: mocks.hydrateRoot }));
 vi.mock('@tanstack/react-router', () => ({ RouterProvider: () => null }));
 vi.mock('@/composition/hydration-failure', () => ({
   reportHydrationFailure: mocks.reportHydrationFailure,
+  reportRootFailure: mocks.reportRootFailure,
 }));
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -112,9 +114,29 @@ describe('client hydration cleanup ownership', () => {
     const failure = new Error('root render failed');
     options.onUncaughtError(failure);
 
-    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
+    expect(mocks.reportRootFailure).toHaveBeenCalledWith(
       document,
-      failure
+      failure,
+      true
+    );
+  });
+
+  it('reports an uncaught root error while initial hydration is pending', async () => {
+    const { document, loading } = fixture();
+    const hydration = hydrateClient(document);
+    loading.resolve({});
+    await hydration;
+
+    const options = mocks.hydrateRoot.mock.calls[0]?.[2] as {
+      onUncaughtError: (error: unknown) => void;
+    };
+    const failure = new Error('initial root render failed');
+    options.onUncaughtError(failure);
+
+    expect(mocks.reportRootFailure).toHaveBeenCalledWith(
+      document,
+      failure,
+      true
     );
   });
 
@@ -128,9 +150,14 @@ describe('client hydration cleanup ownership', () => {
     };
 
     view.$_TSR = { h: vi.fn() };
-    options.onUncaughtError(new Error('stale root failed'));
+    const failure = new Error('stale root failed');
+    options.onUncaughtError(failure);
 
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.reportRootFailure).toHaveBeenCalledWith(
+      document,
+      failure,
+      false
+    );
   });
 
   it('does not report a root error after a newer owner claims the document', async () => {
@@ -143,9 +170,14 @@ describe('client hydration cleanup ownership', () => {
     };
 
     captureStartHydrationOwner(document);
-    options.onUncaughtError(new Error('superseded root failed'));
+    const failure = new Error('superseded root failed');
+    options.onUncaughtError(failure);
 
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.reportRootFailure).toHaveBeenCalledWith(
+      document,
+      failure,
+      false
+    );
   });
 
   it('does not report a root error after the document is replaced', async () => {
@@ -158,9 +190,14 @@ describe('client hydration cleanup ownership', () => {
     };
 
     view.document = {} as Document;
-    options.onUncaughtError(new Error('old document failed'));
+    const failure = new Error('old document failed');
+    options.onUncaughtError(failure);
 
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.reportRootFailure).toHaveBeenCalledWith(
+      document,
+      failure,
+      false
+    );
   });
 
   it('does not render or clear bootstrap data after a hard reload', async () => {

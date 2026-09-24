@@ -40,11 +40,18 @@ import type { TelemetryAdapter, TelemetryUser } from '@/platform/telemetry';
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
 export const createServerTelemetryUserContext = () => {
-  const users = new AsyncLocalStorage<TelemetryUser | null>();
+  const users = new AsyncLocalStorage<{ user: TelemetryUser | null }>();
   return {
-    getUser: () => users.getStore() ?? null,
-    run: <T>(fn: () => T) => users.run(null, fn),
-    setUser: (user: TelemetryUser | null) => users.enterWith(user),
+    getUser: () => users.getStore()?.user ?? null,
+    run: <T>(fn: () => T) => users.run({ user: null }, fn),
+    setUser: (user: TelemetryUser | null) => {
+      const store = users.getStore();
+      if (store) store.user = user;
+    },
+    capture: () => {
+      const snapshot = AsyncLocalStorage.snapshot();
+      return <T>(fn: () => T): T => snapshot(fn);
+    },
   };
 };
 
@@ -54,6 +61,8 @@ const userContext = createServerTelemetryUserContext();
 
 export const runWithServerTelemetryUserContext = <T>(fn: () => T) =>
   userContext.run(fn);
+
+export const captureServerTelemetryUserContext = () => userContext.capture();
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 

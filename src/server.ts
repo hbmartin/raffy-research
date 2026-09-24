@@ -10,26 +10,37 @@ import handler, {
 import { randomUUID } from 'node:crypto';
 
 import { createErrorOnlyFetch } from './composition/telemetry/error-only-fetch';
-import { runWithServerTelemetryUserContext } from './composition/telemetry/otel.server';
+import {
+  captureServerTelemetryUserContext,
+  runWithServerTelemetryUserContext,
+} from './composition/telemetry/otel.server';
 import { initTelemetryServer } from './composition/telemetry/sentry.server';
 import { isValidatedSsrFixtureRuntime } from './modules/kernel/infrastructure/config/auth';
 import type { AppStartRequestContext } from './start';
 
 initTelemetryServer();
 
+const allowFixtureScreenshotStyles = isValidatedSsrFixtureRuntime(
+  import.meta.env.PROD
+);
+
+const observedFetch = createErrorOnlyFetch(
+  (request) =>
+    handler.fetch(request, {
+      context: {
+        allowPlaywrightScreenshotStyles:
+          allowFixtureScreenshotStyles &&
+          new URL(request.url).hostname === '127.0.0.1',
+        requestId: randomUUID(),
+      } satisfies AppStartRequestContext,
+    }),
+  { captureException, flush: () => flushIfServerless() },
+  captureServerTelemetryUserContext
+);
+
 const requestHandler: ServerEntry = {
-  fetch: createErrorOnlyFetch(
-    (request) =>
-      runWithServerTelemetryUserContext(() =>
-        handler.fetch(request, {
-          context: {
-            allowPlaywrightScreenshotStyles: isValidatedSsrFixtureRuntime(),
-            requestId: randomUUID(),
-          } satisfies AppStartRequestContext,
-        })
-      ),
-    { captureException, flush: () => flushIfServerless() }
-  ),
+  fetch: (...args) =>
+    runWithServerTelemetryUserContext(() => observedFetch(...args)),
 };
 
 export default createServerEntry(requestHandler);

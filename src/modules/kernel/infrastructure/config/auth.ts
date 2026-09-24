@@ -40,6 +40,9 @@ const authProviderEnvSchema = baseEnvSchema.extend({
 
 const ssrFixtureMarkerEnvSchema = baseEnvSchema.extend({
   SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+  HOST: z.string().optional(),
+  NITRO_HOST: z.string().optional(),
+  VITE_BASE_URL: z.string().optional(),
 });
 
 const betterAuthEnvSchema = baseEnvSchema
@@ -243,9 +246,34 @@ export function getAuthConfig(): AuthConfig {
   return getBetterAuthConfig();
 }
 
-export function isValidatedSsrFixtureRuntime() {
-  const { SSR_FIXTURE_MODE } = parseEnv(ssrFixtureMarkerEnvSchema);
-  return (
-    SSR_FIXTURE_MODE === 'true' && getBetterAuthConfig().fixtureSignInRateLimit
-  );
+export function isValidatedSsrFixtureRuntime(isProductionBuild: boolean) {
+  const env = parseEnv(ssrFixtureMarkerEnvSchema);
+  if (env.SSR_FIXTURE_MODE !== 'true') return false;
+
+  let baseUrlIsLoopback = false;
+  try {
+    const baseUrl = new URL(env.VITE_BASE_URL ?? '');
+    baseUrlIsLoopback =
+      baseUrl.protocol === 'http:' &&
+      baseUrl.hostname === '127.0.0.1' &&
+      !baseUrl.username &&
+      !baseUrl.password;
+  } catch {
+    // An invalid fixture URL is rejected below.
+  }
+  if (
+    !isProductionBuild ||
+    env.NODE_ENV !== 'production' ||
+    env.HOST !== '127.0.0.1' ||
+    (env.NITRO_HOST !== undefined && env.NITRO_HOST !== '127.0.0.1') ||
+    shouldSkipEnvValidation(env) ||
+    !baseUrlIsLoopback
+  ) {
+    throw new ConfigurationError(
+      'SSR fixture mode requires a production build and loopback host and base URL.'
+    );
+  }
+
+  getAuthConfig();
+  return true;
 }
