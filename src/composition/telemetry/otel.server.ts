@@ -80,10 +80,24 @@ export const closeServerTelemetryUserContext = () => userContext.close();
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
-const signalUrl = (
+/**
+ * OTLP collector URLs are written inconsistently: some tools want the base
+ * host, others the full signal endpoint, and Phoenix's own docs show `/v1`.
+ * Appending blindly turns a signal URL into `/v1/traces/v1/traces`, which the
+ * collector answers with 405 and no trace is ever ingested -- silently, since
+ * exporters do not surface delivery failures. Normalise instead of trusting
+ * the value to be written one particular way.
+ */
+export const signalUrl = (
   collectorUrl: string,
   signal: 'logs' | 'metrics' | 'traces'
-) => `${trimTrailingSlash(collectorUrl)}/v1/${signal}`;
+) => {
+  const base = trimTrailingSlash(collectorUrl).replace(
+    /\/v1(?:\/(?:logs|metrics|traces))?$/,
+    ''
+  );
+  return `${base}/v1/${signal}`;
+};
 
 const createResource = (config: ReturnType<typeof getTelemetryConfig>) =>
   resourceFromAttributes({
