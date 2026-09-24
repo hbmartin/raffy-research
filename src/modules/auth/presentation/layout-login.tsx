@@ -24,7 +24,7 @@ export const LayoutLogin = (props: {
       <div className="flex w-full flex-1 flex-col gap-4 p-6 max-md:overflow-hidden md:p-10">
         <div className="flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-2 font-medium">
-            <Logo className="w-24" />
+            <Logo />
           </Link>
           <div className="flex flex-wrap justify-end gap-x-4">
             <ThemeSwitcher iconOnly />

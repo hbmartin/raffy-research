@@ -9,7 +9,7 @@ export const PageHome = () => {
   return (
     <PageLayout>
       <PageLayoutTopBar className="md:hidden">
-        <Logo className="mx-auto w-24" />
+        <Logo className="mx-auto" />
       </PageLayoutTopBar>
       <PageLayoutContent>
         <div className="flex flex-1 flex-col gap-4" />

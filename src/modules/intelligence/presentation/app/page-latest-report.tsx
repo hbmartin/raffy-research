@@ -17,7 +17,7 @@ export const PageLatestReport = () => {
   return (
     <PageLayout>
       <PageLayoutTopBar className="md:hidden">
-        <Logo className="mx-auto w-24" />
+        <Logo className="mx-auto" />
       </PageLayoutTopBar>
       <PageLayoutContent containerClassName="max-w-4xl">
         {data.report ? (
