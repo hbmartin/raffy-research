@@ -8,12 +8,10 @@
  * single dataset in the Phoenix UI.
  *
  * Usage:
- *   pnpm eval:phoenix export   --workspace <id> [--report <id>] [--out <dir>]
- *   pnpm eval:phoenix compare  --workspace <id> --case <dir>
- *   pnpm eval:phoenix evaluate --workspace <id> --case <dir>
- *   pnpm eval:phoenix summarize --workspace <id> [--period <date>]
- *   pnpm eval:phoenix generate --workspace <id> [--period <date>]
- *   pnpm eval:phoenix full     --workspace <id> [--period <date>]
+ *   pnpm eval:phoenix export    --workspace <id> [--report <id>] [--out <dir>]
+ *   pnpm eval:phoenix summarize --workspace <id> --case <dir> [--sample]
+ *   pnpm eval:phoenix compare   --workspace <id> --case <dir> [--judge]
+ *   pnpm eval:phoenix evaluate  --workspace <id> [--report <id>]
  */
 import { randomUUID } from 'node:crypto';
 
@@ -67,7 +65,6 @@ type Command = 'summarize' | 'evaluate' | 'compare' | 'export';
 type CliArgs = {
   command: Command;
   workspaceId: WorkspaceId;
-  periodDate: Date;
   provider?: string;
   model?: string;
   caseDir?: string;
@@ -141,7 +138,6 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   let workspaceId: string | undefined;
-  let periodDate: Date = new Date();
   let provider: string | undefined;
   let model: string | undefined;
   let caseDir: string | undefined;
@@ -166,10 +162,6 @@ function parseArgs(argv: string[]): CliArgs {
       workspaceId = args[++i];
     } else if (arg?.startsWith('--workspace=')) {
       workspaceId = arg.slice('--workspace='.length);
-    } else if (arg === '--period' || arg === '-p') {
-      periodDate = new Date(args[++i] ?? '');
-    } else if (arg?.startsWith('--period=')) {
-      periodDate = new Date(arg.slice('--period='.length));
     } else if (arg === '--provider') {
       provider = args[++i];
     } else if (arg?.startsWith('--provider=')) {
@@ -248,6 +240,11 @@ function parseArgs(argv: string[]): CliArgs {
       caseName = args[++i];
     } else if (arg?.startsWith('--name=')) {
       caseName = arg.slice('--name='.length);
+    } else if (arg?.startsWith('-')) {
+      // Silently ignoring a flag makes a typo look like a run that honoured
+      // it, which is worse than refusing outright.
+      console.error(`Unknown option: ${arg}`);
+      process.exit(1);
     }
   }
 
@@ -259,7 +256,6 @@ function parseArgs(argv: string[]): CliArgs {
   return {
     command,
     workspaceId: toWorkspaceId(workspaceId),
-    periodDate,
     provider,
     model,
     caseDir,
