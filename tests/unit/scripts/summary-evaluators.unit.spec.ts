@@ -237,6 +237,21 @@ describe('sample split selection', () => {
     expect(pickSampleSourceIds(['a', 'b'], -5)).toEqual([]);
   });
 
+  it('orders by code unit, not by locale', () => {
+    // Sample membership is committed, so it must not depend on the machine's
+    // locale or on the ICU data a given Node build happens to ship.
+    const ids = ['B', 'a', 'A', 'b'];
+    expect(pickSampleSourceIds(ids, 4)).toEqual(['A', 'B', 'a', 'b']);
+  });
+
+  it('picks the same subset whatever order the sources arrive in', () => {
+    const ids = Array.from({ length: 20 }, (_, i) => `id-${19 - i}`);
+    const shuffled = [...ids].sort(() => Math.random() - 0.5);
+    expect(pickSampleSourceIds(shuffled, 5)).toEqual(
+      pickSampleSourceIds(ids, 5)
+    );
+  });
+
   it('defaults to ten sources', () => {
     expect(DEFAULT_SAMPLE_SIZE).toBe(10);
     expect(

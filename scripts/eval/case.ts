@@ -256,6 +256,21 @@ export const SAMPLE_SPLIT = 'sample';
 export const DEFAULT_SAMPLE_SIZE = 10;
 
 /**
+ * Byte order, not alphabetical order.
+ *
+ * Sample membership is written into case.json and committed, so it has to
+ * resolve identically on every machine and in CI. localeCompare is the usual
+ * advice for sorting strings, but it is locale-sensitive by definition and can
+ * shift with the ICU data a given Node build ships -- which would silently
+ * change which sources are in the sample. These ids are opaque tokens no
+ * human reads, so deterministic ordering is the only property worth having.
+ */
+const byCodeUnit = (a: string, b: string): number => {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
+};
+
+/**
  * A deterministic subset of source ids: sorted, then the first n. Stable
  * across exports as long as the case's sources do not change.
  */
@@ -263,7 +278,7 @@ export function pickSampleSourceIds(
   sourceIds: string[],
   size: number
 ): string[] {
-  return [...sourceIds].sort().slice(0, Math.max(0, size));
+  return [...sourceIds].sort(byCodeUnit).slice(0, Math.max(0, size));
 }
 
 /** Stable per-source example id for the summary dataset. */
