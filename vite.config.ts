@@ -118,7 +118,12 @@ export default defineConfig(({ mode, command }) => {
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
       tanstackStart(),
-      nitro({ plugins: ['./src/composition/telemetry/bootstrap.ts'] }),
+      nitro({
+        plugins: ['./src/composition/telemetry/bootstrap.ts'],
+        // Sentry 11 loads its CommonJS entry dynamically at runtime. Keep the
+        // full package in Nitro's traced server output for Vercel functions.
+        traceDeps: ['@sentry/core*'],
+      }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),
       babel({ presets: [reactCompilerPreset()] }),
