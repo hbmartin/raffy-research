@@ -20,6 +20,7 @@ afterEach(() => {
   document.getElementById('hydration-failure')?.remove();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  loggerMocks.flush.mockResolvedValue(undefined);
 });
 
 test('reports a root failure and renders the reload control', async () => {
@@ -56,7 +57,7 @@ test('reports a later uncaught root error with a generic recovery notice', async
   });
   await expect
     .element(page.getByRole('alert'))
-    .toHaveTextContent('This page encountered an error');
+    .toMatchTextContent('This page encountered an error');
 });
 
 test('reports a stale root error without adding a recovery notice', () => {
@@ -66,7 +67,15 @@ test('reports a stale root error without adding a recovery notice', () => {
   expect(loggerMocks.error).toHaveBeenCalledWith('client.root_uncaught', {
     error: 'stale root failed',
   });
+  expect(loggerMocks.flush).toHaveBeenCalledWith({ preferBeacon: true });
   expect(document.getElementById('hydration-failure')).toBeNull();
+});
+
+test('keeps the recovery notice when an async flush rejects', async () => {
+  vi.stubGlobal('reportError', vi.fn());
+  loggerMocks.flush.mockRejectedValueOnce(new Error('offline'));
+  reportHydrationFailure(document, new Error('chunk failed'));
+  await expect.element(page.getByRole('alert')).toBeVisible();
 });
 
 test('keeps one recovery control when reporting services fail', async () => {

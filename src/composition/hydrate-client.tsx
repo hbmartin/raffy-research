@@ -5,6 +5,7 @@ import { hydrateRoot } from 'react-dom/client';
 
 import { reportHydrationFailure, reportRootFailure } from './hydration-failure';
 import {
+  hasInitialHydrationCommitted,
   isInitialHydrationDocumentActive,
   shouldReportInitialHydrationFailure,
 } from './start-client-hydration';
@@ -33,11 +34,11 @@ export const hydrateClient = async (document: Document) => {
       </StrictMode>,
       {
         onUncaughtError: (error) => {
-          reportRootFailure(
-            document,
-            error,
-            isInitialHydrationDocumentActive(document) && owner.isCurrent()
-          );
+          if (!isInitialHydrationDocumentActive(document) || !owner.isCurrent())
+            return;
+          if (hasInitialHydrationCommitted(document))
+            reportRootFailure(document, error, true);
+          else reportHydrationFailure(document, error);
         },
       }
     );

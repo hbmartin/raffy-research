@@ -12,6 +12,28 @@ import { ConfigurationError } from '../../domain/errors/configuration-error';
 
 const zOptionalProviderSecret = () => z.string().optional();
 const AUTH_SECRET_MIN_LENGTH = 32;
+const isFixtureLoopbackAddress = (env: {
+  HOST?: string;
+  NITRO_HOST?: string;
+  VITE_BASE_URL?: string;
+}) => {
+  if (
+    env.HOST !== '127.0.0.1' ||
+    (env.NITRO_HOST !== undefined && env.NITRO_HOST !== '127.0.0.1')
+  )
+    return false;
+  try {
+    const url = new URL(env.VITE_BASE_URL ?? '');
+    return (
+      url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+};
 const AUTH_SECRET_PLACEHOLDERS = new Set([
   'changeme',
   'change-me',
@@ -64,6 +86,7 @@ const betterAuthEnvSchema = baseEnvSchema
     VERCEL: z.string().optional(),
     SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
     HOST: z.string().optional(),
+    NITRO_HOST: z.string().optional(),
     VITE_BASE_URL: z.string().optional(),
     GITHUB_CLIENT_ID: zOptionalProviderSecret(),
     GITHUB_CLIENT_SECRET: zOptionalProviderSecret(),
@@ -92,15 +115,7 @@ const betterAuthEnvSchema = baseEnvSchema
     const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
     // VERCEL_REGION exists only at runtime, but this schema also runs at build time.
     const isVercelDeployment = env.VERCEL === '1';
-    const fixtureIsLoopback =
-      env.HOST === '127.0.0.1' &&
-      (() => {
-        try {
-          return new URL(env.VITE_BASE_URL ?? '').hostname === '127.0.0.1';
-        } catch {
-          return false;
-        }
-      })();
+    const fixtureIsLoopback = isFixtureLoopbackAddress(env);
     if (fixtureMode && !fixtureIsLoopback) {
       ctx.addIssue({
         code: 'custom',
@@ -194,20 +209,25 @@ const reportSharedRateLimitBucket = () => {
   );
 };
 
-export function getAuthProviderConfig(): AuthProviderConfig {
-  if (cachedAuthProviderConfig) return cachedAuthProviderConfig;
+export function getAuthProviderConfig(
+  source?: Record<string, unknown>
+): AuthProviderConfig {
+  if (!source && cachedAuthProviderConfig) return cachedAuthProviderConfig;
 
-  const env = parseEnv(authProviderEnvSchema);
-  cachedAuthProviderConfig = {
+  const env = parseEnv(authProviderEnvSchema, source);
+  const config = {
     provider: env.AUTH_PROVIDER,
   };
-  return cachedAuthProviderConfig;
+  if (!source) cachedAuthProviderConfig = config;
+  return config;
 }
 
-export function getBetterAuthConfig(): BetterAuthConfig {
-  if (cachedBetterAuthConfig) return cachedBetterAuthConfig;
+export function getBetterAuthConfig(
+  source?: Record<string, unknown>
+): BetterAuthConfig {
+  if (!source && cachedBetterAuthConfig) return cachedBetterAuthConfig;
 
-  const env = parseEnv(betterAuthEnvSchema);
+  const env = parseEnv(betterAuthEnvSchema, source);
   const isVercelDeployment = env.VERCEL === '1';
   const trustedClientIpHeader =
     env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
@@ -222,7 +242,7 @@ export function getBetterAuthConfig(): BetterAuthConfig {
     reportSharedRateLimitBucket();
   }
 
-  cachedBetterAuthConfig = {
+  const config = {
     secret: env.AUTH_SECRET,
     sessionExpirationInSeconds: env.AUTH_SESSION_EXPIRATION_IN_SECONDS,
     sessionUpdateAgeInSeconds: env.AUTH_SESSION_UPDATE_AGE_IN_SECONDS,
@@ -233,47 +253,38 @@ export function getBetterAuthConfig(): BetterAuthConfig {
     githubClientId: env.GITHUB_CLIENT_ID,
     githubClientSecret: env.GITHUB_CLIENT_SECRET,
   };
-  return cachedBetterAuthConfig;
+  if (!source) cachedBetterAuthConfig = config;
+  return config;
 }
 
-export function getAuthConfig(): AuthConfig {
-  const { provider } = getAuthProviderConfig();
+export function getAuthConfig(source?: Record<string, unknown>): AuthConfig {
+  const { provider } = getAuthProviderConfig(source);
   if (provider !== 'better-auth') {
     throw new ConfigurationError(
       `AUTH_PROVIDER=${provider} is not implemented in this build.`
     );
   }
-  return getBetterAuthConfig();
+  return getBetterAuthConfig(source);
 }
 
-export function isValidatedSsrFixtureRuntime(isProductionBuild: boolean) {
-  const env = parseEnv(ssrFixtureMarkerEnvSchema);
+export function isValidatedSsrFixtureRuntime(
+  isProductionBuild: boolean,
+  source?: Record<string, unknown>
+) {
+  const env = parseEnv(ssrFixtureMarkerEnvSchema, source);
   if (env.SSR_FIXTURE_MODE !== 'true') return false;
 
-  let baseUrlIsLoopback = false;
-  try {
-    const baseUrl = new URL(env.VITE_BASE_URL ?? '');
-    baseUrlIsLoopback =
-      baseUrl.protocol === 'http:' &&
-      baseUrl.hostname === '127.0.0.1' &&
-      !baseUrl.username &&
-      !baseUrl.password;
-  } catch {
-    // An invalid fixture URL is rejected below.
-  }
   if (
     !isProductionBuild ||
     env.NODE_ENV !== 'production' ||
-    env.HOST !== '127.0.0.1' ||
-    (env.NITRO_HOST !== undefined && env.NITRO_HOST !== '127.0.0.1') ||
     shouldSkipEnvValidation(env) ||
-    !baseUrlIsLoopback
+    !isFixtureLoopbackAddress(env)
   ) {
     throw new ConfigurationError(
       'SSR fixture mode requires a production build and loopback host and base URL.'
     );
   }
 
-  getAuthConfig();
+  getAuthConfig(source);
   return true;
 }

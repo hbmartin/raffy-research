@@ -1,5 +1,6 @@
 import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { LoggerProvider } from '@opentelemetry/sdk-logs';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
@@ -26,8 +27,10 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(providers.map((provider) => provider.shutdown()));
   providers = [];
-  collector?.closeAllConnections();
-  await new Promise<void>((resolve) => collector?.close(() => resolve()));
+  if (collector?.listening) {
+    collector.closeAllConnections();
+    await new Promise<void>((resolve) => collector.close(() => resolve()));
+  }
   trace.disable();
   metrics.disable();
   logs.disable();
@@ -37,6 +40,22 @@ afterEach(async () => {
 });
 
 describe('server OTLP header precedence', () => {
+  it('fails closed when another context manager is registered', async () => {
+    const existingManager = new AsyncLocalStorageContextManager().enable();
+    expect(context.setGlobalContextManager(existingManager)).toBe(true);
+    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const { initOpenTelemetryServer } =
+        await import('@/composition/telemetry/otel.server');
+      expect(initOpenTelemetryServer()).toBeUndefined();
+      expect(diagnostic).toHaveBeenCalledWith(
+        '{"event":"telemetry.sdk_init_failed"}\n'
+      );
+    } finally {
+      diagnostic.mockRestore();
+      existingManager.disable();
+    }
+  });
   it.each([undefined, 'explicit-token'])(
     'preserves signal-specific headers with collector bearer token %s',
     async (bearerToken) => {
@@ -76,9 +95,9 @@ describe('server OTLP header precedence', () => {
 
       Sentry.init({
         dsn: 'https://public@sentry.example/1',
-        tracesSampleRate: null,
-        skipOpenTelemetrySetup: true,
-      } as unknown as Parameters<typeof Sentry.init>[0]);
+        tracesSampleRate: null as unknown as number,
+        enableOpenTelemetrySetup: false,
+      });
 
       const { initOpenTelemetryServer } =
         await import('@/composition/telemetry/otel.server');
@@ -145,9 +164,9 @@ describe('server OTLP header precedence', () => {
   it('keeps concurrent Sentry isolation scopes request-local', async () => {
     Sentry.init({
       dsn: 'https://public@sentry.example/1',
-      skipOpenTelemetrySetup: true,
-      tracesSampleRate: null,
-    } as unknown as Parameters<typeof Sentry.init>[0]);
+      enableOpenTelemetrySetup: false,
+      tracesSampleRate: null as unknown as number,
+    });
     const { initOpenTelemetryServer } =
       await import('@/composition/telemetry/otel.server');
     expect(initOpenTelemetryServer()).toBeUndefined();
@@ -180,6 +199,8 @@ describe('server OTLP header precedence', () => {
     const { createServerTelemetryUserContext } =
       await import('@/composition/telemetry/otel.server');
     const users = createServerTelemetryUserContext();
+    users.setUser({ id: 'outside-request' });
+    expect(users.getUser()).toBeNull();
     const bothReady = Promise.withResolvers<void>();
     let ready = 0;
     const run = (id: string) =>

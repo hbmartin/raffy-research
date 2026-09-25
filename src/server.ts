@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { createErrorOnlyFetch } from './composition/telemetry/error-only-fetch';
 import {
   captureServerTelemetryUserContext,
+  closeServerTelemetryUserContext,
   runWithServerTelemetryUserContext,
 } from './composition/telemetry/otel.server';
 import { initTelemetryServer } from './composition/telemetry/sentry.server';
@@ -21,7 +22,8 @@ import type { AppStartRequestContext } from './start';
 initTelemetryServer();
 
 const allowFixtureScreenshotStyles = isValidatedSsrFixtureRuntime(
-  import.meta.env.PROD
+  import.meta.env.RAFFY_PRODUCTION_BUILD === true ||
+    import.meta.env.RAFFY_PRODUCTION_BUILD === 'true'
 );
 
 const observedFetch = createErrorOnlyFetch(
@@ -35,7 +37,8 @@ const observedFetch = createErrorOnlyFetch(
       } satisfies AppStartRequestContext,
     }),
   { captureException, flush: () => flushIfServerless() },
-  captureServerTelemetryUserContext
+  captureServerTelemetryUserContext,
+  closeServerTelemetryUserContext
 );
 
 const requestHandler: ServerEntry = {

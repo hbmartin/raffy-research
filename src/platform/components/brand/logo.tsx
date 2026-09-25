@@ -22,7 +22,7 @@ export const Logo = ({
       height={32}
       className="size-8 shrink-0 group-data-[collapsible=icon]:size-7"
     />
-    <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:hidden sm:text-base">
+    <span className="text-sm font-semibold tracking-tight group-data-[collapsible=icon]:sr-only sm:text-base">
       Raffy Research
     </span>
   </span>

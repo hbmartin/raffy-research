@@ -14,6 +14,11 @@ export function assertSsrCompatibility({
   startClientCore,
   router,
   core,
+  rootCore,
+  reactQuery,
+  queryCore,
+  rootQueryCore,
+  packageJson,
   sentry,
   sentryCore,
 }) {
@@ -30,7 +35,13 @@ export function assertSsrCompatibility({
     start.dependencies['@tanstack/react-router'] !== router.version ||
     start.dependencies['@tanstack/start-client-core'] !==
       startClientCore.version ||
-    router.dependencies['@tanstack/router-core'] !== core.version
+    router.dependencies['@tanstack/router-core'] !== core.version ||
+    packageJson.dependencies['@tanstack/router-core'] !== rootCore.version ||
+    rootCore.version !== core.version ||
+    reactQuery.dependencies['@tanstack/query-core'] !== queryCore.version ||
+    packageJson.dependencies['@tanstack/query-core'] !==
+      rootQueryCore.version ||
+    rootQueryCore.version !== queryCore.version
   ) {
     throw new Error(
       'Start, React Router, and their core packages must resolve to the exact versions declared by their consumers.'
@@ -57,6 +68,18 @@ if (
         'utf8'
       )
     ),
+    rootCore: metadata('@tanstack/router-core'),
+    reactQuery: metadata('@tanstack/react-query'),
+    queryCore: JSON.parse(
+      readFileSync(
+        createRequire(
+          require.resolve('@tanstack/react-query/package.json')
+        ).resolve('@tanstack/query-core/package.json'),
+        'utf8'
+      )
+    ),
+    rootQueryCore: metadata('@tanstack/query-core'),
+    packageJson: JSON.parse(readFileSync('package.json', 'utf8')),
     sentry: metadata('@sentry/tanstackstart-react'),
     sentryCore: metadata('@sentry/core'),
   });

@@ -29,7 +29,11 @@ const temporary = () => {
 };
 const writeSsrBuild = (path: string) => {
   mkdirSync(join(path, '.output/server/_ssr'), { recursive: true });
-  writeFileSync(join(path, '.output/nitro.json'), '{"preset":"node-server"}');
+  mkdirSync(join(path, '.output/public'), { recursive: true });
+  writeFileSync(
+    join(path, '.output/nitro.json'),
+    '{"preset":"node-server","serverEntry":"server/index.mjs","publicDir":"public"}'
+  );
   writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
   writeFileSync(join(path, '.output/server/_ssr/ssr.mjs'), 'ssr entry');
   writeFileSync(
@@ -45,6 +49,31 @@ afterEach(() => {
 });
 
 describe('SSR tooling guardrails', () => {
+  it('does not treat Vite serve as a production build under production NODE_ENV', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { default: viteConfig } = await import('../../../vite.config');
+    const config = viteConfig({
+      command: 'serve',
+      mode: 'production',
+      isPreview: false,
+      isSsrBuild: false,
+    });
+    expect(config.define?.['import.meta.env.RAFFY_PRODUCTION_BUILD']).toBe(
+      'false'
+    );
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    expect(() =>
+      isValidatedSsrFixtureRuntime(false, {
+        AUTH_SECRET: 'a'.repeat(32),
+        HOST: '127.0.0.1',
+        NODE_ENV: 'production',
+        SSR_FIXTURE_MODE: 'true',
+        VITE_BASE_URL: 'http://127.0.0.1:3011',
+      })
+    ).toThrow('production build');
+  });
+
   it('only removes the dedicated SSR basename from the normal suite', () => {
     const ignores = [mainConfig.testIgnore].flat() as RegExp[];
     expect(
@@ -143,9 +172,48 @@ describe('SSR tooling guardrails', () => {
 
     await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
     mkdirSync(join(path, '.output/server'), { recursive: true });
+    mkdirSync(join(path, '.output/public'), { recursive: true });
+    writeFileSync(join(path, '.output/nitro.json'), '{');
+    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+    writeFileSync(
+      join(path, '.output/nitro.json'),
+      '{"serverEntry":"server/index.mjs","publicDir":"public"}'
+    );
     await expect(digest()).rejects.toThrow('Missing SSR runtime entry');
     writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
     await expect(digest()).resolves.toMatch(/^[a-f0-9]{64}$/);
+    rmSync(join(path, '.output/public'), { recursive: true });
+    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+  });
+
+  it('requires the Nitro entry symlink to resolve to a file', async () => {
+    const path = temporary();
+    vi.spyOn(process, 'cwd').mockReturnValue(path);
+    writeSsrBuild(path);
+    rmSync(join(path, '.output/server/index.mjs'));
+    symlinkSync('missing.mjs', join(path, '.output/server/index.mjs'));
+    await expect(digestBuiltOutput()).rejects.toThrow(
+      'Missing SSR runtime entry'
+    );
+    writeFileSync(join(path, '.output/server/target.mjs'), 'entry');
+    rmSync(join(path, '.output/server/index.mjs'));
+    symlinkSync('target.mjs', join(path, '.output/server/index.mjs'));
+    await expect(digestBuiltOutput()).resolves.toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('frames paths and per-file content digests without NUL ambiguity', async () => {
+    const first = temporary();
+    const second = temporary();
+    writeSsrBuild(first);
+    writeSsrBuild(second);
+    writeFileSync(join(first, '.output/a'), 'x\0b\0file\0y');
+    writeFileSync(join(second, '.output/a'), 'x');
+    writeFileSync(join(second, '.output/b'), 'y');
+    const cwd = vi.spyOn(process, 'cwd');
+    cwd.mockReturnValue(first);
+    const firstDigest = await digestBuiltOutput();
+    cwd.mockReturnValue(second);
+    expect(await digestBuiltOutput()).not.toBe(firstDigest);
   });
 
   it('hashes all deployable output, including dependency trees and symlink targets', async () => {
@@ -197,6 +265,11 @@ describe('SSR tooling guardrails', () => {
     const path = temporary();
     vi.spyOn(process, 'cwd').mockReturnValue(path);
     mkdirSync(join(path, '.output/server'), { recursive: true });
+    mkdirSync(join(path, '.output/public'), { recursive: true });
+    writeFileSync(
+      join(path, '.output/nitro.json'),
+      '{"serverEntry":"server/index.mjs","publicDir":"public"}'
+    );
     writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
 
     await expect(digestBuiltOutput()).resolves.toMatch(/^[a-f0-9]{64}$/);
@@ -251,6 +324,16 @@ describe('SSR tooling guardrails', () => {
         dependencies: { '@tanstack/router-core': '1.2.4' },
       },
       core: { version: '1.2.4' },
+      rootCore: { version: '1.2.4' },
+      reactQuery: { dependencies: { '@tanstack/query-core': '5.2.1' } },
+      queryCore: { version: '5.2.1' },
+      rootQueryCore: { version: '5.2.1' },
+      packageJson: {
+        dependencies: {
+          '@tanstack/router-core': '1.2.4',
+          '@tanstack/query-core': '5.2.1',
+        },
+      },
       sentry: { version: '10.55.0' },
       sentryCore: { version: '10.55.0' },
     };
@@ -269,6 +352,12 @@ describe('SSR tooling guardrails', () => {
         ...input,
         startClientCore: { version: '1.2.5' },
       })
+    ).toThrow('exact versions');
+    expect(() =>
+      assertSsrCompatibility({ ...input, rootCore: { version: '1.2.5' } })
+    ).toThrow('exact versions');
+    expect(() =>
+      assertSsrCompatibility({ ...input, rootQueryCore: { version: '5.2.2' } })
     ).toThrow('exact versions');
   });
 

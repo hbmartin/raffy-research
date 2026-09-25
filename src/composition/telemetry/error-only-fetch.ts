@@ -10,26 +10,8 @@ type ErrorReporter = {
 
 type RunInRequestContext = <T>(fn: () => T) => T;
 
-const needsStreamObservation = (response: Response) => {
-  if (
-    !response.body ||
-    response.headers.has('Content-Length') ||
-    response.headers.has('Content-Encoding')
-  )
-    return false;
-
-  const contentType = response.headers
-    .get('Content-Type')
-    ?.split(';', 1)[0]
-    ?.trim()
-    .toLowerCase();
-  return (
-    contentType === 'text/html' ||
-    contentType === 'application/xhtml+xml' ||
-    contentType === 'text/event-stream' ||
-    contentType === 'application/x-ndjson'
-  );
-};
+const needsStreamObservation = (response: Response) =>
+  !response.headers.has('Content-Length');
 
 const unhandledHttpError = {
   mechanism: { type: 'auto.http.tanstackstart', handled: false },
@@ -42,11 +24,10 @@ export const createErrorOnlyFetch =
   (
     fetch: ServerEntry['fetch'],
     reporter: ErrorReporter,
-    captureRequestContext?: () => RunInRequestContext
+    captureRequestContext?: () => RunInRequestContext,
+    closeRequestContext?: () => void
   ): ServerEntry['fetch'] =>
   async (...args) => {
-    const runInRequestContext =
-      captureRequestContext?.() ?? (<T>(fn: () => T): T => fn());
     let flushing: Promise<void> | undefined;
     const flush = () =>
       (flushing ??= (async () => {
@@ -54,6 +35,8 @@ export const createErrorOnlyFetch =
           await reporter.flush();
         } catch {
           /* Reporting must not break the response. */
+        } finally {
+          closeRequestContext?.();
         }
       })());
     let response: Response;
@@ -69,6 +52,8 @@ export const createErrorOnlyFetch =
       await flush();
       return response;
     }
+    const runInRequestContext =
+      captureRequestContext?.() ?? (<T>(fn: () => T): T => fn());
     let reader: ReadableStreamDefaultReader<Uint8Array>;
     try {
       reader = responseBody.getReader();

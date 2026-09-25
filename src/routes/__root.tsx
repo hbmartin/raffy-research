@@ -7,7 +7,7 @@ import {
   useRouteContext,
   useRouter,
 } from '@tanstack/react-router';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { getPageTitle } from '@/platform/lib/get-page-title';
@@ -23,6 +23,7 @@ import {
   TanStackDevtoolsPanel,
 } from '@/app/devtools/presentation';
 import { Providers } from '@/composition/providers';
+import { markInitialHydrationCommitted } from '@/composition/start-client-hydration';
 import { getTelemetry } from '@/composition/telemetry';
 import { initSsrApp } from '@/modules/kernel/server';
 import { createCspNonceBridgeScript } from '@/platform/http/csp-nonce';
@@ -123,6 +124,9 @@ function RootComponent() {
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   const { i18n } = useTranslation();
   syncLanguage(i18n.language);
+  useLayoutEffect(() => {
+    markInitialHydrationCommitted(document);
+  }, []);
 
   const languageConfig = AVAILABLE_LANGUAGES.find(
     ({ key }) => key === i18n.language

@@ -51,11 +51,10 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'node ./run-jiti ./scripts/serve-ssr-e2e.ts',
+    command: 'pnpm e2e:ssr:webserver',
     url: `${SSR_BASE_URL}/login`,
     timeout: 120_000,
     reuseExistingServer: false,
-    // Use Playwright's default process-group termination for this disposable
-    // in-memory fixture so the app and its database always stop together.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
   },
 });

@@ -1,12 +1,13 @@
 /* oxlint-disable no-process-env */
 import { z } from 'zod';
 
-type RuntimeEnv = Record<string, unknown>;
+import { mergeRuntimeEnv, type RuntimeEnv } from './merge-runtime-env';
 
-const runtimeEnv = (): RuntimeEnv => ({
-  ...(typeof process === 'undefined' ? {} : process.env),
-  ...import.meta.env,
-});
+const runtimeEnv = (): RuntimeEnv =>
+  mergeRuntimeEnv(
+    typeof process === 'undefined' ? {} : process.env,
+    import.meta.env
+  );
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
 

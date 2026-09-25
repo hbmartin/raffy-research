@@ -11,6 +11,7 @@ const reportClientFailure = (
   showRecovery: boolean
 ) => {
   const view = document.defaultView;
+  if (view?.document !== document) return;
   const failure = error instanceof Error ? error : new Error(String(error));
   try {
     view?.reportError?.(failure);
@@ -24,13 +25,11 @@ const reportClientFailure = (
   } catch {
     // Attempt to flush any previously queued logs even if logging failed.
   }
-  try {
-    void flushFrontendLogs({ preferBeacon: false });
-  } catch {
+  void flushFrontendLogs({ preferBeacon: !showRecovery }).catch(() => {
     // The recovery control still works when flushing fails.
-  }
+  });
 
-  if (!showRecovery || view?.document !== document) return;
+  if (!showRecovery) return;
   if (document.getElementById('hydration-failure')) return;
   const notice = document.createElement('aside');
   notice.id = 'hydration-failure';
@@ -49,7 +48,6 @@ const reportClientFailure = (
 };
 
 export const reportHydrationFailure = (document: Document, error: unknown) => {
-  if (document.defaultView?.document !== document) return;
   reportClientFailure(
     document,
     error,

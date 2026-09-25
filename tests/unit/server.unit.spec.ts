@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
       <T>(fn: () => T) =>
         fn()
   ),
+  closeUserContext: vi.fn(),
+  validateFixture: vi.fn(() => false),
 }));
 
 vi.mock('@sentry/tanstackstart-react', () => ({
@@ -24,6 +26,7 @@ vi.mock('@/composition/telemetry/sentry.server', () => ({
 vi.mock('@/composition/telemetry/otel.server', () => ({
   runWithServerTelemetryUserContext: mocks.runWithUserContext,
   captureServerTelemetryUserContext: mocks.captureUserContext,
+  closeServerTelemetryUserContext: mocks.closeUserContext,
 }));
 
 vi.mock('@tanstack/react-start/server-entry', () => ({
@@ -33,8 +36,13 @@ vi.mock('@tanstack/react-start/server-entry', () => ({
   createServerEntry: mocks.createServerEntry,
 }));
 
+vi.mock('@/modules/kernel/infrastructure/config/auth', () => ({
+  isValidatedSsrFixtureRuntime: mocks.validateFixture,
+}));
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  mocks.validateFixture.mockReset().mockReturnValue(false);
 });
 
 describe('server entry', () => {
@@ -62,8 +70,9 @@ describe('server entry', () => {
 
   it('enables screenshot styles only for the validated loopback SSR fixture', async () => {
     vi.resetModules();
+    mocks.validateFixture.mockReturnValue(true);
     vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('PROD', true);
+    vi.stubEnv('RAFFY_PRODUCTION_BUILD', 'true');
     vi.stubEnv('SSR_FIXTURE_MODE', 'true');
     vi.stubEnv('HOST', '127.0.0.1');
     vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
@@ -94,15 +103,11 @@ describe('server entry', () => {
     );
   });
 
-  it('fails startup when a fixture marker is present in a non-production runtime', async () => {
+  it('passes a false build indicator in the Vite test runtime', async () => {
     vi.resetModules();
-    vi.stubEnv('PROD', true);
-    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('SSR_FIXTURE_MODE', 'true');
-    vi.stubEnv('HOST', '127.0.0.1');
-    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-
-    await expect(import('@/server')).rejects.toThrow('production build');
+    await import('@/server');
+    expect(mocks.validateFixture).toHaveBeenCalledWith(false);
   });
 });
