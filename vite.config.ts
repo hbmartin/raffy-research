@@ -120,9 +120,9 @@ export default defineConfig(({ mode, command }) => {
       tanstackStart(),
       nitro({
         plugins: ['./src/composition/telemetry/bootstrap.ts'],
-        // Sentry 11 loads its CommonJS entry dynamically at runtime. Keep the
-        // full package in Nitro's traced server output for Vercel functions.
-        traceDeps: ['@sentry/core*'],
+        // These packages are loaded dynamically at runtime, so Nitro cannot
+        // discover them from static imports when tracing Vercel functions.
+        traceDeps: ['@sentry/core*', 'ws*'],
       }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),
