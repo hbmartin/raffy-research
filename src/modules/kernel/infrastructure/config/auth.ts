@@ -62,7 +62,6 @@ const betterAuthEnvSchema = baseEnvSchema
     AUTH_TRUSTED_ORIGINS: z.string().optional(),
     AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
     VERCEL: z.string().optional(),
-    VERCEL_REGION: z.string().trim().optional(),
     SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
     HOST: z.string().optional(),
     VITE_BASE_URL: z.string().optional(),
@@ -91,7 +90,8 @@ const betterAuthEnvSchema = baseEnvSchema
     if (!isProdRuntimeEnvironment(env)) return;
 
     const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
-    const isVercelRuntime = env.VERCEL === '1' && Boolean(env.VERCEL_REGION);
+    // VERCEL_REGION exists only at runtime, but this schema also runs at build time.
+    const isVercelDeployment = env.VERCEL === '1';
     const fixtureIsLoopback =
       env.HOST === '127.0.0.1' &&
       (() => {
@@ -110,7 +110,7 @@ const betterAuthEnvSchema = baseEnvSchema
     }
     if (
       !shouldSkipEnvValidation(env) &&
-      !isVercelRuntime &&
+      !isVercelDeployment &&
       !fixtureMode &&
       !env.AUTH_TRUSTED_CLIENT_IP_HEADER
     ) {
@@ -208,10 +208,10 @@ export function getBetterAuthConfig(): BetterAuthConfig {
   if (cachedBetterAuthConfig) return cachedBetterAuthConfig;
 
   const env = parseEnv(betterAuthEnvSchema);
-  const isVercelRuntime = env.VERCEL === '1' && Boolean(env.VERCEL_REGION);
+  const isVercelDeployment = env.VERCEL === '1';
   const trustedClientIpHeader =
     env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
-    (isVercelRuntime ? 'x-vercel-forwarded-for' : undefined);
+    (isVercelDeployment ? 'x-vercel-forwarded-for' : undefined);
   const fixtureSignInRateLimit = env.SSR_FIXTURE_MODE === 'true';
   if (
     isProdRuntimeEnvironment(env) &&

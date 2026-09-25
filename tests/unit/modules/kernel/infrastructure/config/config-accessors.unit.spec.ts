@@ -256,17 +256,28 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
-  it('selects Vercel-overwritten headers only in a real Vercel runtime', async () => {
+  it('selects Vercel-overwritten headers during Vercel builds without a region', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
     vi.stubEnv('VERCEL', '1');
-    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    vi.stubEnv('VERCEL_REGION', undefined);
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
     expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
       'x-vercel-forwarded-for'
     );
+  });
+
+  it('does not infer Vercel from a region without its deployment marker', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
   it('gives an explicit trusted header precedence over Vercel detection', async () => {
