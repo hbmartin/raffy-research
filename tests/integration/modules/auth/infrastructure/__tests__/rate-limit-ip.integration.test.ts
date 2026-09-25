@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth';
+import { getMigrations } from 'better-auth/db/migration';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 
@@ -7,20 +8,9 @@ describe('production sign-in IP trust', () => {
     'keeps spoofed forwarded addresses in one rate-limit bucket with %s',
     async (trustedHeader) => {
       const database = new DatabaseSync(':memory:');
-      database.exec(`
-        CREATE TABLE "user" (
-          "id" TEXT PRIMARY KEY NOT NULL,
-          "name" TEXT NOT NULL,
-          "email" TEXT NOT NULL UNIQUE,
-          "emailVerified" INTEGER NOT NULL,
-          "image" TEXT,
-          "createdAt" INTEGER NOT NULL,
-          "updatedAt" INTEGER NOT NULL
-        )
-      `);
 
       try {
-        const auth = betterAuth({
+        const options = {
           secret: 'rate-limit-test-secret-with-sufficient-length', // pragma: allowlist secret
           baseURL: 'http://127.0.0.1:3900',
           database,
@@ -31,7 +21,9 @@ describe('production sign-in IP trust', () => {
               ipAddressHeaders: trustedHeader ? [trustedHeader] : [],
             },
           },
-        });
+        };
+        await (await getMigrations(options)).runMigrations();
+        const auth = betterAuth(options);
         const statuses: number[] = [];
         for (let attempt = 0; attempt < 4; attempt++) {
           const headers = new Headers({

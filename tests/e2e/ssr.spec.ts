@@ -274,7 +274,7 @@ test('does not report a hydration chunk canceled by navigation', async ({
     await route.abort('failed').catch(() => undefined);
   });
 
-  await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
+  await page.goto('/login', { waitUntil: 'commit', timeout: 10_000 });
   await expect.poll(() => hydrationRequests).toBe(1);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   const navigation = page.goto('about:blank', {

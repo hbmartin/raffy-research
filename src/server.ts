@@ -1,7 +1,7 @@
 // oxlint-disable-next-line simple-import-sort/imports -- Sentry must initialize before server dependencies evaluate.
 import '../instrument.server.mjs';
 
-import { flushIfServerless } from '@sentry/core';
+import { flushIfServerless } from '@sentry/core/server';
 import { captureException } from '@sentry/tanstackstart-react';
 import handler, {
   createServerEntry,

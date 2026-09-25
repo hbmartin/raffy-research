@@ -7,8 +7,8 @@ import { ConfigurationError } from '../../domain/errors/configuration-error';
 type RuntimeEnv = Record<string, unknown>;
 
 const runtimeEnv = (): RuntimeEnv => ({
-  ...(typeof process === 'undefined' ? {} : process.env),
   ...(import.meta as ImportMeta & { env?: RuntimeEnv }).env,
+  ...(typeof process === 'undefined' ? {} : process.env),
 });
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
