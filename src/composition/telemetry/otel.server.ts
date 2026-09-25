@@ -1,4 +1,4 @@
-import { context, metrics, propagation, trace } from '@opentelemetry/api';
+import { metrics, propagation, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
 import {
   CompositePropagator,
@@ -81,12 +81,7 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   let meterProvider: MeterProvider | undefined;
   let loggerProvider: LoggerProvider | undefined;
   try {
-    const contextManager = new Sentry.SentryContextManager();
-    contextManager.enable();
-    if (!context.setGlobalContextManager(contextManager)) {
-      contextManager.disable();
-      throw new Error('OpenTelemetry context manager was already registered');
-    }
+    Sentry.setOpenTelemetryContextAsyncContextStrategy();
     if (
       !propagation.setGlobalPropagator(
         new CompositePropagator({
@@ -134,12 +129,12 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     });
     loggerProvider = new LoggerProvider({
       processors: [
-        new BatchLogRecordProcessor(
-          new OTLPLogExporter({
+        new BatchLogRecordProcessor({
+          exporter: new OTLPLogExporter({
             headers: resolveCollectorHeaders(config, 'logs'),
             url: signalUrl(config.collectorUrl, 'logs'),
-          })
-        ),
+          }),
+        }),
       ],
       resource,
     });

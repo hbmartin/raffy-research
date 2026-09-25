@@ -52,7 +52,7 @@ function AppSidebar() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                className="h-auto"
+                className="h-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
                 render={
                   <a
                     href="https://start-ui.com/"
@@ -60,7 +60,7 @@ function AppSidebar() {
                     rel="noopener noreferrer"
                   >
                     <span>
-                      <Logo className="w-24" />
+                      <Logo />
                     </span>
                   </a>
                 }

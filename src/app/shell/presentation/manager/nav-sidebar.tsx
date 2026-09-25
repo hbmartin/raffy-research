@@ -39,11 +39,11 @@ export const NavSidebar = (props: { children?: ReactNode }) => {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  className="h-auto"
+                  className="h-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"
                   render={
-                    <Link to="/manager">
+                    <Link to="/manager" aria-label="Raffy Research">
                       <span>
-                        <Logo className="w-24 group-data-[collapsible=icon]:w-18" />
+                        <Logo />
                       </span>
                     </Link>
                   }

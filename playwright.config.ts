@@ -68,7 +68,8 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm e2e:webserver',
+    command:
+      'node ./node_modules/@electric-sql/pglite-socket/dist/scripts/server.js --db=memory:// --port=54329 --max-connections=16 --run "node scripts/serve-e2e-dev.mjs" --include-database-url --shutdown-timeout=10000',
     url: process.env.VITE_BASE_URL,
     reuseExistingServer: false,
   },

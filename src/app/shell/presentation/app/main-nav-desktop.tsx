@@ -24,7 +24,7 @@ export const MainNavDesktop = () => {
       >
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4">
           <Link to="/app">
-            <Logo className="w-24" />
+            <Logo />
           </Link>
           <nav className="flex gap-0.5">
             {MAIN_NAV_LINKS.map(({ labelTranslationKey, ...item }) => (

@@ -510,13 +510,21 @@ Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStu
 The tested compatibility set is `@tanstack/react-start@1.168.54`,
 `@tanstack/react-router@1.170.36`,
 `@tanstack/react-router-ssr-query@1.167.2`, and
-`@tanstack/react-query@5.102.8`. Router Core resolves to `1.171.30` and SSR
-Query Core to `1.169.2` through their declared exact dependencies;
+`@tanstack/react-query@5.102.8`. Query Core is pinned to `5.102.8`, Router
+Core to `1.171.30`, and SSR Query Core resolves to `1.169.2`;
 `@tanstack/start-client-core@1.170.30` matches Start's requirement.
-`pnpm check:ssr-compatibility` checks those relationships, and
-`pnpm test:e2e:ssr` checks complete streamed responses before dependency changes
-are merged. [TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529)
-records the earlier stream regression.
+The core pins keep peer dependencies on the same versions. Do not override Router Core independently:
+`pnpm check:ssr-compatibility` checks the versions required by Start and Router.
+
+Two SSR failure modes make a successful build insufficient evidence for an upgrade:
+
+* **Query stream hang:** [TanStack Router issue #7529](https://github.com/TanStack/router/issues/7529) describes Router Core and SSR Query combinations where a fast path skips the query-stream close listener. The page may paint while `curl` or a bot waits until the serialization timeout. The `1.171.32` fast path also moved from `reserveStreamFastPath` to `hydrationScripts.reserveFastPath`, breaking this repo's stream fixture; the pinned `1.171.30` set retains the tested contract.
+* **Reload hydration race:** a pending hydration promise from an old WebKit document can signal completion on its replacement after a hard reload. The local `start-hydration-compat` shim binds completion to the original document; `UPSTREAM_TANSTACK_HYDRATION.md` contains the upstream reproduction and proposed fix.
+
+Before changing this set, run `pnpm check:ssr-compatibility`, the SSR lifecycle
+integration tests, and `pnpm test:e2e:ssr`. The SSR gate must consume complete
+login and authenticated responses without a serialization timeout, then exercise
+hydration and reloads in Chromium, Firefox, and WebKit.
 
 Start's response stream owns SSR cleanup. Request middleware preserves the
 original response body; replacing it with a transformed body can dispose the
@@ -533,7 +541,7 @@ isolated `start-hydration-compat` shim check ownership before signaling
 completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
 
-Sentry `10.55.0` reports errors only. The server entry observes stream failures
+Sentry `11.0.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects
 trace metadata into HTML. OpenTelemetry remains the sole owner of tracing.
 The Sentry Vite plugin runs only with a browser DSN and upload credentials;

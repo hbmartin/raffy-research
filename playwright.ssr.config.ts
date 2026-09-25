@@ -51,7 +51,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm e2e:ssr:webserver',
+    command: 'node ./run-jiti ./scripts/serve-ssr-e2e.ts',
     url: `${SSR_BASE_URL}/login`,
     timeout: 120_000,
     reuseExistingServer: false,

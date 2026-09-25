@@ -34,7 +34,7 @@ test('reports a root failure and renders the reload control', async () => {
   expect(loggerMocks.flush).toHaveBeenCalledWith({ preferBeacon: false });
   await expect
     .element(page.getByRole('alert'))
-    .toHaveTextContent('This page could not finish loading');
+    .toMatchTextContent('This page could not finish loading');
   await expect
     .element(page.getByRole('button', { name: 'Reload page' }))
     .toHaveAttribute('type', 'button');

@@ -1,6 +1,6 @@
 {
-  "name": "Start UI",
-  "short_name": "Start UI",
+  "name": "Raffy Research",
+  "short_name": "Raffy",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
@@ -15,7 +15,7 @@
       "purpose": "maskable"
     }
   ],
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
+  "theme_color": "#002841",
+  "background_color": "#002841",
   "display": "standalone"
 }
