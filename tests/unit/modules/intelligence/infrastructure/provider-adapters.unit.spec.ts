@@ -318,4 +318,52 @@ describe('provider adapters', () => {
       sourceRecords: [],
     });
   });
+
+  it('normalizes HarvestAPI LinkedIn profile post fields', async () => {
+    const logger = makeLogger();
+    const fetchMock = vi.fn(async () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'urn:li:activity:123',
+              linkedinUrl: 'https://www.linkedin.com/posts/example-123',
+              content: 'A current medical affairs signal',
+              author: { name: 'Example Author' },
+              postedAt: { date: '2026-09-24T16:30:00.000Z' },
+            },
+          ]),
+          { status: 200 }
+        )
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const context: ProviderCallbackContext = {
+      workspaceId,
+      credential: 'token',
+      payload: { resource: { defaultDatasetId: 'harvest-run-dataset' } },
+      logger,
+    };
+
+    const adapter = createProviderRegistry().get('apify');
+    const normalizationResult = await adapter?.normalizeCallback?.(context);
+
+    expect(normalizationResult?.getOr({ type: 'unsupported' })).toEqual({
+      type: 'normalized',
+      sourceRecords: [
+        expect.objectContaining({
+          workspaceId,
+          providerName: 'apify',
+          providerSourceId: 'urn:li:activity:123',
+          sourceType: 'linkedin_post',
+          sourceName: 'Example Author',
+          externalUrl: 'https://www.linkedin.com/posts/example-123',
+          sourceUrl: 'https://www.linkedin.com/posts/example-123',
+          authorOrAccount: 'Example Author',
+          publishedAt: new Date('2026-09-24T16:30:00.000Z'),
+          contentText: 'A current medical affairs signal',
+        }),
+      ],
+    });
+  });
 });

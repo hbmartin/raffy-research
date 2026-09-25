@@ -1,5 +1,6 @@
-import { metrics, propagation, trace } from '@opentelemetry/api';
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { logs } from '@opentelemetry/api-logs';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import {
   CompositePropagator,
   W3CBaggagePropagator,
@@ -28,7 +29,6 @@ import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
-import * as Sentry from '@sentry/tanstackstart-react';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
@@ -40,13 +40,26 @@ import type { TelemetryAdapter, TelemetryUser } from '@/platform/telemetry';
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
 export const createServerTelemetryUserContext = () => {
-  const users = new AsyncLocalStorage<{ user: TelemetryUser | null }>();
+  const users = new AsyncLocalStorage<{
+    closed: boolean;
+    user: TelemetryUser | null;
+  }>();
   return {
-    getUser: () => users.getStore()?.user ?? null,
-    run: <T>(fn: () => T) => users.run({ user: null }, fn),
+    getUser: () => {
+      const store = users.getStore();
+      return store && !store.closed ? store.user : null;
+    },
+    run: <T>(fn: () => T) => users.run({ closed: false, user: null }, fn),
     setUser: (user: TelemetryUser | null) => {
       const store = users.getStore();
-      if (store) store.user = user;
+      if (store && !store.closed) store.user = user;
+    },
+    close: () => {
+      const store = users.getStore();
+      if (store) {
+        store.closed = true;
+        store.user = null;
+      }
     },
     capture: () => {
       const snapshot = AsyncLocalStorage.snapshot();
@@ -63,6 +76,7 @@ export const runWithServerTelemetryUserContext = <T>(fn: () => T) =>
   userContext.run(fn);
 
 export const captureServerTelemetryUserContext = () => userContext.capture();
+export const closeServerTelemetryUserContext = () => userContext.close();
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -90,7 +104,11 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
   let meterProvider: MeterProvider | undefined;
   let loggerProvider: LoggerProvider | undefined;
   try {
-    Sentry.setOpenTelemetryContextAsyncContextStrategy();
+    const contextManager = new AsyncLocalStorageContextManager().enable();
+    if (!context.setGlobalContextManager(contextManager)) {
+      contextManager.disable();
+      throw new Error('OpenTelemetry context manager was already registered');
+    }
     if (
       !propagation.setGlobalPropagator(
         new CompositePropagator({

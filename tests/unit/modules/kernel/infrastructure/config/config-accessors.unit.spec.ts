@@ -256,17 +256,28 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
-  it('selects Vercel-overwritten headers only in a real Vercel runtime', async () => {
+  it('selects Vercel-overwritten headers during Vercel builds without a region', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
     vi.stubEnv('VERCEL', '1');
-    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    vi.stubEnv('VERCEL_REGION', undefined);
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
     expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
       'x-vercel-forwarded-for'
     );
+  });
+
+  it('does not infer Vercel from a region without its deployment marker', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    const { getBetterAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
   it('gives an explicit trusted header precedence over Vercel detection', async () => {
@@ -320,12 +331,16 @@ describe('server config accessors', () => {
     vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getBetterAuthConfig().fixtureSignInRateLimit).toBe(true);
+    expect(getBetterAuthConfig({ ...process.env }).fixtureSignInRateLimit).toBe(
+      true
+    );
     vi.resetModules();
     vi.stubEnv('HOST', '0.0.0.0');
     const { getBetterAuthConfig: getPublicConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getPublicConfig).toThrow('SSR_FIXTURE_MODE');
+    expect(() => getPublicConfig({ ...process.env })).toThrow(
+      'SSR_FIXTURE_MODE'
+    );
   });
 
   it('validates the fixture build, runtime, loopback, and auth config', async () => {
@@ -337,9 +352,23 @@ describe('server config accessors', () => {
     const { isValidatedSsrFixtureRuntime } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
-    expect(isValidatedSsrFixtureRuntime(true)).toBe(true);
-    expect(() => isValidatedSsrFixtureRuntime(false)).toThrow(
-      'production build'
+    expect(isValidatedSsrFixtureRuntime(true, { ...process.env })).toBe(true);
+    expect(() =>
+      isValidatedSsrFixtureRuntime(false, { ...process.env })
+    ).toThrow('production build');
+  });
+
+  it('rejects a runtime loopback URL when the built VITE URL differs', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
+    vi.stubEnv('HOST', '127.0.0.1');
+    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
+    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+    const { isValidatedSsrFixtureRuntime } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+
+    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow(
+      'SSR fixture mode'
     );
   });
 
@@ -360,9 +389,9 @@ describe('server config accessors', () => {
     const { isValidatedSsrFixtureRuntime } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
-    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow(
-      'SSR fixture mode'
-    );
+    expect(() =>
+      isValidatedSsrFixtureRuntime(true, { ...process.env })
+    ).toThrow('SSR fixture mode');
   });
 
   it('rejects invalid auth configuration for the fixture', async () => {
@@ -374,7 +403,9 @@ describe('server config accessors', () => {
     const { isValidatedSsrFixtureRuntime } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
-    expect(() => isValidatedSsrFixtureRuntime(true)).toThrow('AUTH_SECRET');
+    expect(() =>
+      isValidatedSsrFixtureRuntime(true, { ...process.env })
+    ).toThrow('AUTH_SECRET');
   });
 
   it('allows weak AUTH_SECRET values only when env validation is skipped', async () => {

@@ -27,15 +27,14 @@ export const initSentryServer = () => {
       defaultIntegrations: Sentry.getDefaultIntegrationsWithoutPerformance(),
       dsn: config.dsn,
       environment: config.environment,
-      sendDefaultPii: false,
-      skipOpenTelemetrySetup: true,
+      enableOpenTelemetrySetup: false,
       // The Node SDK otherwise reads SENTRY_TRACES_SAMPLE_RATE from the
       // environment. Its runtime treats null as disabled even though its
       // public option type only includes number | undefined.
-      tracesSampleRate: null,
-    };
+      tracesSampleRate: null as unknown as number,
+    } satisfies SentryInitOptions;
 
-    Sentry.init(options as unknown as SentryInitOptions);
+    Sentry.init(options);
     state = 'enabled';
     return true;
   } catch {

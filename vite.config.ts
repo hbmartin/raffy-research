@@ -66,7 +66,7 @@ function srcJsonImportPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   // Load env file based on `mode` in the current working directory.
   const envDirectory = process.env.SSR_FIXTURE_ENV_DIR ?? process.cwd();
   const env = loadEnv(mode, envDirectory, 'VITE_');
@@ -96,6 +96,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     envDir: envDirectory,
+    define: {
+      'import.meta.env.RAFFY_PRODUCTION_BUILD': JSON.stringify(
+        command === 'build'
+      ),
+    },
     build: {
       target: 'baseline-widely-available',
     },
@@ -113,7 +118,12 @@ export default defineConfig(({ mode }) => {
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
       tanstackStart(),
-      nitro({ plugins: ['./src/composition/telemetry/bootstrap.ts'] }),
+      nitro({
+        plugins: ['./src/composition/telemetry/bootstrap.ts'],
+        // These packages are loaded dynamically at runtime, so Nitro cannot
+        // discover them from static imports when tracing Vercel functions.
+        traceDeps: ['@sentry/core*', 'ws*'],
+      }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),
       babel({ presets: [reactCompilerPreset()] }),

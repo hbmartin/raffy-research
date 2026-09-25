@@ -2,12 +2,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdir,
-  lstat,
   readdir,
   readFile,
   readlink,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
@@ -97,45 +97,91 @@ const isMissingPathError = (error: unknown) =>
   'code' in error &&
   (error as NodeJS.ErrnoException).code === 'ENOENT';
 
-const collectDeployableFiles = async (directory: string): Promise<string[]> => {
+type DeployableFile = { path: string; type: 'file' | 'symlink' };
+
+const collectDeployableFiles = async (
+  directory: string
+): Promise<DeployableFile[]> => {
   const entries = await readdir(directory, { withFileTypes: true });
-  const paths: string[] = [];
+  const paths: DeployableFile[] = [];
   for (const entry of entries) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory())
       paths.push(...(await collectDeployableFiles(path)));
-    else if (entry.isFile() || entry.isSymbolicLink()) paths.push(path);
+    else if (entry.isFile()) paths.push({ path, type: 'file' });
+    else if (entry.isSymbolicLink()) paths.push({ path, type: 'symlink' });
   }
   return paths;
+};
+
+const framedHashRecord = (
+  hash: ReturnType<typeof createHash>,
+  value: string
+) => {
+  const bytes = Buffer.from(value);
+  const length = Buffer.allocUnsafe(8);
+  length.writeBigUInt64BE(BigInt(bytes.length));
+  hash.update(length);
+  hash.update(bytes);
+};
+
+const validateRuntimeOutput = async (root: string) => {
+  let contents: string;
+  try {
+    contents = await readFile(resolve(root, 'nitro.json'), 'utf8');
+  } catch (error) {
+    if (isMissingPathError(error)) throw missingBuildOutput();
+    throw error;
+  }
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(contents);
+  } catch {
+    throw missingBuildOutput();
+  }
+  if (!metadata || typeof metadata !== 'object') throw missingBuildOutput();
+  const { serverEntry, publicDir } = metadata as Record<string, unknown>;
+  if (serverEntry !== 'server/index.mjs' || publicDir !== 'public')
+    throw missingBuildOutput();
+  try {
+    if (!(await stat(resolve(root, serverEntry))).isFile())
+      throw missingRuntimeEntry();
+  } catch (error) {
+    if (isMissingPathError(error)) throw missingRuntimeEntry();
+    throw error;
+  }
+  try {
+    if (!(await stat(resolve(root, publicDir))).isDirectory())
+      throw missingBuildOutput();
+  } catch (error) {
+    if (isMissingPathError(error)) throw missingBuildOutput();
+    throw error;
+  }
 };
 
 export const digestBuiltOutput = async () => {
   const root = buildOutputDirectory();
   const hash = createHash('sha256');
   try {
+    await validateRuntimeOutput(root);
     const paths = await collectDeployableFiles(root);
-    const relativePaths = paths
-      .map((path) => relative(root, path).replaceAll('\\', '/'))
-      .sort();
-    if (!relativePaths.includes('server/index.mjs'))
-      throw missingRuntimeEntry();
-
     for (const path of paths
-      .map((path) => ({
+      .map(({ path, type }) => ({
         absolute: path,
         relative: relative(root, path).replaceAll('\\', '/'),
+        type,
       }))
       .sort((left, right) => left.relative.localeCompare(right.relative))) {
-      hash.update(path.relative);
-      hash.update('\0');
-      if ((await lstat(path.absolute)).isSymbolicLink()) {
-        hash.update('symlink\0');
-        hash.update(await readlink(path.absolute));
-      } else {
-        hash.update('file\0');
-        hash.update(await readFile(path.absolute));
-      }
-      hash.update('\0');
+      const contents =
+        path.type === 'symlink'
+          ? Buffer.from(await readlink(path.absolute))
+          : await readFile(path.absolute);
+      framedHashRecord(hash, path.relative);
+      framedHashRecord(hash, path.type);
+      framedHashRecord(
+        hash,
+        createHash('sha256').update(contents).digest('hex')
+      );
     }
   } catch (error) {
     if (isMissingPathError(error)) throw missingBuildOutput();

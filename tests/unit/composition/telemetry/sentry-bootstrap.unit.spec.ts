@@ -47,8 +47,7 @@ describe('early Sentry server bootstrap', () => {
       ],
       dsn: 'https://public@sentry.example/1',
       environment: 'production',
-      sendDefaultPii: false,
-      skipOpenTelemetrySetup: true,
+      enableOpenTelemetrySetup: false,
       tracesSampleRate: null,
     });
     expect(

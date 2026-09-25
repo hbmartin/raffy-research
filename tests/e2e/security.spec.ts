@@ -1,6 +1,6 @@
 import { expect, test } from '@tests/e2e/utils';
 
-test('ordinary E2E HTML keeps strict style directives', async ({ page }) => {
+test('E2E HTML uses the intended style directives', async ({ page }) => {
   const response = await page.request.get('/login');
   expect(response.status()).toBe(200);
   const policy = response.headers()['content-security-policy'] ?? '';
@@ -12,8 +12,13 @@ test('ordinary E2E HTML keeps strict style directives', async ({ page }) => {
     directive.startsWith('style-src-elem ')
   );
 
-  expect(style).toContain("'nonce-");
-  expect(style).not.toContain("'unsafe-inline'");
-  expect(styleElement).toContain("'nonce-");
-  expect(styleElement).not.toContain("'unsafe-inline'");
+  if (process.env.VITE_VISUAL_TEST === 'true') {
+    expect(style).toContain("'unsafe-inline'");
+    expect(styleElement).toContain("'unsafe-inline'");
+  } else {
+    expect(style).toContain("'nonce-");
+    expect(styleElement).toContain("'nonce-");
+    expect(style).not.toContain("'unsafe-inline'");
+    expect(styleElement).not.toContain("'unsafe-inline'");
+  }
 });
