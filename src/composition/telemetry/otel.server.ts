@@ -37,6 +37,7 @@ import {
 } from '@/modules/kernel/infrastructure/config/telemetry';
 import type { TelemetryAdapter, TelemetryUser } from '@/platform/telemetry';
 
+import { registerAiSdkTelemetry } from './ai-sdk-telemetry';
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
 export const createServerTelemetryUserContext = () => {
@@ -210,6 +211,9 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
       throw new Error('OpenTelemetry meter provider was already registered');
     if (loggerProvider && !logs.setGlobalLoggerProvider(loggerProvider))
       throw new Error('OpenTelemetry logger provider was already registered');
+    // The AI SDK creates no spans of its own since v7; this is what makes
+    // model calls visible alongside the db and http spans around them.
+    registerAiSdkTelemetry();
     adapter = createOpenTelemetryAdapter(userContext);
     state = 'ready';
     return adapter;
