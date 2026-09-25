@@ -3,7 +3,7 @@ import { hydrateStart } from '@tanstack/start-client-core/client';
 import { startTransition, StrictMode } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 
-import { reportHydrationFailure } from './hydration-failure';
+import { reportHydrationFailure, reportRootFailure } from './hydration-failure';
 import {
   isInitialHydrationDocumentActive,
   shouldReportInitialHydrationFailure,
@@ -33,8 +33,11 @@ export const hydrateClient = async (document: Document) => {
       </StrictMode>,
       {
         onUncaughtError: (error) => {
-          if (isInitialHydrationDocumentActive(document) && owner.isCurrent())
-            reportHydrationFailure(document, error);
+          reportRootFailure(
+            document,
+            error,
+            isInitialHydrationDocumentActive(document) && owner.isCurrent()
+          );
         },
       }
     );

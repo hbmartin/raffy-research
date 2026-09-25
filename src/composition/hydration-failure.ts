@@ -3,33 +3,41 @@ import {
   frontendLogger,
 } from '@/platform/telemetry/frontend-logger';
 
-export const reportHydrationFailure = (document: Document, error: unknown) => {
+const reportClientFailure = (
+  document: Document,
+  error: unknown,
+  event: 'client.hydration_failed' | 'client.root_uncaught',
+  noticeTitle: string,
+  showRecovery: boolean
+) => {
   const view = document.defaultView;
-  if (view?.document !== document) return;
   const failure = error instanceof Error ? error : new Error(String(error));
   try {
-    view.reportError?.(failure);
+    view?.reportError?.(failure);
   } catch {
-    // The visible recovery control still works when browser reporting fails.
+    // The recovery control and frontend logger still run if browser reporting fails.
   }
   try {
-    frontendLogger.error('client.hydration_failed', {
+    frontendLogger.error(event, {
       error: failure.message.slice(0, 256),
     });
-    // The document is still active for genuine hydration failures. Prefer a
-    // directly observable fetch here; lifecycle flushes continue using beacon.
+  } catch {
+    // Attempt to flush any previously queued logs even if logging failed.
+  }
+  try {
     void flushFrontendLogs({ preferBeacon: false });
   } catch {
-    // The visible recovery control still works when logging fails.
+    // The recovery control still works when flushing fails.
   }
 
+  if (!showRecovery || view?.document !== document) return;
   if (document.getElementById('hydration-failure')) return;
   const notice = document.createElement('aside');
   notice.id = 'hydration-failure';
   notice.className = 'hydration-failure';
   notice.setAttribute('role', 'alert');
   const title = document.createElement('h2');
-  title.textContent = 'This page could not finish loading';
+  title.textContent = noticeTitle;
   const explanation = document.createElement('p');
   explanation.textContent = 'Reload the page to try again.';
   const reload = document.createElement('button');
@@ -39,3 +47,27 @@ export const reportHydrationFailure = (document: Document, error: unknown) => {
   notice.append(title, explanation, reload);
   document.body?.prepend(notice);
 };
+
+export const reportHydrationFailure = (document: Document, error: unknown) => {
+  if (document.defaultView?.document !== document) return;
+  reportClientFailure(
+    document,
+    error,
+    'client.hydration_failed',
+    'This page could not finish loading',
+    true
+  );
+};
+
+export const reportRootFailure = (
+  document: Document,
+  error: unknown,
+  showRecovery: boolean
+) =>
+  reportClientFailure(
+    document,
+    error,
+    'client.root_uncaught',
+    'This page encountered an error',
+    showRecovery
+  );

@@ -2,8 +2,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdir,
+  lstat,
   readdir,
   readFile,
+  readlink,
   rename,
   rm,
   writeFile,
@@ -81,8 +83,14 @@ export const createFixtureEnvironment = async () => {
 const buildOutputDirectory = () => resolve('.output');
 const missingBuildOutput = () =>
   new Error('Missing SSR build output; run pnpm build:e2e:ssr first.');
-const invalidFixtureManifest = () =>
-  new Error('Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.');
+const missingRuntimeEntry = () =>
+  new Error(
+    'Missing SSR runtime entry .output/server/index.mjs; check the Nitro output and pnpm start.'
+  );
+const invalidFixtureManifest = (cause?: unknown) =>
+  new Error('Invalid SSR fixture manifest; run pnpm build:e2e:ssr first.', {
+    cause,
+  });
 
 const isMissingPathError = (error: unknown) =>
   error instanceof Error &&
@@ -93,11 +101,10 @@ const collectDeployableFiles = async (directory: string): Promise<string[]> => {
   const entries = await readdir(directory, { withFileTypes: true });
   const paths: string[] = [];
   for (const entry of entries) {
-    if (entry.name === 'node_modules') continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory())
       paths.push(...(await collectDeployableFiles(path)));
-    else if (entry.isFile()) paths.push(path);
+    else if (entry.isFile() || entry.isSymbolicLink()) paths.push(path);
   }
   return paths;
 };
@@ -110,17 +117,8 @@ export const digestBuiltOutput = async () => {
     const relativePaths = paths
       .map((path) => relative(root, path).replaceAll('\\', '/'))
       .sort();
-    const hasRequiredOutput = [
-      'nitro.json',
-      'server/index.mjs',
-      'server/_ssr/ssr.mjs',
-    ].every((path) => relativePaths.includes(path));
-    const hasManifest = relativePaths.some(
-      (path) =>
-        path.startsWith('server/_tanstack-start-manifest_') &&
-        path.endsWith('.mjs')
-    );
-    if (!hasRequiredOutput || !hasManifest) throw missingBuildOutput();
+    if (!relativePaths.includes('server/index.mjs'))
+      throw missingRuntimeEntry();
 
     for (const path of paths
       .map((path) => ({
@@ -130,7 +128,13 @@ export const digestBuiltOutput = async () => {
       .sort((left, right) => left.relative.localeCompare(right.relative))) {
       hash.update(path.relative);
       hash.update('\0');
-      hash.update(await readFile(path.absolute));
+      if ((await lstat(path.absolute)).isSymbolicLink()) {
+        hash.update('symlink\0');
+        hash.update(await readlink(path.absolute));
+      } else {
+        hash.update('file\0');
+        hash.update(await readFile(path.absolute));
+      }
       hash.update('\0');
     }
   } catch (error) {
@@ -156,11 +160,18 @@ export const writeFixtureManifest = async (env: NodeJS.ProcessEnv) => {
 };
 
 export const readFixtureEnvironment = async () => {
+  let contents: string;
+  try {
+    contents = await readFile(SSR_FIXTURE_MANIFEST, 'utf8');
+  } catch (error) {
+    if (isMissingPathError(error)) throw invalidFixtureManifest(error);
+    throw error;
+  }
   let manifest: unknown;
   try {
-    manifest = JSON.parse(await readFile(SSR_FIXTURE_MANIFEST, 'utf8'));
-  } catch {
-    throw invalidFixtureManifest();
+    manifest = JSON.parse(contents);
+  } catch (error) {
+    throw invalidFixtureManifest(error);
   }
   if (
     !manifest ||

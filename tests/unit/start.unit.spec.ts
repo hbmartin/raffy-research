@@ -12,13 +12,14 @@ vi.mock('@sentry/tanstackstart-react', () => ({
 }));
 
 describe('TanStack Start instance', () => {
-  it('allows screenshot styles only for development tests or validated requests', async () => {
+  it('allows screenshot styles only for visual tests or validated requests', async () => {
     const { shouldAllowPlaywrightScreenshotStyles } = await import('@/start');
 
     expect(
       shouldAllowPlaywrightScreenshotStyles({
         isProduction: true,
         isTestRuntime: true,
+        isVisualTestRuntime: true,
         requestContextAllows: false,
       })
     ).toBe(false);
@@ -26,6 +27,7 @@ describe('TanStack Start instance', () => {
       shouldAllowPlaywrightScreenshotStyles({
         isProduction: true,
         isTestRuntime: true,
+        isVisualTestRuntime: true,
         requestContextAllows: true,
       })
     ).toBe(true);
@@ -33,9 +35,18 @@ describe('TanStack Start instance', () => {
       shouldAllowPlaywrightScreenshotStyles({
         isProduction: false,
         isTestRuntime: true,
+        isVisualTestRuntime: true,
         requestContextAllows: false,
       })
     ).toBe(true);
+    expect(
+      shouldAllowPlaywrightScreenshotStyles({
+        isProduction: false,
+        isTestRuntime: true,
+        isVisualTestRuntime: false,
+        requestContextAllows: false,
+      })
+    ).toBe(false);
   });
 
   it('adds Sentry, telemetry, security headers, auth context, browser mutation guard, and server-function CSRF middleware', async () => {

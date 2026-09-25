@@ -37,9 +37,12 @@ export const startClientHydration = ({
   const markPageExiting = () => {
     exitingDocuments.add(document);
   };
+  const markPageRestored = (event: PageTransitionEvent) => {
+    if (event.persisted) exitingDocuments.delete(document);
+  };
 
-  view?.addEventListener('beforeunload', markPageExiting, { once: true });
-  view?.addEventListener('pagehide', markPageExiting, { once: true });
+  view?.addEventListener('pagehide', markPageExiting);
+  view?.addEventListener('pageshow', markPageRestored);
 
   return loadHydrationModule()
     .then(({ hydrateClient }) =>
@@ -50,5 +53,9 @@ export const startClientHydration = ({
     .catch(async (error: unknown) => {
       if (await shouldReportInitialHydrationFailure(document))
         reportHydrationFailure(document, error);
+    })
+    .finally(() => {
+      view?.removeEventListener('pagehide', markPageExiting);
+      view?.removeEventListener('pageshow', markPageRestored);
     });
 };

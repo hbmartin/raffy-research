@@ -8,6 +8,29 @@ type ErrorReporter = {
   flush(): Promise<unknown>;
 };
 
+type RunInRequestContext = <T>(fn: () => T) => T;
+
+const needsStreamObservation = (response: Response) => {
+  if (
+    !response.body ||
+    response.headers.has('Content-Length') ||
+    response.headers.has('Content-Encoding')
+  )
+    return false;
+
+  const contentType = response.headers
+    .get('Content-Type')
+    ?.split(';', 1)[0]
+    ?.trim()
+    .toLowerCase();
+  return (
+    contentType === 'text/html' ||
+    contentType === 'application/xhtml+xml' ||
+    contentType === 'text/event-stream' ||
+    contentType === 'application/x-ndjson'
+  );
+};
+
 const unhandledHttpError = {
   mechanism: { type: 'auto.http.tanstackstart', handled: false },
 } as const;
@@ -18,9 +41,12 @@ const unhandledHttpError = {
 export const createErrorOnlyFetch =
   (
     fetch: ServerEntry['fetch'],
-    reporter: ErrorReporter
+    reporter: ErrorReporter,
+    captureRequestContext?: () => RunInRequestContext
   ): ServerEntry['fetch'] =>
   async (...args) => {
+    const runInRequestContext =
+      captureRequestContext?.() ?? (<T>(fn: () => T): T => fn());
     let flushing: Promise<void> | undefined;
     const flush = () =>
       (flushing ??= (async () => {
@@ -39,7 +65,7 @@ export const createErrorOnlyFetch =
       throw error;
     }
     const responseBody = response.body;
-    if (!responseBody) {
+    if (!responseBody || !needsStreamObservation(response)) {
       await flush();
       return response;
     }
@@ -60,41 +86,43 @@ export const createErrorOnlyFetch =
     };
     const body = new ReadableStream<Uint8Array>(
       {
-        async pull(controller) {
-          try {
-            const result = await reader.read();
-            if (canceled) return;
-            if (result.done) {
+        pull(controller) {
+          return runInRequestContext(async () => {
+            try {
+              const result = await reader.read();
+              if (canceled) return;
+              if (result.done) {
+                release();
+                await flush();
+                if (!canceled) controller.close();
+              } else controller.enqueue(result.value);
+            } catch (error) {
+              if (canceled) return;
+              reporter.captureException(error, unhandledHttpError);
+              await flush();
+              if (!canceled) controller.error(error);
+              release();
+            }
+          });
+        },
+        cancel(reason) {
+          return runInRequestContext(async () => {
+            canceled = true;
+            try {
+              if (!released) await reader.cancel(reason);
+            } finally {
               release();
               await flush();
-              if (!canceled) controller.close();
-            } else controller.enqueue(result.value);
-          } catch (error) {
-            if (canceled) return;
-            reporter.captureException(error, unhandledHttpError);
-            await flush();
-            if (!canceled) controller.error(error);
-            release();
-          }
-        },
-        async cancel(reason) {
-          canceled = true;
-          try {
-            if (!released) await reader.cancel(reason);
-          } finally {
-            release();
-            await flush();
-          }
+            }
+          });
         },
       },
       { highWaterMark: 0 }
     );
-    const headers = new Headers(response.headers);
-    headers.delete('Content-Length');
 
     return new Response(body, {
       status: response.status,
       statusText: response.statusText,
-      headers,
+      headers: response.headers,
     });
   };
