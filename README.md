@@ -376,17 +376,26 @@ turns that into a comparison rather than a number.
 
 **It tests the judge.** The reference is a known-good artifact: a report that
 passed review and went out. If a judge marks it unsupported or full of noise,
-that is evidence about the judge, not the report — and a judge that returns the
-same scores for the reference and for a much weaker generation is not
-discriminating at all, whatever those scores are.
+that is evidence about the judge, not the report.
 
-That second use is not hypothetical. The first run of this on the committed
-case returned `claim_support 5/5, coverage 3/5, noise 3/5` for both the
-published report and a local `qwen3:14b` generation — even though the
-deterministic evaluators put them far apart, the generation citing 4 of 101
-sources against the reference's 19. Identical scores across clearly different
-reports say the judge is anchoring rather than reading, so verdicts from that
-judge should not be trusted until a stronger model separates them.
+The first run of this on the committed case returned `claim_support 5/5,
+coverage 3/5, noise 3/5` for both the published report and a local
+`qwen3:14b` generation, even though the deterministic evaluators put them far
+apart — the generation cited 4 of 101 sources against the reference's 19.
+
+That is worth treating as a flag rather than a verdict. It is consistent with
+the judge anchoring on the scale instead of reading the report, but it is also
+consistent with less interesting explanations: both reports may genuinely miss
+enough to deserve 3/5; `claim_support` is gameable, since a report citing four
+sources can be perfectly supported on those four; the coverage judge sees only
+400 chars per source and may not have the evidence to separate them; and one
+sample per side says nothing about variance.
+
+To distinguish those, feed the judge a report you know is bad — take the
+reference, strip its evidence arrays or inject a fabricated claim, and re-run.
+If `claim_support` stays at 5/5 on a report that cannot support itself, the
+judge is not reading. If it drops, the judge works and the identical scores
+were a real result about the two reports.
 
 Because the reference is fixed, re-running `evaluate` on one case measures
 judge variance rather than quality — which is the cheapest way to find the
