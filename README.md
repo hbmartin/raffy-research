@@ -283,7 +283,7 @@ sequenceDiagram
     participant UI as Dev AI console
     participant H as local-ai-stream-handler<br/>(POST /api/dev/intelligence/local-ai/stream)
     participant DB as Neon / Postgres
-    participant J as Local agent<br/>(Codex CLI or Claude Code)
+    participant J as Local agent<br/>(Codex CLI, Claude Code, or Ollama)
     participant FS as .local-ai-runs/
 
     Op->>UI: click "Evaluate report"
@@ -336,6 +336,127 @@ The judge sees analyst labels (`analyst_label: keep/junk`) on each rendered sour
 
 The intended iteration cadence: change one thing (prompt, provider config, source selection) → regenerate in the lab → run `evaluate_report` → compare verdicts (raw outputs in `.local-ai-runs/` diff cleanly) → ship the change → confirm with the analyst's rubric score on the next real weekly report.
 
+### Eval cases (Arize Phoenix experiments)
+
+Experiments read **eval cases** — git-stored snapshots under `fixtures/eval/<name>/` — not the live database. A case pins everything the report prompt consumes, so an experiment run today is comparable with one run months ago even as the database moves on:
+
+```text
+fixtures/eval/<name>/
+  case.json           # identity, pinned report id, period, Phoenix binding
+  workspace.json      # workspace + keywords + competitors + social accounts
+  sources.json        # the period's source records
+  report.json         # the reference report (the expected output)
+  prior-reports.json  # the prior reports that were in the prompt's context
+```
+
+Mint one from the database, pinning a specific report:
+
+```bash
+pnpm eval:phoenix export --workspace <id> --report <id> --name acme-2026-06-15 \
+  --out fixtures/eval/acme-2026-06-15
+```
+
+Then run experiments against it. With `--case`, no database is touched at all:
+
+```bash
+pnpm eval:phoenix compare   --workspace <id> --case fixtures/eval/acme-2026-06-15 [--judge]
+pnpm eval:phoenix summarize --workspace <id> --case fixtures/eval/acme-2026-06-15 [--sample]
+pnpm eval:phoenix evaluate  --workspace <id> --case fixtures/eval/acme-2026-06-15
+```
+
+#### `compare` and the repair pass
+
+`compare` mirrors what production does: one generation, and on a schema
+failure a single repair pass carrying the original prompt, the invalid output
+and the specific validation issues. Two evaluators keep those apart:
+
+| Evaluator | Answers |
+|---|---|
+| `first_attempt_valid` | did the model hit the schema unaided — a fact about the model |
+| `valid_json` | did a usable report come out — what a reader receives |
+
+They only diverge when a repair runs, which is the point: a model scoring
+`0.4` first-attempt and `1.0` after repair is fine to ship and worth knowing
+about, and a single metric would have hidden that. Runs recorded before the
+repair pass existed carry no flag and score `first_attempt_valid` as unknown
+rather than inventing a value.
+
+The two paths agree on source summaries too: the cron calls
+`generateWeeklyReport` without `includeSourceSummaries`, so production reports
+are built from raw source excerpts, exactly as `compare` builds them.
+
+<!-- TODO: compare still reimplements the generation pipeline rather than
+     driving it. Calling generateWeeklyReport with a non-persisting report
+     repository would exercise the real path -- repair, junk filtering,
+     source_library linking, the create-then-freeze sequence -- and could not
+     drift from production again. Costs a fake repository and care that
+     nothing writes. -->
+
+#### What `evaluate` is for
+
+`compare` generates a report and scores it. `evaluate` judges the report the
+case pins — the one that was actually published — with the same three judges,
+on the same dataset. It exists for two reasons, and neither is monitoring:
+
+**It anchors the scale.** A generated report scoring `coverage 3/5` means
+nothing on its own. Knowing what the shipped report scores on the same judge
+turns that into a comparison rather than a number.
+
+**It tests the judge.** The reference is a known-good artifact: a report that
+passed review and went out. If a judge marks it unsupported or full of noise,
+that is evidence about the judge, not the report.
+
+The first run of this on the committed case returned `claim_support 5/5,
+coverage 3/5, noise 3/5` for both the published report and a local
+`qwen3:14b` generation, even though the deterministic evaluators put them far
+apart — the generation cited 4 of 101 sources against the reference's 19.
+
+`judge-check` settled what that meant:
+
+```bash
+pnpm eval:phoenix judge-check --workspace <id> --case fixtures/eval/acme-2026-06-15
+```
+
+It degrades the reference in ways a working judge must notice — every claim
+replaced with something no source supports, citations left intact so the judge
+has to read them; and every topic cluster repeated, which is padding by
+construction — then scores the original and the degraded version:
+
+| Report | `claim_support` | `noise` |
+|---|---|---|
+| Reference | 5/5 | 3/5 |
+| Claims fabricated | **5/5** | — |
+| Clusters repeated 4× | — | **3/5** |
+
+`qwen3:14b` returns the same score whatever it is shown. Its verdicts carry no
+information, so `--judge` results from it should not be read at all. The
+deterministic evaluators are unaffected.
+
+What this does not say is whether the fault is the model or the prompts: a
+1–5 scale with loose anchors, asked as a single integer over a 20k-token
+prompt, may be too coarse a question for any model. Re-running `judge-check`
+with a stronger `--judge-model` distinguishes those in one command, which is
+why it exits non-zero on failure and is worth running before trusting any
+judge.
+
+Because the reference is fixed, re-running `evaluate` on one case measures
+judge variance rather than quality — which is the cheapest way to find the
+noise floor, and the reason to run it once per case before reading any
+`--judge` result.
+
+**One case, one Phoenix dataset, for life.** `case.json` records the `datasetId` the case was first pushed under, plus a content hash of the pushed example. On each run:
+
+| Case state | What happens |
+|---|---|
+| Hash matches the remote dataset | Reused as-is, nothing written |
+| Case content changed | A new dataset *version* is appended under the case's stable example id — same dataset |
+| Dataset missing from Phoenix | A new one is created and re-pinned |
+| Dataset exists under the case name but is unpinned | Adopted, and its id recorded |
+
+Because the id lives in git, a teammate's run and a run three months from now land on the same Phoenix dataset. Experiments pin the exact `versionId` they used, so a chart of runs compares like with like.
+
+One guardrail worth knowing: `export` is the only command that reads live data. Every other command requires `--case` and is refused without one, because a run against whatever the database happens to hold is not comparable with anything — including its own previous run.
+
 ---
 
 ## Split-Brain Mode
@@ -343,7 +464,7 @@ The intended iteration cadence: change one thing (prompt, provider config, sourc
 Split-brain mode runs **two brains against one production dataset**:
 
 * the **cloud brain** — the deployed Vercel app serving real users, generating production reports through the metered OpenAI API, ingesting via cron and webhooks;
-* the **local brain** — your development machine running the same codebase against the *same* production Neon database, but doing all AI work through **local agent CLIs (Codex CLI or Claude Code)** that are billed by your existing flat-rate subscriptions, not per token.
+* the **local brain** — your development machine running the same codebase against the *same* production Neon database, but doing all AI work through **local providers (Codex CLI, Claude Code, or a self-hosted Ollama model)** that are billed by your existing flat-rate subscriptions, or by nothing at all, rather than per token.
 
 The name is deliberate: the two brains share one memory (the database) but think independently. Provider webhooks and user traffic keep hitting the cloud brain; expensive, exploratory AI work happens on the local brain at zero marginal cost.
 
@@ -363,7 +484,7 @@ flowchart TB
         DEVAPP[Same app, dev mode]
         CONSOLE[Dev AI console]
         STREAM[NDJSON stream handler]
-        AGENTS[Codex CLI / Claude Code<br/>subscription-billed, $0 marginal]
+        AGENTS[Codex CLI / Claude Code / Ollama<br/>subscription-billed or self-hosted, $0 marginal]
         RAW[.local-ai-runs/ raw outputs]
     end
 
@@ -384,11 +505,25 @@ Iterating on synthesis quality is token-hungry. A single full-workflow run (summ
 
 ### Environment layering
 
-Evidence mode is plain dotenv layering — later files override earlier ones:
+Evidence mode is plain dotenv layering, loaded by `dotenv-cli`:
 
 ```
 .env  →  .env.local (pulled from Vercel production)  →  .env.ai.local (your overrides)
 ```
+
+> [!IMPORTANT]
+> `dotenv-cli` keeps the **first** value it sees for a key, so the file listed first on
+> the command line wins. The evidence scripts list `-e .env -e .env.local -e .env.ai.local`,
+> which means `.env.ai.local` can only *add* keys that the earlier files leave undefined —
+> it cannot override one they already set.
+>
+> This matters most for `DATABASE_DRIVER`, which `.env` defines as `node-pg`: setting
+> `DATABASE_DRIVER="neon-http"` in `.env.ai.local` has no effect, and the run silently
+> stays on local Docker Postgres instead of production Neon. `LOCAL_AI_*`, `OLLAMA_BASE_URL`
+> and `PHOENIX_*` are unaffected, because `.env` does not define them.
+>
+> To override a key the earlier layers already set, either edit it in the file that owns it
+> or reorder the `-e` flags so the override layer comes first.
 
 `.env.ai.example` documents the override file:
 
@@ -397,10 +532,11 @@ VITE_BASE_URL="http://localhost:${VITE_PORT}"   # local app URL for dev-only AI 
 DATABASE_DRIVER="neon-http"                     # same Neon DB as the Vercel runtime
 # DATABASE_MIGRATION_URL="postgres://..."       # required for db:migrate:evidence
 # DATABASE_MIGRATION_DRIVER="neon-websocket"
-LOCAL_AI_PROVIDER="codex-cli"                   # codex-cli | claude-code
+LOCAL_AI_PROVIDER="codex-cli"                   # codex-cli | claude-code | ollama
 LOCAL_AI_MODEL="gpt-5-codex"
 LOCAL_AI_RAW_OUTPUT_DIR=".local-ai-runs"
 LOCAL_AI_TIMEOUT_MS=600000
+# OLLAMA_BASE_URL="http://localhost:11434/api"  # only when LOCAL_AI_PROVIDER="ollama"
 ```
 
 ### Operator setup

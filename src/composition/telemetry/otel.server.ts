@@ -37,6 +37,7 @@ import {
 } from '@/modules/kernel/infrastructure/config/telemetry';
 import type { TelemetryAdapter, TelemetryUser } from '@/platform/telemetry';
 
+import { registerAiSdkTelemetry } from './ai-sdk-telemetry';
 import { createOpenTelemetryAdapter } from './otel-adapter';
 
 export const createServerTelemetryUserContext = () => {
@@ -70,6 +71,11 @@ export const createServerTelemetryUserContext = () => {
 
 let state: 'new' | 'ready' | 'failed' = 'new';
 let adapter: TelemetryAdapter | undefined;
+let flushable: {
+  loggerProvider?: LoggerProvider;
+  meterProvider?: MeterProvider;
+  tracerProvider?: NodeTracerProvider;
+} = {};
 const userContext = createServerTelemetryUserContext();
 
 export const runWithServerTelemetryUserContext = <T>(fn: () => T) =>
@@ -80,10 +86,24 @@ export const closeServerTelemetryUserContext = () => userContext.close();
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
-const signalUrl = (
+/**
+ * OTLP collector URLs are written inconsistently: some tools want the base
+ * host, others the full signal endpoint, and Phoenix's own docs show `/v1`.
+ * Appending blindly turns a signal URL into `/v1/traces/v1/traces`, which the
+ * collector answers with 405 and no trace is ever ingested -- silently, since
+ * exporters do not surface delivery failures. Normalise instead of trusting
+ * the value to be written one particular way.
+ */
+export const signalUrl = (
   collectorUrl: string,
   signal: 'logs' | 'metrics' | 'traces'
-) => `${trimTrailingSlash(collectorUrl)}/v1/${signal}`;
+) => {
+  const base = trimTrailingSlash(collectorUrl).replace(
+    /\/v1(?:\/(?:logs|metrics|traces))?$/,
+    ''
+  );
+  return `${base}/v1/${signal}`;
+};
 
 const createResource = (config: ReturnType<typeof getTelemetryConfig>) =>
   resourceFromAttributes({
@@ -121,7 +141,9 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     )
       throw new Error('OpenTelemetry propagator was already registered');
 
-    if (!config.collectorUrl) {
+    // Phoenix is a second, independent trace destination: a Phoenix-only
+    // setup must still initialise, so neither URL alone may short-circuit.
+    if (!config.collectorUrl && !config.phoenixCollectorUrl) {
       state = 'ready';
       return undefined;
     }
@@ -133,51 +155,77 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
         root: new TraceIdRatioBasedSampler(config.otelTracesSampleRate),
       }),
       spanProcessors: [
-        new BatchSpanProcessor(
-          new OTLPTraceExporter({
-            headers: resolveCollectorHeaders(config, 'traces'),
-            url: signalUrl(config.collectorUrl, 'traces'),
-          })
-        ),
+        ...(config.collectorUrl
+          ? [
+              new BatchSpanProcessor(
+                new OTLPTraceExporter({
+                  headers: resolveCollectorHeaders(config, 'traces'),
+                  url: signalUrl(config.collectorUrl, 'traces'),
+                })
+              ),
+            ]
+          : []),
+        ...(config.phoenixCollectorUrl
+          ? [
+              new BatchSpanProcessor(
+                new OTLPTraceExporter({
+                  headers: config.phoenixApiKey
+                    ? { Authorization: `Bearer ${config.phoenixApiKey}` }
+                    : undefined,
+                  url: signalUrl(config.phoenixCollectorUrl, 'traces'),
+                })
+              ),
+            ]
+          : []),
       ],
     });
 
-    meterProvider = new MeterProvider({
-      readers: [
-        new PeriodicExportingMetricReader({
-          exporter: new OTLPMetricExporter({
-            headers: resolveCollectorHeaders(config, 'metrics'),
-            url: signalUrl(config.collectorUrl, 'metrics'),
+    // Metrics and logs stay on the primary collector; Phoenix takes traces
+    // only, so a Phoenix-only setup builds no meter or logger provider.
+    const collectorUrl = config.collectorUrl;
+    if (collectorUrl) {
+      meterProvider = new MeterProvider({
+        readers: [
+          new PeriodicExportingMetricReader({
+            exporter: new OTLPMetricExporter({
+              headers: resolveCollectorHeaders(config, 'metrics'),
+              url: signalUrl(collectorUrl, 'metrics'),
+            }),
+            exportIntervalMillis: 30_000,
           }),
-          exportIntervalMillis: 30_000,
-        }),
-      ],
-      resource,
-    });
-    loggerProvider = new LoggerProvider({
-      processors: [
-        new BatchLogRecordProcessor({
-          exporter: new OTLPLogExporter({
-            headers: resolveCollectorHeaders(config, 'logs'),
-            url: signalUrl(config.collectorUrl, 'logs'),
+        ],
+        resource,
+      });
+      loggerProvider = new LoggerProvider({
+        processors: [
+          new BatchLogRecordProcessor({
+            exporter: new OTLPLogExporter({
+              headers: resolveCollectorHeaders(config, 'logs'),
+              url: signalUrl(collectorUrl, 'logs'),
+            }),
           }),
-        }),
-      ],
-      resource,
-    });
+        ],
+        resource,
+      });
+    }
     // Build every timer-owning provider before mutating process globals. Any
     // failure after this point is terminal for the process, never retried.
     if (!trace.setGlobalTracerProvider(tracerProvider))
       throw new Error('OpenTelemetry tracer provider was already registered');
-    if (!metrics.setGlobalMeterProvider(meterProvider))
+    if (meterProvider && !metrics.setGlobalMeterProvider(meterProvider))
       throw new Error('OpenTelemetry meter provider was already registered');
-    if (!logs.setGlobalLoggerProvider(loggerProvider))
+    if (loggerProvider && !logs.setGlobalLoggerProvider(loggerProvider))
       throw new Error('OpenTelemetry logger provider was already registered');
+    // The AI SDK creates no spans of its own since v7; this is what makes
+    // model calls visible alongside the db and http spans around them.
+    registerAiSdkTelemetry();
     adapter = createOpenTelemetryAdapter(userContext);
+    flushable = { loggerProvider, meterProvider, tracerProvider };
     state = 'ready';
     return adapter;
   } catch {
     state = 'failed';
+    flushable = {};
     // The API cannot unregister a global provider. Shut down all constructed
     // exporters and never construct replacements on a later call.
     void Promise.allSettled([
@@ -188,4 +236,18 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     process.stderr.write('{"event":"telemetry.sdk_init_failed"}\n');
     return undefined;
   }
+};
+
+/**
+ * Exporters batch, so a process that ends on its own terms -- a CLI, a
+ * one-shot job -- exits with spans still queued and they are simply lost. A
+ * long-running server never needs this: it outlives the batch interval.
+ */
+export const flushOpenTelemetryServer = async (): Promise<void> => {
+  // A failed flush must not fail the caller's run: its work is already done.
+  await Promise.allSettled([
+    flushable.tracerProvider?.forceFlush(),
+    flushable.meterProvider?.forceFlush(),
+    flushable.loggerProvider?.forceFlush(),
+  ]);
 };

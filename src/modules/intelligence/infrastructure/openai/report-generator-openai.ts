@@ -17,6 +17,7 @@ export function createOpenAiReportGenerator(): ReportGeneratorPort {
         const { text } = await generateText({
           model: openai(config.model),
           prompt,
+          experimental_telemetry: { isEnabled: true },
         });
         return Result.Ok({
           text,

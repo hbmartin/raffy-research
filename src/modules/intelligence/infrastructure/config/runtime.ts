@@ -48,6 +48,23 @@ export function getProviderCredential(ref: string | null): string | undefined {
   return readEnv(ref);
 }
 
+export type PhoenixConfig =
+  | {
+      appUrl: string;
+      apiKey: string;
+      enabled: true;
+    }
+  | {
+      enabled: false;
+    };
+
+export function getPhoenixConfig(): PhoenixConfig {
+  const appUrl = readEnv('PHOENIX_APP_URL');
+  const apiKey = readEnv('PHOENIX_API_KEY');
+  if (appUrl && apiKey) return { appUrl, apiKey, enabled: true };
+  return { enabled: false };
+}
+
 export function createIntelligenceRuntimeConfig(): IntelligenceRuntimeConfig {
   return {
     cronSecret: getCronSecret(),

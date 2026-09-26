@@ -134,6 +134,7 @@
     "db:ui": "dotenv -- drizzle-kit studio",
     "db:seed": "dotenv -- cross-env node ./run-jiti ./drizzle/seed/index.ts",
     "auth:set-credential": "dotenv -e .env -e .env.local -e .env.ai.local -- node ./run-jiti ./scripts/auth-set-credential.ts",
+    "eval:phoenix": "dotenv -e .env -e .env.local -e .env.ai.local -- node ./run-jiti ./scripts/run-phoenix-eval.ts",
     "test:e2e:ssr": "pnpm build:e2e:ssr && pnpm test:e2e:ssr:built",
     "e2e:ssr:webserver": "node ./run-jiti ./scripts/serve-ssr-e2e.ts",
     "build:e2e:ssr": "node ./run-jiti ./scripts/build-ssr-e2e.ts",
@@ -146,6 +147,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.74",
+    "@arizeai/phoenix-client": "^7.14.0",
     "@base-ui/react": "1.8.0",
     "@bearstudio/ui-state": "1.1.0",
     "@better-upload/client": "3.0.19",
