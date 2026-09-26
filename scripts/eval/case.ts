@@ -197,6 +197,26 @@ export function loadCase(caseDir: string): EvalCase {
   };
 }
 
+/**
+ * Loads a case and refuses one belonging to a different workspace.
+ *
+ * The case carries its own identity, so a mismatched --workspace was simply
+ * ignored -- which let one workspace's reference report be scored against
+ * another workspace's context without complaint.
+ */
+export function loadCaseForWorkspace(
+  caseDir: string,
+  workspaceId: string
+): EvalCase {
+  const evalCase = loadCase(caseDir);
+  if (evalCase.manifest.workspaceId !== workspaceId) {
+    throw new Error(
+      `Eval case ${evalCase.manifest.name} belongs to workspace ${evalCase.manifest.workspaceId}, not ${workspaceId}`
+    );
+  }
+  return evalCase;
+}
+
 export function writeCase(
   caseDir: string,
   input: Omit<EvalCase, 'dir'>

@@ -13,7 +13,10 @@ import {
   getLocalAiConfig,
 } from '@/modules/intelligence/backend';
 
-import { loadCase, usableSources as caseUsableSources } from '../case';
+import {
+  loadCaseForWorkspace,
+  usableSources as caseUsableSources,
+} from '../case';
 import type { CliArgs } from '../cli-args';
 import {
   buildCompareExample,
@@ -44,7 +47,7 @@ export async function runCompare(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
 
   // The case carries every prompt input, so compare never touches the DB.
-  const evalCase = loadCase(args.caseDir);
+  const evalCase = loadCaseForWorkspace(args.caseDir, args.workspaceId);
   const { report } = caseAsFixture(evalCase);
   const usableSources = caseUsableSources(evalCase);
   const timezone = String(

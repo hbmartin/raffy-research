@@ -17,6 +17,7 @@ import {
   type CaseManifest,
   contentHash,
   loadCase,
+  loadCaseForWorkspace,
   readExistingPhoenixBindings,
   writeCase,
 } from '../../../scripts/eval/case';
@@ -443,6 +444,17 @@ describe('eval case Phoenix dataset binding', () => {
     expect(pushed).toHaveLength(2);
     expect(new Set(pushed.map((e) => e.id)).size).toBe(1);
     expect(mocks.createDataset).not.toHaveBeenCalled();
+  });
+
+  it('refuses a case belonging to another workspace', () => {
+    // The case carries its own identity, so a mismatched --workspace was
+    // ignored -- letting one workspace's reference be scored against
+    // another's context.
+    const evalCase = makeCase({ datasetName: 'n' });
+    expect(() => loadCaseForWorkspace(evalCase.dir, 'ws-1')).not.toThrow();
+    expect(() => loadCaseForWorkspace(evalCase.dir, 'someone-else')).toThrow(
+      /belongs to workspace ws-1/
+    );
   });
 
   it('hashes content independently of key order', () => {

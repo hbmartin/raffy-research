@@ -83,6 +83,17 @@ describe('parseArgs', () => {
     );
   });
 
+  it('refuses a flag where a value belongs', () => {
+    // --case --judge used to consume --judge as the directory, failing on a
+    // path that looked like a typo while silently dropping the flag.
+    expect(() =>
+      parse('compare', '--workspace', 'ws-1', '--case', '--judge')
+    ).toThrow(/--case expects a value/);
+    expect(() => parse('compare', '--case', 'dir', '--workspace')).toThrow(
+      /--workspace expects a value/
+    );
+  });
+
   it('collects repeatable options', () => {
     const args = parse(
       'export',

@@ -39,6 +39,21 @@ export type CliArgs = {
   judgeModel?: string;
 };
 
+/**
+ * The token after a value-taking flag, refusing another flag.
+ *
+ * `--case --judge` used to consume `--judge` as the directory: the run then
+ * failed on a path that looked like a typo, and the dropped flag was never
+ * mentioned.
+ */
+function requireValue(args: string[], index: number, flag: string): string {
+  const value = args[index];
+  if (!value || value.startsWith('-')) {
+    throw new Error(`${flag} expects a value`);
+  }
+  return value;
+}
+
 export function parseArgs(argv: string[]): CliArgs {
   const allArgs = argv.slice(2);
   const args = allArgs.filter((a) => !a.endsWith('.ts'));
@@ -110,7 +125,7 @@ export function parseArgs(argv: string[]): CliArgs {
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--workspace' || arg === '-w') {
-      workspaceId = args[++i];
+      workspaceId = requireValue(args, ++i, '--workspace');
     } else if (arg?.startsWith('--workspace=')) {
       workspaceId = arg.slice('--workspace='.length);
     } else if (arg === '--provider') {
@@ -118,21 +133,21 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (arg?.startsWith('--provider=')) {
       provider = parseProvider(arg.slice('--provider='.length), '--provider');
     } else if (arg === '--model') {
-      model = args[++i];
+      model = requireValue(args, ++i, '--model');
     } else if (arg?.startsWith('--model=')) {
       model = arg.slice('--model='.length);
     } else if (arg === '--case' || arg === '--fixture') {
-      caseDir = args[++i];
+      caseDir = requireValue(args, ++i, '--case');
     } else if (arg?.startsWith('--case=')) {
       caseDir = arg.slice('--case='.length);
     } else if (arg?.startsWith('--fixture=')) {
       caseDir = arg.slice('--fixture='.length);
     } else if (arg === '--report') {
-      reportId = args[++i];
+      reportId = requireValue(args, ++i, '--report');
     } else if (arg?.startsWith('--report=')) {
       reportId = arg.slice('--report='.length);
     } else if (arg === '--out') {
-      outDir = args[++i];
+      outDir = requireValue(args, ++i, '--out');
     } else if (arg?.startsWith('--out=')) {
       outDir = arg.slice('--out='.length);
     } else if (arg === '--reconcile') {
@@ -149,7 +164,7 @@ export function parseArgs(argv: string[]): CliArgs {
       );
       judge = true;
     } else if (arg === '--judge-model') {
-      judgeModel = args[++i];
+      judgeModel = requireValue(args, ++i, '--judge-model');
       judge = true;
     } else if (arg?.startsWith('--judge-model=')) {
       judgeModel = arg.slice('--judge-model='.length);
@@ -157,7 +172,7 @@ export function parseArgs(argv: string[]): CliArgs {
     } else if (arg === '--sample') {
       split = SAMPLE_SPLIT;
     } else if (arg === '--split') {
-      split = args[++i];
+      split = requireValue(args, ++i, '--split');
     } else if (arg?.startsWith('--split=')) {
       split = arg.slice('--split='.length);
     } else if (arg === '--sample-size') {
@@ -168,7 +183,7 @@ export function parseArgs(argv: string[]): CliArgs {
         '--sample-size'
       );
     } else if (arg === '--sample-source') {
-      const value = args[++i];
+      const value = requireValue(args, ++i, '--sample-source');
       if (value) sampleSourceIds = [...(sampleSourceIds ?? []), value];
     } else if (arg?.startsWith('--sample-source=')) {
       sampleSourceIds = [
@@ -189,7 +204,7 @@ export function parseArgs(argv: string[]): CliArgs {
         '--concurrency'
       );
     } else if (arg === '--summary-model') {
-      const value = args[++i];
+      const value = requireValue(args, ++i, '--summary-model');
       if (value) summaryModels = [...(summaryModels ?? []), value];
     } else if (arg?.startsWith('--summary-model=')) {
       summaryModels = [
@@ -197,7 +212,7 @@ export function parseArgs(argv: string[]): CliArgs {
         arg.slice('--summary-model='.length),
       ];
     } else if (arg === '--name') {
-      caseName = args[++i];
+      caseName = requireValue(args, ++i, '--name');
     } else if (arg?.startsWith('--name=')) {
       caseName = arg.slice('--name='.length);
     } else if (arg?.startsWith('-')) {

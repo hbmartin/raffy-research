@@ -12,7 +12,7 @@ import {
 } from '@/modules/intelligence/backend';
 
 import {
-  loadCase,
+  loadCaseForWorkspace,
   SAMPLE_SPLIT,
   summaryExampleId,
   usableSources as caseUsableSources,
@@ -30,7 +30,7 @@ import {
 
 export async function runSummarizeCase(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
-  const evalCase = loadCase(args.caseDir);
+  const evalCase = loadCaseForWorkspace(args.caseDir, args.workspaceId);
   const config = getLocalAiConfig();
   const provider = (args.provider ?? config.provider) as LocalAiProviderName;
   const model = args.model ?? config.model;

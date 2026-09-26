@@ -6,7 +6,10 @@ import {
   getLocalAiConfig,
 } from '@/modules/intelligence/backend';
 
-import { loadCase, usableSources as caseUsableSources } from '../case';
+import {
+  loadCaseForWorkspace,
+  usableSources as caseUsableSources,
+} from '../case';
 import type { CliArgs } from '../cli-args';
 import { createJudgeEvaluators } from '../judge-evaluators';
 import { JUDGE_PROBES, runJudgeProbes } from '../judge-probes';
@@ -14,7 +17,7 @@ import { log } from '../log';
 
 export async function runJudgeCheck(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
-  const evalCase = loadCase(args.caseDir);
+  const evalCase = loadCaseForWorkspace(args.caseDir, args.workspaceId);
   const config = getLocalAiConfig();
   const provider = (args.judgeProvider ??
     config.provider) as LocalAiProviderName;

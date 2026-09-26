@@ -9,7 +9,10 @@ import {
   getLocalAiConfig,
 } from '@/modules/intelligence/backend';
 
-import { loadCase, usableSources as caseUsableSources } from '../case';
+import {
+  loadCaseForWorkspace,
+  usableSources as caseUsableSources,
+} from '../case';
 import type { CliArgs } from '../cli-args';
 import { caseAsFixture } from '../fixtures';
 import { buildCompareExample } from '../fixtures';
@@ -20,7 +23,7 @@ import { ensureDataset } from '../phoenix-dataset';
 
 export async function runEvaluate(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
-  const evalCase = loadCase(args.caseDir);
+  const evalCase = loadCaseForWorkspace(args.caseDir, args.workspaceId);
   const config = getLocalAiConfig();
   const provider = (args.judgeProvider ??
     config.provider) as LocalAiProviderName;
