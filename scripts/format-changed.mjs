@@ -2,6 +2,9 @@ import { spawnSync } from 'node:child_process';
 
 import { listChangedFiles, resolveBase } from './lib/git-utils.mjs';
 
+// Kept in step with .oxfmtrc.json's ignorePatterns: handing oxfmt a file it
+// ignores leaves it with no targets, which it reports as an error. A commit
+// touching only markdown would fail the hook for no reason.
 const FORMAT_EXTENSIONS = new Set([
   '.ts',
   '.tsx',
@@ -10,7 +13,6 @@ const FORMAT_EXTENSIONS = new Set([
   '.cjs',
   '.mjs',
   '.json',
-  '.md',
   '.css',
 ]);
 
