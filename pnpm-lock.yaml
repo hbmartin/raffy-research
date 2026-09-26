@@ -207,8 +207,8 @@ importers:
         specifier: ^4.0.74
         version: 4.0.74(zod@4.6.5)
       '@arizeai/phoenix-client':
-        specifier: ^6.10.1
-        version: 6.14.2(@ai-sdk/otel@1.0.114(zod@4.6.5))(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)(vitest@5.0.1)
+        specifier: ^7.14.0
+        version: 7.14.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)(vitest@5.0.1)
       '@base-ui/react':
         specifier: 1.8.0
         version: 1.8.0(@date-fns/tz@1.4.1)(@types/react@19.3.0)(date-fns@4.2.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -747,17 +747,8 @@ packages:
       zod:
         optional: true
 
-  '@arizeai/openinference-core@2.3.0':
-    resolution: {integrity: sha512-oDLMjWvUmfA4dAlxWzXb2zJ+oHdRoFoNRTWuIt1w+p9KYeOk5ssmDV/cylFnAeLVJDimXvqG3Wl9s93f/HEeAw==}
-
   '@arizeai/openinference-core@2.7.1':
     resolution: {integrity: sha512-hIg1swBXInfCF72PyGBoOtgYV8/HiDmmhgEMVn9oSw813QJuEBQbbIrpLxrq8Nf5iXJ+9M/cZ5XfO0AaD/F37w==}
-
-  '@arizeai/openinference-genai@0.2.0':
-    resolution: {integrity: sha512-WHAT0aLZ1VTosbZIK10geKp39sm4Ml7Awiv1xFS2uJIw+8EB163plGq74LEHP5h/yjBprewELwjBuvDB+wtTqQ==}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.9.0'
-      '@opentelemetry/semantic-conventions': '>=1.41.1'
 
   '@arizeai/openinference-genai@0.3.10':
     resolution: {integrity: sha512-P7y/Q5/HO/BQWX2rG11zdyThzM2Uo3BeQxTlxfN3Xw4300DSRenUbmhvDhqIgXltQx9LVRtzryLqQQ+2ndQa8Q==}
@@ -768,14 +759,6 @@ packages:
   '@arizeai/openinference-semantic-conventions@2.12.0':
     resolution: {integrity: sha512-Yrd1sEEfDvTVLb5J1F1UfK6BYux0HsufBgXJAmH36T1/N0IQsmOkZQWskZL+aRKz/yO7JiRutuz7h7hCGTyiIA==}
 
-  '@arizeai/openinference-semantic-conventions@2.5.0':
-    resolution: {integrity: sha512-4ZeSwiFX3YxB0WSE6x568wM4PVHiYmz3yiOxic6WGKVrE/KIGggMFP/eqUNQhikBKP68IDV0qiILlZAIYnheAQ==}
-
-  '@arizeai/openinference-vercel@2.8.1':
-    resolution: {integrity: sha512-gTgUSJd9HHTfNyI2ZoorPGHt1ID5LFtZZCDFmosXzdPzYoAzwknEC9Ja3iKKs+c27uvNiS6N5P8iyxf8qC+sDg==}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.7.0 <2.0.0'
-
   '@arizeai/openinference-vercel@3.2.1':
     resolution: {integrity: sha512-y6EBDvqmhmLlpolBUqsjqxrb8VtRFof4YIRmerTwVroSTRoBiTBJ2/tiuVxsLNmeUaHsmrpRLt4mQ2IdkMW+jw==}
     engines: {node: '>=22'}
@@ -785,14 +768,14 @@ packages:
       '@opentelemetry/semantic-conventions': '>=1.41.1 <2.0.0'
       ai: ^7.0.0
 
-  '@arizeai/phoenix-client@6.14.2':
-    resolution: {integrity: sha512-n2XYPGmmYuoUIsReIaQtL2HvKyNFnlfWyWwuCLqQqOjQCQdh7ScwkdyavJoHb9jHg/FdzyZpKAuEoyTlimcXJg==}
+  '@arizeai/phoenix-client@7.14.0':
+    resolution: {integrity: sha512-dhG6cxJRnozHgFkuB/CnMQVvkEKVrYQVoyI7igJR6LRZYiY8DCMkXxdBykSfwSliFvbCpqMjMl2hGDRaWDg99Q==}
     engines: {node: '>=18'}
     peerDependencies:
       '@anthropic-ai/sdk': ^0.35.0
-      ai: ^6.0.90
+      ai: ^7.0.0
       jest: '>=27'
-      openai: ^6.10.0
+      openai: ^6.10.0 || ^7.0.0
       vitest: '>=1'
     peerDependenciesMeta:
       '@anthropic-ai/sdk':
@@ -806,12 +789,12 @@ packages:
       vitest:
         optional: true
 
-  '@arizeai/phoenix-config@0.4.0':
-    resolution: {integrity: sha512-wIyGhxxbiRIbqLwu+xIff0g42CDpSPAqjIWUwwd24krz0ja40ougW3V4mB8ewk4R63skBcS/6sirmbTIbOEhfw==}
+  '@arizeai/phoenix-config@0.5.0':
+    resolution: {integrity: sha512-8wi9liumJ4LmbSEZwkhU9dY5NKWeR8Zmfj//GMLf5Jj2d87nugzR5+ODovRkZOs7UGWnYRtCn1ChVCJwqV/bkg==}
     engines: {node: '>=18'}
 
-  '@arizeai/phoenix-otel@2.1.0':
-    resolution: {integrity: sha512-NVPlXGkQSaFtj+4HF1geDOGQrdWMWnBfnP5XHo0TwmL3Gc3fp8k36L3Jmx4k+NTD5bfD1l3Rr3OsQu21zjdcGA==}
+  '@arizeai/phoenix-otel@2.2.0':
+    resolution: {integrity: sha512-fm31XH73yipQBKn6sI+LxMGeXp+dENfFBHZ6Y5Rb1r6tvyl+j9gUJn1M3+cYXihLXukRLC0jUT/tqkOqyMjYWg==}
     engines: {node: '>=18'}
 
   '@aws-sdk/core@3.978.0':
@@ -2476,12 +2459,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
 
-  '@opentelemetry/core@1.30.1':
-    resolution: {integrity: sha512-OOCM2C/QIURhJMuKaekP3TRBxBKxG/TWWA0TL2J6nXUtDnuCtccy49LUJF8xPFXMX+0LMcxFpCo8M9cGY1W6rQ==}
-    engines: {node: '>=14'}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.0.0 <1.10.0'
-
   '@opentelemetry/core@2.11.0':
     resolution: {integrity: sha512-7YP44XH0tV6+Mb54x2YGf84i7yi+31MBZlE8JwvozkxyTvXbSp10X7cI7YE49ChJ3shMJoBmCJF3+1QFBJctGA==}
     engines: {node: ^18.19.0 || >=20.6.0}
@@ -2649,10 +2626,6 @@ packages:
     engines: {node: ^18.19.0 || >=20.6.0}
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
-
-  '@opentelemetry/semantic-conventions@1.28.0':
-    resolution: {integrity: sha512-lp4qAiMTD4sNWW4DbKLBkfiMZ4jbAboJIGOQr5DvciMRI494OapieI9qiODpOt0XBr1LjIDy1xAGAnVs5supTA==}
-    engines: {node: '>=14'}
 
   '@opentelemetry/semantic-conventions@1.43.0':
     resolution: {integrity: sha512-eSYWTm620tTk45EKSedaUL8MFYI8hW164hIXsgIHyxu3VobUB3fFCu5t0hQby6OoWRPsG1KkKUG2M5UadiLiVg==}
@@ -9498,23 +9471,11 @@ snapshots:
     optionalDependencies:
       zod: 4.6.5
 
-  '@arizeai/openinference-core@2.3.0':
-    dependencies:
-      '@arizeai/openinference-semantic-conventions': 2.5.0
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.1)
-
   '@arizeai/openinference-core@2.7.1':
     dependencies:
       '@arizeai/openinference-semantic-conventions': 2.12.0
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
-
-  '@arizeai/openinference-genai@0.2.0(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)':
-    dependencies:
-      '@arizeai/openinference-semantic-conventions': 2.5.0
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/semantic-conventions': 1.43.0
 
   '@arizeai/openinference-genai@0.3.10(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)':
     dependencies:
@@ -9523,18 +9484,6 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.43.0
 
   '@arizeai/openinference-semantic-conventions@2.12.0': {}
-
-  '@arizeai/openinference-semantic-conventions@2.5.0': {}
-
-  '@arizeai/openinference-vercel@2.8.1(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)':
-    dependencies:
-      '@arizeai/openinference-core': 2.3.0
-      '@arizeai/openinference-genai': 0.2.0(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)
-      '@arizeai/openinference-semantic-conventions': 2.5.0
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/core': 1.30.1(@opentelemetry/api@1.9.1)
-    transitivePeerDependencies:
-      - '@opentelemetry/semantic-conventions'
 
   '@arizeai/openinference-vercel@3.2.1(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))':
     dependencies:
@@ -9547,12 +9496,11 @@ snapshots:
       '@opentelemetry/semantic-conventions': 1.43.0
       ai: 7.0.113(zod@4.6.5)
 
-  '@arizeai/phoenix-client@6.14.2(@ai-sdk/otel@1.0.114(zod@4.6.5))(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)(vitest@5.0.1)':
+  '@arizeai/phoenix-client@7.14.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@anthropic-ai/sdk@0.93.0(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)(vitest@5.0.1)':
     dependencies:
       '@arizeai/openinference-semantic-conventions': 2.12.0
-      '@arizeai/openinference-vercel': 2.8.1(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)
-      '@arizeai/phoenix-config': 0.4.0
-      '@arizeai/phoenix-otel': 2.1.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)
+      '@arizeai/phoenix-config': 0.5.0
+      '@arizeai/phoenix-otel': 2.2.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)
       async: 3.2.6
       openapi-fetch: 0.17.0
       tiny-invariant: 1.3.3
@@ -9563,18 +9511,17 @@ snapshots:
       vitest: 5.0.1(@opentelemetry/api@1.9.1)(@types/node@24.12.3)(@vitest/browser-playwright@5.0.1)(@vitest/coverage-v8@5.0.1)(@vitest/ui@5.0.1)(vite@8.3.0(@types/node@24.12.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
     transitivePeerDependencies:
       - '@ai-sdk/otel'
-      - '@opentelemetry/api'
       - '@opentelemetry/semantic-conventions'
       - supports-color
 
-  '@arizeai/phoenix-config@0.4.0': {}
+  '@arizeai/phoenix-config@0.5.0': {}
 
-  '@arizeai/phoenix-otel@2.1.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)':
+  '@arizeai/phoenix-otel@2.2.0(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))(supports-color@8.1.1)':
     dependencies:
       '@arizeai/openinference-core': 2.7.1
       '@arizeai/openinference-semantic-conventions': 2.12.0
       '@arizeai/openinference-vercel': 3.2.1(@ai-sdk/otel@1.0.114(zod@4.6.5))(@opentelemetry/api@1.9.1)(@opentelemetry/semantic-conventions@1.43.0)(ai@7.0.113(zod@4.6.5))
-      '@arizeai/phoenix-config': 0.4.0
+      '@arizeai/phoenix-config': 0.5.0
       '@opentelemetry/api': 1.9.1
       '@opentelemetry/context-async-hooks': 2.11.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/core': 2.11.0(@opentelemetry/api@1.9.1)
@@ -11083,11 +11030,6 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.1
 
-  '@opentelemetry/core@1.30.1(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-      '@opentelemetry/semantic-conventions': 1.28.0
-
   '@opentelemetry/core@2.11.0(@opentelemetry/api@1.9.1)':
     dependencies:
       '@opentelemetry/api': 1.9.1
@@ -11295,8 +11237,6 @@ snapshots:
       '@opentelemetry/core': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/resources': 2.9.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/semantic-conventions': 1.43.0
-
-  '@opentelemetry/semantic-conventions@1.28.0': {}
 
   '@opentelemetry/semantic-conventions@1.43.0': {}
 

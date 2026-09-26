@@ -147,7 +147,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.74",
-    "@arizeai/phoenix-client": "^6.10.1",
+    "@arizeai/phoenix-client": "^7.14.0",
     "@base-ui/react": "1.8.0",
     "@bearstudio/ui-state": "1.1.0",
     "@better-upload/client": "3.0.19",

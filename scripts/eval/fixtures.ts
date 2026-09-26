@@ -4,7 +4,10 @@
  * produce byte-identical examples: the content hash decides whether a run
  * reuses the pinned dataset version or forks a new one.
  */
-import { REPORT_PROMPT_BUDGETS } from '@/modules/intelligence';
+import {
+  REPORT_PROMPT_BUDGETS,
+  truncateForPrompt,
+} from '@/modules/intelligence';
 import type { JsonObject } from '@/modules/kernel/domain/json';
 
 import type { CaseSource, EvalCase } from './case';
@@ -64,13 +67,19 @@ export function buildCompareExample(
       sourceCount: sources.length,
       sources: sources.map((s) => ({
         id: s.id,
-        title: s.title,
         provider: s.providerName,
-        // The limit the generation prompt renders at, not a round number of
-        // our own: this field is the record of what the model was shown, and
-        // an arbitrary 2000 described an input no run ever received.
-        contentText: s.contentText?.slice(
-          0,
+        // Rendered by the same function, at the same budgets, as the prompt
+        // itself. This field is the record of what the model was shown, and
+        // an arbitrary 2000-char slice described an input no run received.
+        //
+        // Reusing truncateForPrompt rather than slicing also keeps a
+        // surrogate pair whole. A raw slice can end on a lone high surrogate
+        // -- invalid UTF-16 -- which Phoenix's dataset upload rejects with a
+        // bare 500 naming nothing. One source in the committed case ends its
+        // 600th character mid-emoji, so this was not hypothetical.
+        title: truncateForPrompt(s.title, REPORT_PROMPT_BUDGETS.sourceTitle),
+        contentText: truncateForPrompt(
+          s.contentText,
           REPORT_PROMPT_BUDGETS.sourceContent
         ),
       })),

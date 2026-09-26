@@ -16,6 +16,7 @@ export {
   NO_RECOMMENDATION_GUIDANCE,
   REPORT_PROMPT_BUDGETS,
   REPORT_PROMPT_VERSION,
+  truncateForPrompt,
   UNTRUSTED_SOURCE_GUIDANCE,
 } from './application/generation/build-report-prompt';
 export {

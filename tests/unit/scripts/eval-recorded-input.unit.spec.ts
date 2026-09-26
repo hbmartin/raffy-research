@@ -13,6 +13,13 @@ import {
 
 const LONG_CONTENT = 'abcdefghij'.repeat(500); // 5000 chars, far over any budget
 
+/**
+ * Content whose 600th character is the first half of a surrogate pair, so a
+ * plain slice at the budget leaves a lone high surrogate behind.
+ */
+const BUDGET = 600;
+const SURROGATE_CONTENT = `${'x'.repeat(BUDGET - 1)}\u{1F1FA}\u{1F1F8} trailing`;
+
 const source = {
   id: 'src-1',
   sourceType: 'web_page',
@@ -47,8 +54,10 @@ const renderPrompt = () =>
   } as unknown as Parameters<typeof buildReportPrompt>[0]);
 
 /** The content string the example claims the model was shown. */
-function recordedContent(): string {
-  const example = buildCompareExample(evalCase, report, [source as never]);
+function recordedContent(contentText: string = LONG_CONTENT): string {
+  const example = buildCompareExample(evalCase, report, [
+    { ...source, contentText } as never,
+  ]);
   const sources = example.input.sources as { contentText?: string }[];
   const first = sources[0];
   if (!first?.contentText)
@@ -67,7 +76,9 @@ describe('recorded dataset input', () => {
   it('records source content exactly as the generation prompt renders it', () => {
     const recorded = recordedContent();
 
-    expect(recorded).toHaveLength(REPORT_PROMPT_BUDGETS.sourceContent);
+    expect(recorded.length).toBeLessThanOrEqual(
+      REPORT_PROMPT_BUDGETS.sourceContent + 1 // the ellipsis truncate appends
+    );
     // The assertion that matters: what we claim the model saw is in the
     // prompt the model was actually handed.
     expect(renderPrompt()).toContain(recorded);
@@ -78,5 +89,24 @@ describe('recorded dataset input', () => {
 
     expect(recorded.length).toBeLessThan(LONG_CONTENT.length);
     expect(renderPrompt()).not.toContain(LONG_CONTENT);
+  });
+
+  /**
+   * Found by a live run, not by this suite's first version: the Phoenix
+   * dataset upload answered a 96KB payload with a bare 500 and no reason.
+   * One source in the committed case ends its 600th character mid-emoji, and
+   * the lone high surrogate a plain slice left behind is invalid UTF-16.
+   * Asserting the length alone passed straight through it.
+   */
+  it('never ends a recorded value on a lone surrogate', () => {
+    const recorded = recordedContent(SURROGATE_CONTENT);
+
+    const lastCode = recorded.charCodeAt(recorded.length - 1);
+    expect(lastCode).not.toBeGreaterThanOrEqual(0xd800);
+
+    // The real contract: it survives a UTF-8 round trip, which a lone
+    // surrogate does not -- it becomes U+FFFD.
+    expect(Buffer.from(recorded, 'utf8').toString('utf8')).toBe(recorded);
+    expect(recorded).not.toContain('\uFFFD');
   });
 });
