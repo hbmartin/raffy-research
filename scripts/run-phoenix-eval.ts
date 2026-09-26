@@ -45,6 +45,7 @@ import {
 import { exportCase } from './eval/export-case';
 import { createJudgeEvaluators } from './eval/judge-evaluators';
 import { JUDGE_PROBES, runJudgeProbes } from './eval/judge-probes';
+import { parseProvider, parsePositiveInt } from './eval/cli-values';
 import { ensureDataset } from './eval/phoenix-dataset';
 import { REPORT_EVALUATORS } from './eval/report-evaluators';
 import {
@@ -152,9 +153,9 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg?.startsWith('--workspace=')) {
       workspaceId = arg.slice('--workspace='.length);
     } else if (arg === '--provider') {
-      provider = args[++i];
+      provider = parseProvider(args[++i], '--provider');
     } else if (arg?.startsWith('--provider=')) {
-      provider = arg.slice('--provider='.length);
+      provider = parseProvider(arg.slice('--provider='.length), '--provider');
     } else if (arg === '--model') {
       model = args[++i];
     } else if (arg?.startsWith('--model=')) {
@@ -178,10 +179,13 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === '--judge') {
       judge = true;
     } else if (arg === '--judge-provider') {
-      judgeProvider = args[++i];
+      judgeProvider = parseProvider(args[++i], '--judge-provider');
       judge = true;
     } else if (arg?.startsWith('--judge-provider=')) {
-      judgeProvider = arg.slice('--judge-provider='.length);
+      judgeProvider = parseProvider(
+        arg.slice('--judge-provider='.length),
+        '--judge-provider'
+      );
       judge = true;
     } else if (arg === '--judge-model') {
       judgeModel = args[++i];
@@ -196,9 +200,12 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg?.startsWith('--split=')) {
       split = arg.slice('--split='.length);
     } else if (arg === '--sample-size') {
-      sampleSize = Number(args[++i]);
+      sampleSize = parsePositiveInt(args[++i], '--sample-size');
     } else if (arg?.startsWith('--sample-size=')) {
-      sampleSize = Number(arg.slice('--sample-size='.length));
+      sampleSize = parsePositiveInt(
+        arg.slice('--sample-size='.length),
+        '--sample-size'
+      );
     } else if (arg === '--sample-source') {
       const value = args[++i];
       if (value) sampleSourceIds = [...(sampleSourceIds ?? []), value];
@@ -210,13 +217,16 @@ function parseArgs(argv: string[]): CliArgs {
     } else if (arg === '--stored') {
       stored = true;
     } else if (arg === '--limit') {
-      limit = Number(args[++i]);
+      limit = parsePositiveInt(args[++i], '--limit');
     } else if (arg?.startsWith('--limit=')) {
-      limit = Number(arg.slice('--limit='.length));
+      limit = parsePositiveInt(arg.slice('--limit='.length), '--limit');
     } else if (arg === '--concurrency') {
-      concurrency = Number(args[++i]);
+      concurrency = parsePositiveInt(args[++i], '--concurrency');
     } else if (arg?.startsWith('--concurrency=')) {
-      concurrency = Number(arg.slice('--concurrency='.length));
+      concurrency = parsePositiveInt(
+        arg.slice('--concurrency='.length),
+        '--concurrency'
+      );
     } else if (arg === '--summary-model') {
       const value = args[++i];
       if (value) summaryModels = [...(summaryModels ?? []), value];
@@ -989,7 +999,15 @@ async function runCompare(args: CliArgs) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv);
+  let args: CliArgs;
+  try {
+    args = parseArgs(process.argv);
+  } catch (error) {
+    console.error(
+      `[phoenix-eval] ${error instanceof Error ? error.message : error}`
+    );
+    process.exit(1);
+  }
 
   // Export is the one command that reads live data on purpose, and it needs no
   // Phoenix credentials.
