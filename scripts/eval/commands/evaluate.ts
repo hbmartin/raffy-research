@@ -98,6 +98,12 @@ export async function runEvaluate(args: CliArgs) {
       reportId: report.id,
       judgeProvider: provider,
       judgeModel: model,
+      // The published report was generated at some point in the past, so the
+      // prompt version that produced it is the one recorded on the report --
+      // not whatever the current constant happens to be.
+      reportPromptVersion:
+        (report.modelMetadata as Record<string, unknown> | null)
+          ?.promptVersion ?? null,
       judgePromptVersion: JUDGE_PROMPT_VERSION,
       datasetVersionId: resolved.versionId,
     },

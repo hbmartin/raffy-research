@@ -7,6 +7,7 @@ import {
   JUDGE_PROMPT_VERSION,
   type LocalAiProviderName,
   parseGeneratedReportJson,
+  REPORT_PROMPT_VERSION,
 } from '@/modules/intelligence';
 import {
   generateLocalText,
@@ -168,6 +169,9 @@ export async function runCompare(args: CliArgs) {
     experimentMetadata: {
       provider,
       model,
+      // Scores move when the prompt changes, so a run that does not say which
+      // prompt it used cannot be compared with one from last month.
+      reportPromptVersion: REPORT_PROMPT_VERSION,
       referenceReportId: report.id,
       ...(evalCase
         ? { caseName: evalCase.manifest.name, datasetVersionId: versionId }

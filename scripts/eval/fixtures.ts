@@ -4,6 +4,7 @@
  * produce byte-identical examples: the content hash decides whether a run
  * reuses the pinned dataset version or forks a new one.
  */
+import { REPORT_PROMPT_BUDGETS } from '@/modules/intelligence';
 import type { JsonObject } from '@/modules/kernel/domain/json';
 
 import type { CaseSource, EvalCase } from './case';
@@ -65,7 +66,13 @@ export function buildCompareExample(
         id: s.id,
         title: s.title,
         provider: s.providerName,
-        contentText: s.contentText?.slice(0, 2000),
+        // The limit the generation prompt renders at, not a round number of
+        // our own: this field is the record of what the model was shown, and
+        // an arbitrary 2000 described an input no run ever received.
+        contentText: s.contentText?.slice(
+          0,
+          REPORT_PROMPT_BUDGETS.sourceContent
+        ),
       })),
     },
     output: (report.reportData ?? {}) as Record<string, unknown>,

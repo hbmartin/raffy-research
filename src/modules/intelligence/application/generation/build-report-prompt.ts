@@ -37,6 +37,21 @@ const truncate = (value: string | null | undefined, max: number): string => {
   return `${value.slice(0, end)}…`;
 };
 
+/**
+ * How much of each field the generation prompt actually shows the model.
+ *
+ * Exported because the Phoenix eval records what a run was given, and a
+ * recorded input that does not match the rendered prompt is worse than none:
+ * it reads as evidence while describing a generation that never happened.
+ */
+export const REPORT_PROMPT_BUDGETS = {
+  sourceTitle: 200,
+  sourceContent: 600,
+  sourceDiff: 300,
+  summaryText: 500,
+  evidenceCandidate: 500,
+} as const;
+
 const renderCompetitor = (competitor: Competitor): string => {
   const domainLabel = competitor.domain ? ` (${competitor.domain})` : '';
   return `${competitor.name}${domainLabel} [${competitor.state}]`;
@@ -47,17 +62,19 @@ const renderSource = (source: SourceRecord): string => {
     `- id: ${source.id}`,
     `  type: ${source.sourceType}`,
     `  provider: ${source.providerName}`,
-    source.title ? `  title: ${truncate(source.title, 200)}` : null,
+    source.title
+      ? `  title: ${truncate(source.title, REPORT_PROMPT_BUDGETS.sourceTitle)}`
+      : null,
     source.authorOrAccount ? `  author: ${source.authorOrAccount}` : null,
     source.externalUrl ? `  url: ${source.externalUrl}` : null,
     source.contentText
-      ? `  content: ${truncate(source.contentText, 600)}`
+      ? `  content: ${truncate(source.contentText, REPORT_PROMPT_BUDGETS.sourceContent)}`
       : null,
     source.diffAddedText
-      ? `  added: ${truncate(source.diffAddedText, 300)}`
+      ? `  added: ${truncate(source.diffAddedText, REPORT_PROMPT_BUDGETS.sourceDiff)}`
       : null,
     source.diffRemovedText
-      ? `  removed: ${truncate(source.diffRemovedText, 300)}`
+      ? `  removed: ${truncate(source.diffRemovedText, REPORT_PROMPT_BUDGETS.sourceDiff)}`
       : null,
   ];
   return lines.filter(Boolean).join('\n');
@@ -67,10 +84,10 @@ const renderSourceSummary = (summary: SourceSummary): string => {
   const lines = [
     `- source_id: ${summary.sourceRecordId}`,
     summary.summaryText
-      ? `  summary: ${truncate(summary.summaryText, 500)}`
+      ? `  summary: ${truncate(summary.summaryText, REPORT_PROMPT_BUDGETS.summaryText)}`
       : null,
     summary.evidenceCandidateText
-      ? `  evidence_candidate: ${truncate(summary.evidenceCandidateText, 500)}`
+      ? `  evidence_candidate: ${truncate(summary.evidenceCandidateText, REPORT_PROMPT_BUDGETS.evidenceCandidate)}`
       : null,
     summary.modelProvider ? `  model_provider: ${summary.modelProvider}` : null,
     summary.modelName ? `  model: ${summary.modelName}` : null,
