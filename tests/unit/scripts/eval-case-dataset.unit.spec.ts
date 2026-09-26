@@ -389,6 +389,62 @@ describe('eval case Phoenix dataset binding', () => {
     expect(mocks.appendDatasetExamples).not.toHaveBeenCalled();
   });
 
+  // The defect this guards against: a shared, workspace-level dataset that
+  // each call replaced, with experiments bound to a bare dataset id that a
+  // concurrent run could rewrite before the experiment read it -- so one
+  // run's output could be recorded against another's example.
+  // The defect this guards against: a shared, workspace-level dataset that
+  // each call replaced, with experiments bound to a bare dataset id that
+  // another run could rewrite before the experiment read it -- so one run's
+  // output could be recorded against another's example.
+  //
+  // Two pushes are interleaved rather than run in parallel: Vitest's module
+  // mocking is not reentrant under concurrent dynamic imports, and the
+  // property that prevents misattribution is that each push binds to the
+  // version its own call returned, which does not depend on real parallelism.
+  it('binds each push of a case to the version that push created', async () => {
+    const staleBinding = {
+      datasetName: 'report-generation-acme',
+      datasetId: 'ds-1',
+      versionId: 'v-0',
+      contentHash: 'sha256:stale',
+    };
+    mocks.getDataset.mockResolvedValue({ id: 'ds-1', versionId: 'v-0' });
+    mocks.appendDatasetExamples
+      .mockResolvedValueOnce({ datasetId: 'ds-1', versionId: 'v-1' })
+      .mockResolvedValueOnce({ datasetId: 'ds-1', versionId: 'v-2' });
+
+    const push = (evalCase: ReturnType<typeof makeCase>) =>
+      ensureDataset({
+        client: {},
+        evalCase,
+        purpose: 'reportGeneration',
+        datasetName: 'report-generation-acme',
+        examples,
+        description: 'd',
+        log,
+      });
+
+    const a = await push(makeCase(staleBinding));
+    const b = await push(makeCase(staleBinding));
+
+    // Distinct versions, so an experiment cannot read examples a later push
+    // replaced.
+    expect(a.versionId).toBe('v-1');
+    expect(b.versionId).toBe('v-2');
+    expect(a.datasetId).toBe('ds-1');
+    expect(b.datasetId).toBe('ds-1');
+
+    // Both pushed the same stable example id, so the dataset converges on one
+    // example rather than accumulating a copy per run.
+    const pushed = mocks.appendDatasetExamples.mock.calls.flatMap(
+      (call) => (call[0] as { examples: { id: string }[] }).examples
+    );
+    expect(pushed).toHaveLength(2);
+    expect(new Set(pushed.map((e) => e.id)).size).toBe(1);
+    expect(mocks.createDataset).not.toHaveBeenCalled();
+  });
+
   it('hashes content independently of key order', () => {
     expect(contentHash({ a: 1, b: { c: 2, d: 3 } })).toBe(
       contentHash({ b: { d: 3, c: 2 }, a: 1 })
