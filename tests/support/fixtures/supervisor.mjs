@@ -2,7 +2,9 @@ import { createServer } from 'node:net';
 
 import { createFixtureSupervisor } from '../../../scripts/fixture-supervisor.mjs';
 
-const supervisor = createFixtureSupervisor();
+const supervisor = createFixtureSupervisor({
+  failOnSignal: process.argv[2] === 'signal-failure',
+});
 const server = createServer();
 await supervisor.run(
   async () => {

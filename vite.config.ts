@@ -104,8 +104,8 @@ export default defineConfig(async ({ mode, command }) => {
     traceDeps: ['@sentry/core*', 'ws*'],
   };
   // Nitro independently loads root .env files, even when Vite uses an empty
-  // fixture envDir. Supply its supported preinitialized instance so fixture
-  // builds keep the same isolated environment throughout both bundlers.
+  // fixture envDir. Nitro's pinned nightly accepts this internal preinitialized
+  // instance so fixture builds use the same isolated environment in both bundlers.
   const fixtureNitro = process.env.SSR_FIXTURE_ENV_DIR
     ? await createNitro(
         { ...nitroConfig, builder: 'vite', dev: command === 'serve' },

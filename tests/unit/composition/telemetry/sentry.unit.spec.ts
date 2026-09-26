@@ -139,6 +139,29 @@ describe('Sentry telemetry composition', () => {
     });
   });
 
+  it('retains only User-Agent from Sentry request headers', async () => {
+    const { sanitizeSentryEvent } =
+      await import('@/composition/telemetry/sentry-adapter');
+
+    expect(
+      sanitizeSentryEvent({
+        request: {
+          headers: {
+            authorization: 'Bearer private',
+            cookie: 'session=private',
+            'user-agent': 'Browser/123',
+          },
+          method: 'GET',
+          url: 'https://app.example/path?token=private',
+        },
+      }).request
+    ).toEqual({
+      headers: { 'User-Agent': 'Browser/123' },
+      method: 'GET',
+      url: 'https://app.example/path',
+    });
+  });
+
   it('drops unsupported Sentry event tag values after sanitizing', async () => {
     const { sanitizeSentryEvent } =
       await import('@/composition/telemetry/sentry-adapter');

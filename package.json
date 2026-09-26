@@ -123,7 +123,6 @@
     "e2e:setup": "dotenv -e .env -e .env.example -- cross-env playwright test --project=setup",
     "e2e": "pnpm test:e2e",
     "e2e:ui": "pnpm test:e2e --ui",
-    "e2e:db:init": "run-s db:migrate db:seed",
     "e2e:webserver": "dotenv -e .env -e .env.example -- node scripts/serve-e2e-dev.mjs",
     "dk:init": "docker compose --profile init up -d",
     "dk:start": "docker compose start",
@@ -140,10 +139,6 @@
     "test:e2e:ssr": "pnpm build:e2e:ssr && pnpm test:e2e:ssr:built",
     "e2e:ssr:webserver": "node ./run-jiti ./scripts/serve-ssr-e2e.ts",
     "build:e2e:ssr": "node ./run-jiti ./scripts/build-ssr-e2e.ts",
-    "e2e:ssr:bundle": "run-s e2e:ssr:env e2e:ssr:build-info && vite build",
-    "e2e:ssr:env": "node ./run-jiti ./src/platform/env/client.ts && node ./run-jiti ./src/modules/kernel/infrastructure/config/server.ts",
-    "e2e:ssr:build-info": "node ./run-jiti ./src/app/build-info/infrastructure/generate-build-info.ts",
-    "e2e:ssr:db:init": "node ./run-jiti ./src/modules/kernel/infrastructure/db/migrate-cli.ts && node ./run-jiti ./drizzle/seed/index.ts",
     "test:e2e:ssr:built": "playwright test --config=playwright.ssr.config.ts",
     "check:ssr-compatibility": "node scripts/check-ssr-compatibility.mjs"
   },

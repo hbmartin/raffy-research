@@ -2,7 +2,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { randomBytes } from 'node:crypto';
-import { createServer } from 'vite';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 
 import { createFixtureSupervisor } from './fixture-supervisor.mjs';
 
@@ -15,6 +16,11 @@ process.env.DATABASE_MIGRATION_URL = process.env.DATABASE_URL;
 process.env.DATABASE_DRIVER = 'node-pg';
 process.env.DATABASE_MIGRATION_DRIVER = 'node-pg';
 const supervisor = createFixtureSupervisor();
+const require = createRequire(import.meta.url);
+const vite = resolve(
+  dirname(require.resolve('vite/package.json')),
+  'bin/vite.js'
+);
 const database = new PGlite('memory://', { extensions: { pgcrypto } });
 const socket = new PGLiteSocketServer({
   db: database,
@@ -22,7 +28,6 @@ const socket = new PGLiteSocketServer({
   port: 54329,
   maxConnections: 16,
 });
-let server;
 const run = (path) => supervisor.runNode(['./run-jiti', path]);
 await supervisor.run(
   async () => {
@@ -41,21 +46,13 @@ await supervisor.run(
       run('./src/app/build-info/infrastructure/generate-build-info.ts'),
     ]);
     supervisor.checkpoint();
-    server = await createServer();
-    supervisor.checkpoint();
-    await server.listen();
-    server.printUrls();
-    await supervisor.waitForStop();
+    await supervisor.runNode([vite, '--host', '127.0.0.1']);
   },
   async () => {
     try {
-      await server?.close();
+      await socket.stop();
     } finally {
-      try {
-        await socket.stop();
-      } finally {
-        await database.close();
-      }
+      await database.close();
     }
   }
 );

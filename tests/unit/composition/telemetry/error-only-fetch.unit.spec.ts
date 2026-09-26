@@ -1,3 +1,5 @@
+import * as React from 'react';
+import { renderToReadableStream } from 'react-dom/server.browser';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createErrorOnlyFetch } from '@/composition/telemetry/error-only-fetch';
@@ -10,6 +12,34 @@ const reporter = () => ({
 });
 
 describe('error-only server entry', () => {
+  it('cancels a pending React boundary with a recognized abort reason', async () => {
+    const pending = new Promise<never>(() => {});
+    const onError = vi.fn();
+    const stream = await renderToReadableStream(
+      React.createElement(
+        React.Suspense,
+        { fallback: 'loading' },
+        React.createElement(() => {
+          throw pending;
+        })
+      ),
+      { onError }
+    );
+    const fetch = createErrorOnlyFetch(
+      async () => new Response(stream),
+      reporter()
+    );
+
+    const response = await fetch(
+      new Request('https://app.example', { method: 'HEAD' }),
+      { context: { requestId: 'head-suspense' } }
+    );
+
+    expect(response.body).toBeNull();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ name: 'AbortError' });
+  });
+
   it.each([false, true])(
     'finishes an unconsumed HEAD body even when flush rejects: %s',
     async (rejectFlush) => {

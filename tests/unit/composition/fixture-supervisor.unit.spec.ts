@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { expect, it } from 'vitest';
 
-it.each(['normal', 'repeated', 'failure', 'stuck'])(
+it.each(['normal', 'repeated', 'failure', 'stuck', 'signal-failure'])(
   'cleans up managed children and ports: %s',
   async (mode) => {
     const child = spawn(
@@ -31,7 +31,7 @@ it.each(['normal', 'repeated', 'failure', 'stuck'])(
       }
       const [code, signal] = await exited;
       expect({ code, signal, output }).toMatchObject({
-        code: mode === 'failure' ? 1 : 0,
+        code: mode === 'failure' ? 1 : mode === 'signal-failure' ? 143 : 0,
         signal: null,
       });
       expect(output.match(/CLEANED/g)).toHaveLength(1);

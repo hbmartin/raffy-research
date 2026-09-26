@@ -240,7 +240,7 @@ export function getBetterAuthConfig(
   const env = parseEnv(betterAuthEnvSchema(), source);
   const isVercelDeployment = isVercelRuntime(env);
   const trustedClientIpHeader =
-    env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
+    env.AUTH_TRUSTED_CLIENT_IP_HEADER ||
     (isVercelDeployment ? 'x-vercel-forwarded-for' : undefined);
   const fixtureSignInRateLimit = env.SSR_FIXTURE_MODE === 'true';
   if (

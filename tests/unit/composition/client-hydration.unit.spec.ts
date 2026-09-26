@@ -46,6 +46,12 @@ const fixture = () => {
   return { document, bootstrap, view, loading };
 };
 
+const trustedPointer = () => {
+  const event = new Event('pointerdown');
+  Object.defineProperty(event, 'isTrusted', { value: true });
+  return event;
+};
+
 describe('client hydration cleanup ownership', () => {
   it('suppresses a pending route import failure after pagehide', async () => {
     const { document, loading, view } = fixture();
@@ -62,14 +68,16 @@ describe('client hydration cleanup ownership', () => {
     expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
   });
 
-  it('reports a route import failure for the current owner', async () => {
-    const { document, loading } = fixture();
+  it('reports a route import failure after interaction with the current owner', async () => {
+    const { document, loading, view } = fixture();
     const failure = new Error('route chunk failed');
     const hydration = hydrateClient(document);
 
     loading.reject(failure);
     await hydration;
 
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    view.dispatchEvent(trustedPointer());
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
       failure
