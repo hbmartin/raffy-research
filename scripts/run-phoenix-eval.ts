@@ -25,6 +25,7 @@ import { runJudgeCheck } from './eval/commands/judge-check';
 import { runSummarizeCase } from './eval/commands/summarize';
 import { exportCase } from './eval/export-case';
 import { log } from './eval/log';
+import { flushCliTelemetry, startCliTelemetry } from './eval/telemetry';
 
 async function main() {
   let args: CliArgs;
@@ -63,12 +64,18 @@ async function main() {
     process.exit(1);
   }
 
+  // The commands call the same AI SDK the app does; without this their model
+  // calls are never traced.
+  startCliTelemetry();
+
   try {
     if (args.command === 'summarize') await runSummarizeCase(args);
     if (args.command === 'evaluate') await runEvaluate(args);
     if (args.command === 'compare') await runCompare(args);
     if (args.command === 'judge-check') await runJudgeCheck(args);
     log('Done');
+    // Batched spans would be lost to the explicit exit below.
+    await flushCliTelemetry();
     // Telemetry exporters and DB pools can keep the loop alive; every path
     // above has awaited its work, so leaving is safe and avoids a hang.
     process.exit(0);
@@ -77,6 +84,8 @@ async function main() {
       '[phoenix-eval] Fatal error:',
       error instanceof Error ? error.message : error
     );
+    // The spans of a run that died are the ones worth having.
+    await flushCliTelemetry();
     process.exit(1);
   }
 }

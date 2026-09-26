@@ -71,6 +71,11 @@ export const createServerTelemetryUserContext = () => {
 
 let state: 'new' | 'ready' | 'failed' = 'new';
 let adapter: TelemetryAdapter | undefined;
+let flushable: {
+  loggerProvider?: LoggerProvider;
+  meterProvider?: MeterProvider;
+  tracerProvider?: NodeTracerProvider;
+} = {};
 const userContext = createServerTelemetryUserContext();
 
 export const runWithServerTelemetryUserContext = <T>(fn: () => T) =>
@@ -215,10 +220,12 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     // model calls visible alongside the db and http spans around them.
     registerAiSdkTelemetry();
     adapter = createOpenTelemetryAdapter(userContext);
+    flushable = { loggerProvider, meterProvider, tracerProvider };
     state = 'ready';
     return adapter;
   } catch {
     state = 'failed';
+    flushable = {};
     // The API cannot unregister a global provider. Shut down all constructed
     // exporters and never construct replacements on a later call.
     void Promise.allSettled([
@@ -229,4 +236,18 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
     process.stderr.write('{"event":"telemetry.sdk_init_failed"}\n');
     return undefined;
   }
+};
+
+/**
+ * Exporters batch, so a process that ends on its own terms -- a CLI, a
+ * one-shot job -- exits with spans still queued and they are simply lost. A
+ * long-running server never needs this: it outlives the batch interval.
+ */
+export const flushOpenTelemetryServer = async (): Promise<void> => {
+  // A failed flush must not fail the caller's run: its work is already done.
+  await Promise.allSettled([
+    flushable.tracerProvider?.forceFlush(),
+    flushable.meterProvider?.forceFlush(),
+    flushable.loggerProvider?.forceFlush(),
+  ]);
 };
