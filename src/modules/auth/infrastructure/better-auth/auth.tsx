@@ -50,15 +50,16 @@ export function createAuth(input?: Database | CreateAuthOptions) {
           : [],
       },
     },
-    ...(authConfig.fixtureSignInRateLimit
-      ? {
-          rateLimit: {
+    rateLimit: {
+      enabled: import.meta.env.PROD,
+      ...(authConfig.fixtureSignInRateLimit
+        ? {
             customRules: {
               '/sign-in/*': { window: 10, max: 1_000 },
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
     account: {
       encryptOAuthTokens: true,
     },

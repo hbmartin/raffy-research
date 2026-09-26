@@ -292,6 +292,36 @@ describe('server config accessors', () => {
   });
 
   it.each(['', '   '])(
+    'uses the Vercel IP header for a blank override: %j',
+    async (header) => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+      vi.stubEnv('VERCEL', '1');
+      vi.stubEnv('VERCEL_REGION', 'sfo1');
+      vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', header);
+      const { getBetterAuthConfig } =
+        await import('@/modules/kernel/infrastructure/config/auth');
+
+      expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
+        'x-vercel-forwarded-for'
+      );
+    }
+  );
+
+  it.each(['', '   '])(
+    'rejects a blank self-hosted IP header: %j',
+    async (header) => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+      vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', header);
+      const { getBetterAuthConfig } =
+        await import('@/modules/kernel/infrastructure/config/auth');
+
+      expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+    }
+  );
+
+  it.each(['', '   '])(
     'does not trust an empty runtime region: %j',
     async (region) => {
       vi.stubEnv('NODE_ENV', 'production');

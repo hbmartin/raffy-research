@@ -52,7 +52,9 @@ export const createErrorOnlyFetch =
     // Finish ownership here before returning to the HTTP adapter.
     if (args[0].method === 'HEAD') {
       try {
-        await responseBody?.cancel();
+        await responseBody?.cancel(
+          new DOMException('HEAD response body discarded', 'AbortError')
+        );
       } catch (error) {
         reporter.captureException(error, unhandledHttpError);
       } finally {

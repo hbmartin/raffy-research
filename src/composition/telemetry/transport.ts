@@ -218,7 +218,10 @@ const sentryEnvelopeEndpoint = (dsn: string) => {
   return `${parsed.origin}/api/${projectId}/envelope/`;
 };
 
-const forwardSentryEnvelope = async (body: ArrayBuffer) => {
+const forwardSentryEnvelope = async (
+  body: ArrayBuffer,
+  userAgent: string | null
+) => {
   const config = getTelemetryConfig();
   const endpoint = config.browserDsn
     ? sentryEnvelopeEndpoint(config.browserDsn)
@@ -237,7 +240,10 @@ const forwardSentryEnvelope = async (body: ArrayBuffer) => {
   try {
     sentryResponse = await fetch(endpoint, {
       body,
-      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      headers: {
+        'Content-Type': 'application/x-sentry-envelope',
+        'User-Agent': userAgent ?? '',
+      },
       method: 'POST',
     });
   } catch {
@@ -289,7 +295,9 @@ export const handleSentryTunnelRequest = async (request: Request) => {
   const body = await readBoundedBody(request);
   if (!body.ok) return withTelemetryVary(body.response);
 
-  return withTelemetryVary(await forwardSentryEnvelope(body.body));
+  return withTelemetryVary(
+    await forwardSentryEnvelope(body.body, request.headers.get('user-agent'))
+  );
 };
 
 const isFrontendLogRecord = (value: unknown): value is FrontendLogRecord => {

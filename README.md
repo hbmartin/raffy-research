@@ -542,23 +542,28 @@ isolated `start-hydration-compat` shim check ownership before signaling
 completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
 A composition boundary records the first React commit, including Strict Mode.
-`beforeunload` is only a tentative departure: hydration continues immediately.
-Actual root errors are recorded once (using beacon delivery while leaving), but
-recovery notices wait for trusted pointer/keyboard input, focus, visibility, or
-`pageshow`. Import failures are retained while departure is tentative and discarded
-if `pagehide` confirms it. There is no timeout: cancelled navigation can leave the
-notice deferred until the next resumption signal. A committed cache restore stays
-interactive; an uncommitted restore reloads once.
+`beforeunload` and a hidden document mark only tentative departure: hydration
+continues immediately. Actual root errors are recorded once (using beacon
+delivery while leaving). Bootstrap import failures wait for a later trusted
+pointer or keyboard interaction on the current, visible document before they
+produce telemetry or a recovery notice. Focus and visibility alone do not flush
+them. A tentative departure discards those failures on `pagehide` or return; a
+cancelled navigation can therefore require a manual reload. A committed cache
+restore stays interactive; an uncommitted restore reloads once.
 
 Sentry `11.0.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects
 trace metadata into HTML. HEAD responses cancel their unused bodies and finish
 telemetry before returning headers. OpenTelemetry remains the sole owner of tracing.
 Browser and server share an explicit privacy policy disabling automatic identity,
-cookies, HTTP headers/bodies, URL queries, model inputs/outputs, database query data,
-GraphQL and queue payloads, and frame variables. The final event filter allows only
-request method and a URL without credentials, query, or fragment, plus opaque user
+cookies, HTTP bodies, URL queries, model inputs/outputs, database query data,
+GraphQL and queue payloads, and frame variables. The `User-Agent` request header
+is collected for browser and OS attribution and forwarded through the Sentry tunnel;
+other HTTP headers are dropped. The final event filter allows request method,
+`User-Agent`, and a URL without credentials, query, or fragment, plus opaque user
 ID and role/segment. Event IDs, fingerprints, stacks, and trace correlation survive.
+Sentry's default browser breadcrumbs remain enabled and may include full URLs and
+console details; they are outside that request-field filter.
 The Sentry Vite plugin runs only with a browser DSN and upload credentials;
 middleware auto-instrumentation and plugin telemetry are disabled. Runtime
 Sentry error capture and local SSR tests work without upload credentials.

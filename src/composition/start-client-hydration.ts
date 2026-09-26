@@ -15,6 +15,7 @@ type PendingFailure = {
 };
 type Lifecycle = {
   tentativeDeparture: boolean;
+  navigationAttempted: boolean;
   departed: boolean;
   committed: boolean;
   reloadRequested: boolean;
@@ -43,6 +44,7 @@ const lifecycleFor = (document: Document): Lifecycle => {
   if (existing) return existing;
   const state: Lifecycle = {
     tentativeDeparture: false,
+    navigationAttempted: false,
     departed: false,
     committed: false,
     reloadRequested: false,
@@ -51,18 +53,28 @@ const lifecycleFor = (document: Document): Lifecycle => {
   };
   lifecycles.set(document, state);
   const view = document.defaultView;
-  const resume = () => {
+  const resume = (onInteraction = false) => {
     if (!ownsDocument(document) || state.departed || state.reloadRequested)
       return;
+    if (document.visibilityState === 'hidden') return;
+    const wasDeparting = state.tentativeDeparture;
     state.tentativeDeparture = false;
     for (const failure of state.failures.splice(0)) {
       if (!failure.isCurrent()) continue;
-      if (!failure.recorded) reportFailure(document, failure, true);
-      else showClientRecovery(document, failure.event);
+      if (failure.recorded) {
+        showClientRecovery(document, failure.event);
+      } else if (!wasDeparting && onInteraction) {
+        reportFailure(document, failure, true);
+      } else if (!wasDeparting) {
+        state.failures.push(failure);
+      }
     }
   };
   view?.addEventListener('beforeunload', () => {
-    if (ownsDocument(document)) state.tentativeDeparture = true;
+    if (ownsDocument(document)) {
+      state.tentativeDeparture = true;
+      state.navigationAttempted = true;
+    }
   });
   view?.addEventListener('pagehide', () => {
     if (!ownsDocument(document)) return;
@@ -83,12 +95,15 @@ const lifecycleFor = (document: Document): Lifecycle => {
     }
     resume();
   });
-  view?.addEventListener('focus', resume);
+  view?.addEventListener('focus', () => resume());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') resume();
+    if (document.visibilityState === 'hidden') {
+      state.tentativeDeparture = true;
+      state.navigationAttempted = true;
+    } else if (document.visibilityState === 'visible') resume();
   });
   const resumeOnInteraction = (event: Event) => {
-    if (event.isTrusted) resume();
+    if (event.isTrusted) resume(true);
   };
   view?.addEventListener('pointerdown', resumeOnInteraction, { capture: true });
   view?.addEventListener('keydown', resumeOnInteraction, { capture: true });
@@ -115,6 +130,7 @@ export const handleClientHydrationFailure = (
   const state = lifecycleFor(document);
   if (!ownsDocument(document) || !isCurrent() || state.reloadRequested) return;
   if (source === 'bootstrap' && state.departed) return;
+  if (source === 'bootstrap' && state.navigationAttempted) return;
   if (state.recordedErrors.has(error)) return;
   state.recordedErrors.add(error);
   const failure: PendingFailure = {
@@ -127,8 +143,14 @@ export const handleClientHydrationFailure = (
         : 'client.hydration_failed',
   };
   const leaving = state.tentativeDeparture || state.departed;
+  // A bootstrap import failure may have been caused by navigation. Only a
+  // later trusted interaction on the current document confirms recovery is useful.
+  if (source === 'bootstrap') {
+    state.failures.push(failure);
+    return;
+  }
   // Actual root errors are recorded immediately, even while recovery UI is quiet.
-  if (source === 'root' || !leaving) reportFailure(document, failure, !leaving);
+  reportFailure(document, failure, !leaving);
   if (leaving) state.failures.push(failure);
 };
 

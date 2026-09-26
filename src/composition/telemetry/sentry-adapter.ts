@@ -36,7 +36,11 @@ export type SentryLike = {
 };
 
 type SentryEventLike = {
-  request?: { method?: string; url?: string };
+  request?: {
+    headers?: Record<string, string>;
+    method?: string;
+    url?: string;
+  };
   user?: { id?: string | number; segment?: string; role?: string };
   contexts?: Record<string, unknown>;
   extra?: Record<string, unknown>;
@@ -56,6 +60,14 @@ const safeRequestUrl = (value: string | undefined) => {
   } catch {
     return undefined;
   }
+};
+
+const userAgentHeader = (headers: Record<string, string> | undefined) => {
+  if (!headers) return undefined;
+  const entry = Object.entries(headers).find(
+    ([name, value]) => name.toLowerCase() === 'user-agent' && value
+  );
+  return entry ? { 'User-Agent': entry[1] } : undefined;
 };
 
 const toStringTags = (tags: unknown): Record<string, string> | undefined => {
@@ -83,6 +95,7 @@ export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
       request: {
         method: event.request.method,
         url: safeRequestUrl(event.request.url),
+        headers: userAgentHeader(event.request.headers),
       },
     }),
     ...(event.user && {

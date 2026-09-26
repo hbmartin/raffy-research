@@ -19,6 +19,25 @@ const captureSsrScreenshot = async (
   });
 };
 
+const watchRecoveryAlerts = async (page: Page) => {
+  let seen = 0;
+  page.on('console', (message) => {
+    if (message.text() === '__ssr_recovery_alert__') seen++;
+  });
+  await page.evaluate(() => {
+    const report = () => {
+      if (document.getElementById('hydration-failure'))
+        console.log('__ssr_recovery_alert__');
+    };
+    new MutationObserver(report).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+    report();
+  });
+  return () => seen;
+};
+
 const waitForHttpReady = async (
   url: string,
   child: ReturnType<typeof spawn>,
@@ -144,6 +163,15 @@ test('completes login SSR and hydrates an interactive form after a hard reload',
   await guard.assertNoUnexpectedIssues();
 });
 
+test('serves HEAD through the built Nitro adapter without a response body', async ({
+  page,
+}) => {
+  const response = await page.request.head('/login', { timeout: 10_000 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-type']).toContain('text/html');
+  expect(await response.body()).toHaveLength(0);
+});
+
 test('enforces nonced production styles outside the fixture relaxation', async ({
   page,
 }, testInfo) => {
@@ -223,7 +251,7 @@ test('enforces nonced production styles outside the fixture relaxation', async (
   }
 });
 
-test('reports a failed hydration chunk and shows a reload control', async ({
+test('reports a failed hydration chunk after interaction and shows a reload control', async ({
   page,
 }) => {
   const reports: string[] = [];
@@ -239,7 +267,17 @@ test('reports a failed hydration chunk and shows a reload control', async ({
   await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, (route) =>
     route.abort('failed')
   );
+  const failedChunk = page.waitForEvent('requestfailed', {
+    predicate: (request) =>
+      /\/assets\/hydrate-client-[^/]+\.js$/.test(request.url()),
+  });
   await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
+  await failedChunk;
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
+    false
+  );
+  await page.mouse.click(8, 8);
   await expect(page.getByRole('alert')).toContainText(
     'This page could not finish loading'
   );
@@ -256,6 +294,8 @@ test('does not report a hydration chunk canceled by navigation', async ({
   page,
 }) => {
   const releaseFirstChunk = Promise.withResolvers<void>();
+  const destinationRequested = Promise.withResolvers<void>();
+  const releaseDestination = Promise.withResolvers<void>();
   const reports: string[] = [];
   const hydrationChunkPattern = /\/assets\/hydrate-client-[^/]+\.js$/;
   let hydrationRequests = 0;
@@ -274,18 +314,47 @@ test('does not report a hydration chunk canceled by navigation', async ({
     await route.abort('failed').catch(() => undefined);
   });
 
-  await page.goto('/login', { waitUntil: 'commit', timeout: 10_000 });
-  await expect.poll(() => hydrationRequests).toBe(1);
-  const navigation = page.goto('about:blank', {
-    waitUntil: 'load',
-    timeout: 10_000,
+  await page.route('**/quiet-destination', async (route) => {
+    destinationRequested.resolve();
+    await releaseDestination.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<html><body>Destination</body></html>',
+    });
   });
-  await navigation;
-  releaseFirstChunk.resolve();
-  await page.unroute(hydrationChunkPattern);
-  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
-    false
-  );
+
+  try {
+    await page.goto('/login', { waitUntil: 'commit', timeout: 10_000 });
+    await expect.poll(() => hydrationRequests).toBe(1);
+    const recoveryAlerts = await watchRecoveryAlerts(page);
+    const failedChunk = page.waitForEvent('requestfailed', {
+      predicate: (request) => hydrationChunkPattern.test(request.url()),
+    });
+    const navigation = page.goto('/quiet-destination', {
+      waitUntil: 'commit',
+      timeout: 10_000,
+    });
+    await destinationRequested.promise;
+    releaseFirstChunk.resolve();
+    await failedChunk;
+    await page.mouse.click(8, 8);
+    expect(recoveryAlerts()).toBe(0);
+    expect(
+      reports.some((body) => body.includes('client.hydration_failed'))
+    ).toBe(false);
+    releaseDestination.resolve();
+    await navigation;
+    await expect(page.getByText('Destination', { exact: true })).toBeVisible();
+    expect(recoveryAlerts()).toBe(0);
+    expect(
+      reports.some((body) => body.includes('client.hydration_failed'))
+    ).toBe(false);
+  } finally {
+    releaseFirstChunk.resolve();
+    releaseDestination.resolve();
+    await page.unroute(hydrationChunkPattern);
+  }
 });
 
 test('completes authenticated SSR and hydrates the manager after a hard reload', async ({
@@ -314,7 +383,7 @@ test('completes authenticated SSR and hydrates the manager after a hard reload',
 });
 
 for (const nodeEnv of [undefined, 'development', 'production'])
-  test(`rejects invalid production collector headers with NODE_ENV=${nodeEnv}`, async ({
+  test(`requires a production collector with NODE_ENV=${nodeEnv}`, async ({
     browserName,
   }, testInfo) => {
     test.skip(
@@ -329,8 +398,7 @@ for (const nodeEnv of [undefined, 'development', 'production'])
         NODE_ENV: nodeEnv,
         SSR_FIXTURE_MODE: 'false',
         AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
-        OTEL_EXPORTER_OTLP_TRACES_HEADERS:
-          'x-token=credential-sentinel%0Avalue',
+        OTEL_COLLECTOR_URL: undefined,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -346,8 +414,7 @@ for (const nodeEnv of [undefined, 'development', 'production'])
       const [code, signal] = await once(child, 'exit');
       expect(signal).toBeNull();
       expect(code).not.toBe(0);
-      expect(output).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS');
-      expect(output).not.toContain('credential-sentinel');
+      expect(output).toContain('OTEL_COLLECTOR_URL');
       expect(output).not.toContain('Listening on');
     } finally {
       clearTimeout(timer);
@@ -355,14 +422,82 @@ for (const nodeEnv of [undefined, 'development', 'production'])
     }
   });
 
+test('keeps production sign-in rate limiting with NODE_ENV=development', async ({
+  browserName,
+}, testInfo) => {
+  test.skip(
+    browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
+    'Server rate limiting is checked once; it does not depend on the browser.'
+  );
+  const port = '3018';
+  const origin = `http://127.0.0.1:${port}`;
+  const env = await readFixtureEnvironment();
+  const child = spawn(process.execPath, ['.output/server/index.mjs'], {
+    env: {
+      ...env,
+      AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
+      AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
+      NODE_ENV: 'development',
+      PORT: port,
+      SSR_FIXTURE_MODE: 'false',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  try {
+    await waitForHttpReady(`${origin}/login`, child, () => output);
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch(`${origin}/api/auth/sign-in/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-test-client-ip': '203.0.113.9',
+        },
+        body: JSON.stringify({
+          email: 'missing@example.test',
+          password: 'invalid-password',
+        }),
+      });
+      statuses.push(response.status);
+      await response.arrayBuffer();
+    }
+    expect(statuses).toContain(429);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      await exited;
+    }
+  }
+});
+
 for (const completion of ['no-content', 'download', 'document'] as const) {
   test(`keeps recovery quiet during a slow real navigation ending in ${completion}`, async ({
     page,
   }) => {
+    const chunkRequested = Promise.withResolvers<void>();
+    const releaseChunk = Promise.withResolvers<void>();
     const destinationRequested = Promise.withResolvers<void>();
     const releaseDestination = Promise.withResolvers<void>();
     const downloaded = Promise.withResolvers<void>();
+    const reports: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/telemetry/logs'))
+        reports.push(request.postData() ?? '');
+    });
     page.on('download', () => downloaded.resolve());
+    await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+      chunkRequested.resolve();
+      await releaseChunk.promise;
+      await route.abort('failed').catch(() => undefined);
+    });
     await page.route('**/quiet-destination', async (route) => {
       destinationRequested.resolve();
       await releaseDestination.promise;
@@ -383,11 +518,13 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
         });
     });
     try {
-      await page.goto('/login', { waitUntil: 'load' });
-      await expect(page.getByTestId('auth-login-form')).toHaveAttribute(
-        'data-hydrated',
-        'true'
-      );
+      await page.goto('/login', { waitUntil: 'commit' });
+      await chunkRequested.promise;
+      const recoveryAlerts = await watchRecoveryAlerts(page);
+      const failedChunk = page.waitForEvent('requestfailed', {
+        predicate: (request) =>
+          /\/assets\/hydrate-client-[^/]+\.js$/.test(request.url()),
+      });
       const navigation = page
         .goto('/quiet-destination', { waitUntil: 'commit' })
         .catch((error: unknown) => {
@@ -402,8 +539,14 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
             downloaded.resolve();
         });
       await destinationRequested.promise;
+      releaseChunk.resolve();
+      await failedChunk;
       // Specifically exceed the old one-second cancellation heuristic.
       await new Promise((resolve) => setTimeout(resolve, 1_200));
+      expect(recoveryAlerts()).toBe(0);
+      expect(
+        reports.some((body) => body.includes('client.hydration_failed'))
+      ).toBe(false);
       releaseDestination.resolve();
       await navigation;
       if (completion === 'download') await downloaded.promise;
@@ -411,22 +554,15 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
         await expect(
           page.getByText('Destination', { exact: true })
         ).toBeVisible();
-      else {
-        await page
-          .getByPlaceholder('Email', { exact: true })
-          .fill('resume@example.test');
-        await expect(
-          page.getByPlaceholder('Email', { exact: true })
-        ).toHaveValue('resume@example.test');
-        await expect(page.getByRole('alert')).toHaveCount(0);
-      }
+      else await expect(page.getByRole('alert')).toHaveCount(0);
     } finally {
+      releaseChunk.resolve();
       releaseDestination.resolve();
     }
   });
 }
 
-test('retains a chunk failure through a cancelled beforeunload dialog until interaction resumes', async ({
+test('discards a chunk failure after a cancelled beforeunload dialog', async ({
   page,
 }) => {
   const requested = Promise.withResolvers<void>();
@@ -443,6 +579,10 @@ test('retains a chunk failure through a cancelled beforeunload dialog until inte
   });
   await page.goto('/login', { waitUntil: 'commit' });
   await requested.promise;
+  const failedChunk = page.waitForEvent('requestfailed', {
+    predicate: (request) =>
+      /\/assets\/hydrate-client-[^/]+\.js$/.test(request.url()),
+  });
   // Unhydrated controls are intentionally inert; use trusted viewport input.
   await page.mouse.click(8, 8);
   await page.evaluate(() =>
@@ -464,18 +604,18 @@ test('retains a chunk failure through a cancelled beforeunload dialog until inte
   await dialog;
   expect(page.url()).toContain('/login');
   release.resolve();
-  // The settled import failure is retained through a cancelled departure.
+  await failedChunk;
   await expect
     .poll(() => page.evaluate(() => document.readyState))
     .toBe('complete');
-  // Unhydrated controls are intentionally inert; use trusted viewport input.
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
+    false
+  );
+  // The attempted departure makes this import failure ambiguous.
   await page.mouse.click(8, 8);
-  await expect(page.getByRole('button', { name: 'Reload page' })).toBeVisible();
-  await expect
-    .poll(
-      () =>
-        reports.filter((body) => body.includes('client.hydration_failed'))
-          .length
-    )
-    .toBe(1);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
+    false
+  );
 });

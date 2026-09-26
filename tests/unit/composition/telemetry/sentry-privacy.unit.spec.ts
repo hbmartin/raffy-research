@@ -56,6 +56,7 @@ describe('Sentry outgoing privacy boundary', () => {
           headers: {
             authorization: 'credential-sentinel',
             'x-forwarded-for': '203.0.113.99',
+            'user-agent': 'Browser/123',
           },
           cookies: { session: 'credential-sentinel' },
           query_string: { password: 'credential-sentinel' },
@@ -117,6 +118,7 @@ describe('Sentry outgoing privacy boundary', () => {
         expect(event).toMatchObject({
           event_id: '0123456789abcdef0123456789abcdef',
           request: {
+            headers: { 'User-Agent': 'Browser/123' },
             method: 'POST',
             url: 'https://app.example/api/auth/sign-in/email',
           },

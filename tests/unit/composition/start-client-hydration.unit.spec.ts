@@ -28,14 +28,20 @@ const fixture = () => {
   return { document, view };
 };
 
+const trustedInteraction = (type: 'pointerdown' | 'keydown') => {
+  const event = new Event(type);
+  Object.defineProperty(event, 'isTrusted', { value: true });
+  return event;
+};
+
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
 });
 
 describe('initial hydration coordinator', () => {
-  it('reports an active-document chunk failure', async () => {
-    const { document } = fixture();
+  it('reports an active-document chunk failure after a later interaction', async () => {
+    const { document, view } = fixture();
     const failure = new Error('chunk failed');
 
     await startClientHydration({
@@ -45,6 +51,10 @@ describe('initial hydration coordinator', () => {
       },
     });
 
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    view.dispatchEvent(new Event('focus'));
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    view.dispatchEvent(trustedInteraction('pointerdown'));
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
       failure
@@ -112,8 +122,8 @@ describe('initial hydration coordinator', () => {
     expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
   });
 
-  it('reports a genuine hydration rejection for the active document', async () => {
-    const { document } = fixture();
+  it('reports a genuine hydration rejection after interaction', async () => {
+    const { document, view } = fixture();
     const failure = new Error('hydration failed');
 
     await startClientHydration({
@@ -125,6 +135,8 @@ describe('initial hydration coordinator', () => {
       }),
     });
 
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    view.dispatchEvent(trustedInteraction('keydown'));
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
       failure
@@ -164,7 +176,7 @@ describe('initial hydration coordinator', () => {
     expect(hydrateClient).toHaveBeenCalledWith(document);
   });
 
-  it('reports a failure after a canceled beforeunload', async () => {
+  it('discards an import failure after a canceled beforeunload', async () => {
     vi.useFakeTimers();
     const { document, view } = fixture();
     const loading = Promise.withResolvers<never>();
@@ -178,8 +190,23 @@ describe('initial hydration coordinator', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
     view.dispatchEvent(new Event('focus'));
+    view.dispatchEvent(trustedInteraction('pointerdown'));
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('discards a chunk that fails after focus returns from a canceled navigation', async () => {
+    const { document, view } = fixture();
+    const loading = Promise.withResolvers<never>();
+    const hydration = startClientHydration({
+      document,
+      loadHydrationModule: () => loading.promise,
+    });
+    view.dispatchEvent(new Event('beforeunload'));
     view.dispatchEvent(new Event('focus'));
-    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+    loading.reject(new Error('canceled navigation chunk'));
+    await hydration;
+    view.dispatchEvent(trustedInteraction('pointerdown'));
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
   });
 
   it('keeps a committed document interactive after a cache restore', async () => {
@@ -235,7 +262,7 @@ it('does not flush recovery for a document replaced during tentative departure',
   expect(view.location.reload).not.toHaveBeenCalled();
 });
 
-it('ignores synthetic interaction and resumes on return to visible', async () => {
+it('discards tentative failures on return to visible without an alert', async () => {
   const { document, view } = fixture();
   const loading = Promise.withResolvers<never>();
   const hydration = startClientHydration({
@@ -249,5 +276,23 @@ it('ignores synthetic interaction and resumes on return to visible', async () =>
   expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
   Object.assign(document, { visibilityState: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
-  expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+  view.dispatchEvent(trustedInteraction('pointerdown'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+});
+
+it('suppresses an import failure after a hidden document without beforeunload', async () => {
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  Object.assign(document, { visibilityState: 'hidden' });
+  document.dispatchEvent(new Event('visibilitychange'));
+  loading.reject(new Error('navigation canceled the chunk'));
+  await hydration;
+  Object.assign(document, { visibilityState: 'visible' });
+  document.dispatchEvent(new Event('visibilitychange'));
+  view.dispatchEvent(trustedInteraction('pointerdown'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
 });

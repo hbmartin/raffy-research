@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 
 // All children inherit Playwright's process group. Never insert package runners
 // here: they can create a new group which Playwright's final signal cannot reach.
-export const createFixtureSupervisor = () => {
+export const createFixtureSupervisor = ({ failOnSignal = false } = {}) => {
   const children = new Map();
   const requested = Promise.withResolvers();
   let stopping = false;
@@ -36,8 +36,8 @@ export const createFixtureSupervisor = () => {
         clearTimeout(escalate);
         if (cleaned) {
           clearTimeout(deadline);
-          process.removeListener('SIGINT', onSignal);
-          process.removeListener('SIGTERM', onSignal);
+          process.removeListener('SIGINT', onInterrupt);
+          process.removeListener('SIGTERM', onTerminate);
         }
         // A rejected closer can leave handles open. Keep the deadline and
         // persistent signal handlers until the process has actually stopped.
@@ -45,14 +45,18 @@ export const createFixtureSupervisor = () => {
     })();
     return shutdown;
   };
-  const onSignal = () => {
+  const onSignal = (exitCode) => {
+    if (failOnSignal && process.exitCode === undefined)
+      process.exitCode = exitCode;
     void stop().catch((error) => {
       console.error(error);
       process.exitCode = 1;
     });
   };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  const onInterrupt = () => onSignal(130);
+  const onTerminate = () => onSignal(143);
+  process.on('SIGINT', onInterrupt);
+  process.on('SIGTERM', onTerminate);
   return {
     checkpoint,
     waitForStop: () => requested.promise,

@@ -9,7 +9,7 @@ import { expect, it, vi } from 'vitest';
 
 import { createErrorOnlyFetch } from '@/composition/telemetry/error-only-fetch';
 
-it('completes HEAD telemetry through the installed Nitro HTTP adapter without consuming a body', async () => {
+it('completes HEAD telemetry through srvx without consuming a body', async () => {
   const require = createRequire(
     createRequire(import.meta.url).resolve('nitro/package.json')
   );

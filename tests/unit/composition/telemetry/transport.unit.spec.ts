@@ -66,10 +66,15 @@ const sameOriginHeaders = (contentType: string) => ({
   'Sec-Fetch-Site': 'same-origin',
 });
 
-const request = (path: string, contentType: string, body: BodyInit) =>
+const request = (
+  path: string,
+  contentType: string,
+  body: BodyInit,
+  headers: Record<string, string> = {}
+) =>
   new Request(`http://localhost${path}`, {
     body,
-    headers: sameOriginHeaders(contentType),
+    headers: { ...sameOriginHeaders(contentType), ...headers },
     method: 'POST',
   });
 
@@ -374,7 +379,8 @@ describe('telemetry transport handlers', () => {
       request(
         '/api/telemetry/sentry-tunnel',
         'application/x-sentry-envelope',
-        'envelope'
+        'envelope',
+        { 'User-Agent': 'Browser/123', authorization: 'private' }
       )
     );
 
@@ -385,6 +391,10 @@ describe('telemetry transport handlers', () => {
         method: 'POST',
       })
     );
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.headers).toEqual({
+      'Content-Type': 'application/x-sentry-envelope',
+      'User-Agent': 'Browser/123',
+    });
   });
 
   it('sanitizes frontend logs, writes backend logs, emits OTel logs, and captures frontend errors', async () => {
