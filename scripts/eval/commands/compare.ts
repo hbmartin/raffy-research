@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  buildRepairPrompt,
   buildReportPrompt,
   formatPeriodDate,
   JUDGE_PROMPT_VERSION,
@@ -14,7 +15,11 @@ import {
 
 import { loadCase, usableSources as caseUsableSources } from '../case';
 import type { CliArgs } from '../cli-args';
-import { buildCompareExample, caseAsFixture } from '../fixtures';
+import {
+  buildCompareExample,
+  caseAsFixture,
+  stripRunMetadata,
+} from '../fixtures';
 import { createJudgeEvaluators } from '../judge-evaluators';
 import { log } from '../log';
 import { createPhoenixClient } from '../phoenix-client';
@@ -172,23 +177,63 @@ export async function runCompare(args: CliArgs) {
           }
         : {}),
     },
+    // Mirrors generateWeeklyReport: one attempt, then a single repair pass
+    // carrying the original prompt, the invalid output and the specific
+    // validation issues. Without it this measured first-attempt validity and
+    // reported it as though it were what production ships.
     task: async () => {
-      const result = await generateLocalText({
-        provider,
-        model,
-        prompt,
-        action: 'compare_report',
-        label: `compare-${report.id}`,
-        runId,
-        rawOutputDir: config.rawOutputDir,
-        ollamaBaseUrl: config.ollamaBaseUrl,
-        ollamaNumCtx: config.ollamaNumCtx,
-      });
-      const parsed = parseGeneratedReportJson(result.text);
-      if (parsed.type === 'generated_report_data_valid') {
-        return parsed.data as unknown as Record<string, unknown>;
+      const generate = (attemptPrompt: string, label: string) =>
+        generateLocalText({
+          provider,
+          model,
+          prompt: attemptPrompt,
+          action: 'compare_report',
+          label,
+          runId,
+          rawOutputDir: config.rawOutputDir,
+          ollamaBaseUrl: config.ollamaBaseUrl,
+          ollamaNumCtx: config.ollamaNumCtx,
+        });
+
+      const first = await generate(prompt, `compare-${report.id}`);
+      const firstParsed = parseGeneratedReportJson(first.text);
+      if (firstParsed.type === 'generated_report_data_valid') {
+        return {
+          ...(firstParsed.data as unknown as Record<string, unknown>),
+          __firstAttemptValid: true,
+          __repaired: false,
+        };
       }
-      return { rawText: result.text.slice(0, 8000), parseError: true };
+
+      const repair = await generate(
+        buildRepairPrompt({
+          originalPrompt: prompt,
+          invalidOutput: first.text,
+          issues: firstParsed.issues,
+        }),
+        `compare-${report.id}-repair`
+      );
+      const repaired = parseGeneratedReportJson(repair.text);
+      if (repaired.type === 'generated_report_data_valid') {
+        log('First attempt failed validation; repair succeeded', {
+          issues: firstParsed.issues.slice(0, 5),
+        });
+        return {
+          ...(repaired.data as unknown as Record<string, unknown>),
+          __firstAttemptValid: false,
+          __repaired: true,
+        };
+      }
+
+      log('First attempt and repair both failed validation', {
+        issues: repaired.issues.slice(0, 5),
+      });
+      return {
+        rawText: repair.text.slice(0, 8000),
+        parseError: true,
+        __firstAttemptValid: false,
+        __repaired: true,
+      };
     },
     evaluators: [
       ...REPORT_EVALUATORS.map((evaluator) =>
@@ -203,10 +248,11 @@ export async function runCompare(args: CliArgs) {
           name: judge.name,
           kind: 'LLM',
           evaluate: async ({ input, output }) => {
-            const generated = output as Record<string, unknown> | null;
-            if (!generated || generated.parseError) {
+            const raw = output as Record<string, unknown> | null;
+            if (!raw || raw.parseError) {
               return { score: null, label: 'no-report' };
             }
+            const generated = stripRunMetadata(raw);
             const inputData = input as Record<string, unknown>;
             const sourceIds = new Set(
               (Array.isArray(inputData.sources) ? inputData.sources : []).map(

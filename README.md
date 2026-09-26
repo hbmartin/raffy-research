@@ -364,37 +364,33 @@ pnpm eval:phoenix summarize --workspace <id> --case fixtures/eval/acme-2026-06-1
 pnpm eval:phoenix evaluate  --workspace <id> --case fixtures/eval/acme-2026-06-15
 ```
 
-#### `compare` is a first-attempt benchmark
+#### `compare` and the repair pass
 
-`compare` calls the model once and parses the result. Production calls
-`generateWeeklyReport`, which on a schema failure builds a repair prompt from
-the original prompt, the invalid output and the specific validation issues,
-and retries once.
+`compare` mirrors what production does: one generation, and on a schema
+failure a single repair pass carrying the original prompt, the invalid output
+and the specific validation issues. Two evaluators keep those apart:
 
-So `valid_json` here means *valid on the first attempt*, which is a fact about
-the model, not about what users receive — a model that fails the schema half
-the time but recovers on repair looks far worse in `compare` than in
-production. The other six evaluators are unaffected: they score whatever JSON
-came out.
+| Evaluator | Answers |
+|---|---|
+| `first_attempt_valid` | did the model hit the schema unaided — a fact about the model |
+| `valid_json` | did a usable report come out — what a reader receives |
 
-The two paths agree on everything else that matters. Neither uses source
-summaries: the cron calls `generateWeeklyReport` without
-`includeSourceSummaries`, so production reports are built from raw source
-excerpts, exactly as `compare` builds them.
+They only diverge when a repair runs, which is the point: a model scoring
+`0.4` first-attempt and `1.0` after repair is fine to ship and worth knowing
+about, and a single metric would have hidden that. Runs recorded before the
+repair pass existed carry no flag and score `first_attempt_valid` as unknown
+rather than inventing a value.
 
-This has not mattered yet — `qwen3:14b` has produced schema-valid JSON on
-every run — and it starts mattering with smaller or faster models.
+The two paths agree on source summaries too: the cron calls
+`generateWeeklyReport` without `includeSourceSummaries`, so production reports
+are built from raw source excerpts, exactly as `compare` builds them.
 
-<!-- TODO: make compare match the production path.
-     Two options, in increasing order of thoroughness:
-     1. Add the repair pass here, and split the metric: first_attempt_valid
-        for the model, valid_json for the pipeline. Keeps both signals, since
-        a silent retry would hide how often the model needs one.
-     2. Better: drive the real use case. Call generateWeeklyReport with a
-        non-persisting report repository, so the benchmark exercises the
-        actual pipeline -- repair, junk filtering, source_library linking --
-        and cannot drift from it again. Costs a fake repository and care that
-        nothing writes. -->
+<!-- TODO: compare still reimplements the generation pipeline rather than
+     driving it. Calling generateWeeklyReport with a non-persisting report
+     repository would exercise the real path -- repair, junk filtering,
+     source_library linking, the create-then-freeze sequence -- and could not
+     drift from production again. Costs a fake repository and care that
+     nothing writes. -->
 
 #### What `evaluate` is for
 

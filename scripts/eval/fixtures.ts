@@ -89,3 +89,18 @@ export function buildCompareExample(
  * reference, and here they are the same document, so they would report a
  * perfect score that means nothing.
  */
+
+/**
+ * Drops the bookkeeping the compare task attaches to its output.
+ *
+ * The repair-pass flags ride on the report object because Phoenix hands
+ * evaluators only input, output and expected. They are for the evaluators,
+ * not for a judge reading the report as prose.
+ */
+export function stripRunMetadata(
+  report: Record<string, unknown>
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(report).filter(([key]) => !key.startsWith('__'))
+  );
+}

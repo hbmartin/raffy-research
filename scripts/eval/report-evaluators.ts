@@ -96,13 +96,38 @@ export const REPORT_EVALUATORS: ReportEvaluator[] = [
     },
   },
   {
+    // What the pipeline delivers: production retries once on a schema
+    // failure, so this is scored after the repair pass, like the report a
+    // reader would actually receive.
     name: 'valid_json',
     evaluate: ({ output }) => {
       const data = output as Record<string, unknown> | null;
       const isValid = data !== null && !data?.parseError;
+      const repaired = data?.__repaired === true;
       return {
         score: isValid ? 1 : 0,
-        label: isValid ? 'valid' : 'invalid',
+        label: isValid
+          ? repaired
+            ? 'valid after repair'
+            : 'valid'
+          : 'invalid',
+        metadata: { repaired },
+      };
+    },
+  },
+  {
+    // What the model manages unaided. Kept apart from valid_json because a
+    // repair pass would otherwise hide how often the model needs one, and
+    // that is the number worth watching when comparing models.
+    name: 'first_attempt_valid',
+    evaluate: ({ output }) => {
+      const data = output as Record<string, unknown> | null;
+      const flag = data?.__firstAttemptValid;
+      // Runs recorded before the repair pass existed carry no flag.
+      if (typeof flag !== 'boolean') return { score: null, label: 'unknown' };
+      return {
+        score: flag ? 1 : 0,
+        label: flag ? 'valid first try' : 'needed repair',
       };
     },
   },

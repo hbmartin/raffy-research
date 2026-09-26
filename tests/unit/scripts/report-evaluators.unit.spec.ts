@@ -157,3 +157,66 @@ describe('evidence_density', () => {
     ).toMatchObject({ score: null });
   });
 });
+
+describe('validity metrics', () => {
+  const report = (extra: Record<string, unknown>) => ({
+    input: input([]),
+    output: { topic_clusters: [], ...extra },
+  });
+
+  it('separates what the model managed from what the pipeline delivered', () => {
+    const repaired = report({ __firstAttemptValid: false, __repaired: true });
+    // The pipeline delivered a valid report; the model did not manage it
+    // unaided. Collapsing these hid how often a repair was needed.
+    expect(score('valid_json', repaired)).toMatchObject({
+      score: 1,
+      label: 'valid after repair',
+    });
+    expect(score('first_attempt_valid', repaired)).toMatchObject({
+      score: 0,
+      label: 'needed repair',
+    });
+  });
+
+  it('scores both when the first attempt was already valid', () => {
+    const clean = report({ __firstAttemptValid: true, __repaired: false });
+    expect(score('valid_json', clean)).toMatchObject({
+      score: 1,
+      label: 'valid',
+    });
+    expect(score('first_attempt_valid', clean)).toMatchObject({ score: 1 });
+  });
+
+  it('scores both zero when the repair failed too', () => {
+    const failed = {
+      input: input([]),
+      output: {
+        parseError: true,
+        __firstAttemptValid: false,
+        __repaired: true,
+      },
+    };
+    expect(score('valid_json', failed)).toMatchObject({ score: 0 });
+    expect(score('first_attempt_valid', failed)).toMatchObject({ score: 0 });
+  });
+
+  it('reports no score for runs recorded before the repair pass existed', () => {
+    expect(score('first_attempt_valid', report({}))).toMatchObject({
+      score: null,
+      label: 'unknown',
+    });
+  });
+});
+
+describe('stripRunMetadata', () => {
+  it('removes the bookkeeping a judge should not read as prose', async () => {
+    const { stripRunMetadata } = await import('../../../scripts/eval/fixtures');
+    expect(
+      stripRunMetadata({
+        title: 'Weekly digest',
+        __firstAttemptValid: false,
+        __repaired: true,
+      })
+    ).toEqual({ title: 'Weekly digest' });
+  });
+});
