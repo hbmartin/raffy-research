@@ -13,7 +13,7 @@ import {
   createJudgeEvaluators,
   extractVerdict,
   normalizeScore,
-  parseFiveScale,
+  parseJudgeVerdict,
 } from '../../../scripts/eval/judge-evaluators';
 
 const source = (id: string, content = 'x'.repeat(9000)) =>
@@ -82,36 +82,53 @@ describe('judge prompts', () => {
   });
 });
 
-describe('verdict parsing', () => {
-  it('maps the 1-5 scale onto 0-1', () => {
+describe('verdict validation', () => {
+  it('maps a valid 1-5 score onto 0-1', () => {
     expect(normalizeScore(1)).toBe(0);
     expect(normalizeScore(3)).toBe(0.5);
     expect(normalizeScore(5)).toBe(1);
   });
 
-  it('clamps out-of-range scores rather than trusting the model', () => {
-    expect(normalizeScore(9)).toBe(1);
-    expect(normalizeScore(0)).toBe(0);
+  it('accepts a well-formed verdict', () => {
+    const result = parseJudgeVerdict('{"score":4,"explanation":"ok"}');
+    expect(result.ok).toBe(true);
   });
 
-  it('reports a non-numeric answer as no score rather than zero', () => {
-    // 0 is off the 1-5 scale, so coercing would put a parse failure on the
-    // chart as the worst possible verdict.
-    expect(parseFiveScale('high')).toBeNull();
-    expect(parseFiveScale('N/A')).toBeNull();
-    expect(parseFiveScale(undefined)).toBeNull();
-    expect(parseFiveScale(Number.NaN)).toBeNull();
+  it('rejects an out-of-range score rather than clamping it', () => {
+    // Clamping 9 to 5 reports a perfect score for a judge that ignored the
+    // scale -- the same conflation as defaulting a missing score to zero.
+    const result = parseJudgeVerdict('{"score":9}');
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ reason: 'invalid-verdict' });
   });
 
-  it('accepts a numeric string and clamps to the scale', () => {
-    expect(parseFiveScale('4')).toBe(4);
-    expect(parseFiveScale(9)).toBe(5);
-    expect(parseFiveScale(-2)).toBe(1);
+  it('rejects a missing score rather than defaulting it', () => {
+    expect(parseJudgeVerdict('{}')).toMatchObject({
+      ok: false,
+      reason: 'invalid-verdict',
+    });
   });
 
-  it('returns null for a score that is not a number', () => {
-    expect(normalizeScore('good')).toBeNull();
-    expect(normalizeScore(undefined)).toBeNull();
+  it('rejects a non-numeric score', () => {
+    expect(parseJudgeVerdict('{"score":"high"}')).toMatchObject({ ok: false });
+    expect(parseJudgeVerdict('{"score":true}')).toMatchObject({ ok: false });
+  });
+
+  it('rejects a fractional score, which the scale does not allow', () => {
+    expect(parseJudgeVerdict('{"score":3.5}')).toMatchObject({ ok: false });
+  });
+
+  it('rejects detail fields that are not lists of objects', () => {
+    expect(
+      parseJudgeVerdict('{"score":3,"violations":"lots of them"}')
+    ).toMatchObject({ ok: false });
+  });
+
+  it('says which field was wrong', () => {
+    expect(parseJudgeVerdict('{"score":9}')).toMatchObject({
+      ok: false,
+      issues: expect.arrayContaining([expect.stringContaining('score')]),
+    });
   });
 
   it('reads JSON wrapped in a code fence or surrounded by prose', () => {

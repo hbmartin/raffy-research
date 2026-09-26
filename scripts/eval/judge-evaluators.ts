@@ -10,6 +10,8 @@
  * deterministic evaluators remain the backbone — a judge score is a signal, not
  * a measurement.
  */
+import { z } from 'zod';
+
 import type { SourceRecord } from '@/modules/intelligence';
 import {
   buildClaimSupportPrompt,
@@ -44,30 +46,53 @@ const SCORE_MIN = 1;
 const SCORE_MAX = 5;
 
 /**
- * A judge's 1-5 answer, or null when it did not give one.
+ * What a judge must return for its answer to count as a measurement.
  *
- * Models answer "high" or "N/A" often enough to matter, and Number() turns
- * those into NaN, which JSON serialises to null further downstream -- a score
- * that silently becomes nothing. Coercing to 0 instead would be worse: 0 is
- * off the 1-5 scale and reads as the worst possible verdict, so a parse
- * failure would look like a real, terrible score. Say null and let the caller
- * decide.
+ * Anything else -- a missing score, a word where a number belongs, a 9 on a
+ * 1-5 scale, a violations field that is not a list -- means the judge did not
+ * do the task. Coercing those into numbers, whether by defaulting to zero or
+ * by clamping into range, records "the report scored badly" when what
+ * happened is "the evaluator failed", and the two are indistinguishable once
+ * they are averaged together.
  */
-export function parseFiveScale(raw: unknown): number | null {
-  const value = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(value)) return null;
-  return Math.min(SCORE_MAX, Math.max(SCORE_MIN, value));
-}
+const zJudgeVerdict = z.object({
+  score: z.number().int().min(SCORE_MIN).max(SCORE_MAX),
+  explanation: z.string().optional(),
+  violations: z.array(z.record(z.string(), z.unknown())).optional(),
+  missed_signals: z.array(z.record(z.string(), z.unknown())).optional(),
+  noisy_items: z.array(z.record(z.string(), z.unknown())).optional(),
+});
+
+export type JudgeVerdictPayload = z.infer<typeof zJudgeVerdict>;
 
 /**
  * Judges answer on a 1-5 scale, but every other evaluator on this experiment
  * reports 0-1. Normalising keeps a chart of averages meaningful; the raw score
  * survives in the label and metadata.
  */
-export function normalizeScore(raw: unknown): number | null {
-  const clamped = parseFiveScale(raw);
-  if (clamped === null) return null;
-  return (clamped - SCORE_MIN) / (SCORE_MAX - SCORE_MIN);
+export function normalizeScore(raw: number): number {
+  return (raw - SCORE_MIN) / (SCORE_MAX - SCORE_MIN);
+}
+
+/** Validates a judge's reply, or says why it is not a measurement. */
+export function parseJudgeVerdict(
+  text: string
+):
+  | { ok: true; verdict: JudgeVerdictPayload }
+  | { ok: false; reason: string; issues?: string[] } {
+  const parsed = extractVerdict(text);
+  if (!parsed) return { ok: false, reason: 'unparseable' };
+  const result = zJudgeVerdict.safeParse(parsed);
+  if (!result.success) {
+    return {
+      ok: false,
+      reason: 'invalid-verdict',
+      issues: result.error.issues.map(
+        (issue) => `${issue.path.join('.') || 'verdict'}: ${issue.message}`
+      ),
+    };
+  }
+  return { ok: true, verdict: result.data };
 }
 
 /** Models wrap JSON in prose or fences often enough to be worth tolerating. */
@@ -96,29 +121,33 @@ export function extractVerdict(text: string): Record<string, unknown> | null {
 
 function toVerdict(
   text: string,
-  detailKey: string,
+  detailKey: 'violations' | 'missed_signals' | 'noisy_items',
   extra?: Record<string, unknown>
 ): JudgeVerdict {
-  const parsed = extractVerdict(text);
-  if (!parsed) {
+  const parsed = parseJudgeVerdict(text);
+  if (!parsed.ok) {
     return {
       score: null,
-      label: 'unparseable',
-      metadata: { ...extra, rawText: text.slice(0, 2000) },
+      label: parsed.reason,
+      metadata: {
+        ...extra,
+        issues: parsed.issues,
+        rawText: text.slice(0, 2000),
+      },
     };
   }
-  const score = normalizeScore(parsed.score);
-  const details = Array.isArray(parsed[detailKey]) ? parsed[detailKey] : [];
+
+  const { verdict } = parsed;
+  const details = verdict[detailKey] ?? [];
   return {
-    score,
-    label: score === null ? 'no-score' : `${parsed.score}/5`,
-    explanation:
-      typeof parsed.explanation === 'string' ? parsed.explanation : undefined,
+    score: normalizeScore(verdict.score),
+    label: `${verdict.score}/5`,
+    explanation: verdict.explanation,
     metadata: {
       ...extra,
-      rawScore: parsed.score,
+      rawScore: verdict.score,
       [detailKey]: details,
-      [`${detailKey}Count`]: (details as unknown[]).length,
+      [`${detailKey}Count`]: details.length,
     },
   };
 }
