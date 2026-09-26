@@ -15,12 +15,9 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import { getIntelligenceRepositories } from '@/composition/intelligence';
 import {
-  buildEvalPrompt,
   buildReportPrompt,
   buildSourceSummaryPrompt,
-  type EvalExperimentPort,
   formatPeriodDate,
   JUDGE_PROMPT_VERSION,
   type LocalAiProviderName,
@@ -29,18 +26,12 @@ import {
   SOURCE_SUMMARY_PROMPT_VERSION,
 } from '@/modules/intelligence';
 import {
-  createPhoenixEvalAdapter,
   generateLocalText,
   getLocalAiConfig,
   getPhoenixConfig,
 } from '@/modules/intelligence/backend';
-import {
-  toSourceRecordId,
-  toWeeklyReportId,
-  toWorkspaceId,
-  type WorkspaceId,
-} from '@/modules/kernel';
-import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
+import { toWorkspaceId, type WorkspaceId } from '@/modules/kernel';
+import type { JsonObject } from '@/modules/kernel/domain/json';
 
 import {
   type CaseSource,
@@ -52,7 +43,7 @@ import {
   usableSources as caseUsableSources,
 } from './eval/case';
 import { exportCase } from './eval/export-case';
-import { createJudgeEvaluators, parseFiveScale } from './eval/judge-evaluators';
+import { createJudgeEvaluators } from './eval/judge-evaluators';
 import { ensureDataset } from './eval/phoenix-dataset';
 import {
   SUMMARY_EVALUATORS,
@@ -106,7 +97,7 @@ function parseArgs(argv: string[]): CliArgs {
         '  export     Write a git-storable eval case from the database',
         '  compare    Regenerate a report and score it against the case reference',
         "  summarize  Summarize a case's sources and score the result",
-        '  evaluate   Judge a published report (reads live data; case support pending)',
+        "  evaluate   Judge the case's published reference report with the LLM judges",
         '',
         'Options:',
         '  --workspace <id>   Workspace to operate on (required)',
@@ -281,14 +272,6 @@ function log(message: string, data?: Record<string, unknown>) {
   console.log(`[phoenix-eval] ${line}`);
 }
 
-function toJsonValue(value: unknown): JsonValue {
-  try {
-    return JSON.parse(JSON.stringify(value)) as JsonValue;
-  } catch {
-    return String(value);
-  }
-}
-
 function extractJsonObject(text: string): JsonObject | null {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
@@ -338,18 +321,6 @@ function caseAsFixture(evalCase: EvalCase): {
     },
     sources: evalCase.sources,
   };
-}
-
-function getEvalAdapter(): EvalExperimentPort {
-  const config = getPhoenixConfig();
-  if (!config.enabled) {
-    console.error('PHOENIX_APP_URL and PHOENIX_API_KEY must be set');
-    process.exit(1);
-  }
-  return createPhoenixEvalAdapter({
-    appUrl: config.appUrl,
-    apiKey: config.apiKey,
-  });
 }
 
 /**
@@ -556,152 +527,168 @@ async function runSummarizeCase(args: CliArgs) {
  * data. A pinned --report id keeps the baseline fixed; "latest published"
  * moves whenever a report is generated.
  */
-async function resolvePinnedReport(
-  args: CliArgs
-): Promise<FixtureReport | null> {
-  const repositories = getIntelligenceRepositories();
-  if (args.reportId) {
-    const found = await repositories.reportRepository.getById(
-      toWeeklyReportId(args.reportId)
-    );
-    if (found.isError()) throw found.getError();
-    const outcome = found.get();
-    if (outcome.type === 'report_not_found') {
-      log('Report not found', { reportId: args.reportId });
-      return null;
-    }
-    return outcome.report as unknown as FixtureReport;
-  }
-  const latest = await repositories.reportRepository.getLatestPublished(
-    args.workspaceId
-  );
-  if (latest.isError()) throw latest.getError();
-  const latestOutcome = latest.get();
-  if (latestOutcome.type === 'report_none') {
-    log('No published report found');
-    return null;
-  }
-  log('No --report given, using the latest published report', {
-    reportId: latestOutcome.report.id,
-  });
-  return latestOutcome.report as unknown as FixtureReport;
+/**
+ * The report-generation dataset holds one example: the case's inputs with the
+ * published report as the expected output.
+ *
+ * Both compare and evaluate build it, and they must build it identically --
+ * the content hash decides whether a run reuses the pinned dataset version or
+ * pushes a new one, so any difference would silently fork the history the two
+ * commands are meant to share.
+ */
+function buildCompareExample(
+  evalCase: EvalCase,
+  report: FixtureReport,
+  sources: FixtureSource[]
+) {
+  return {
+    id: exampleId(evalCase),
+    input: {
+      workspaceId: evalCase.manifest.workspaceId,
+      reportId: report.id,
+      periodStart: report.periodStart.toISOString(),
+      periodEnd: report.periodEnd.toISOString(),
+      sourceCount: sources.length,
+      sources: sources.map((s) => ({
+        id: s.id,
+        title: s.title,
+        provider: s.providerName,
+        contentText: s.contentText?.slice(0, 2000),
+      })),
+    },
+    output: (report.reportData ?? {}) as Record<string, unknown>,
+    metadata: {
+      referenceModel: (report.modelMetadata as Record<string, unknown>)
+        ?.modelName,
+    },
+  };
 }
 
-async function runEvaluate(args: CliArgs, evalAdapter: EvalExperimentPort) {
+/**
+ * Judges a case's published reference report with the same scoped judges that
+ * score a generated one.
+ *
+ * This is the other half of the question compare answers: not "is a fresh
+ * generation any good" but "was the report we actually shipped any good". It
+ * runs on the case's own dataset, so the reference's scores sit beside every
+ * generated run's and can be read against them directly.
+ *
+ * Only the judges run. The deterministic evaluators compare a report to the
+ * reference, and here they are the same document, so they would report a
+ * perfect score that means nothing.
+ */
+async function runEvaluate(args: CliArgs) {
+  if (!args.caseDir) throw new Error('--case is required');
+  const evalCase = loadCase(args.caseDir);
   const config = getLocalAiConfig();
-  const provider = (args.provider ?? config.provider) as LocalAiProviderName;
-  const model = args.model ?? config.model;
+  const provider = (args.judgeProvider ??
+    config.provider) as LocalAiProviderName;
+  const model = args.judgeModel ?? config.model;
   const runId = randomUUID();
 
-  let report: FixtureReport;
-  let sourceList: FixtureSource[];
-
-  if (args.caseDir) {
-    const evalCase = loadCase(args.caseDir);
-    ({ report, sources: sourceList } = caseAsFixture(evalCase));
-    log('Loaded eval case', {
-      dir: evalCase.dir,
-      name: evalCase.manifest.name,
-      reportId: report.id,
-      sources: sourceList.length,
+  const { report } = caseAsFixture(evalCase);
+  const sources = caseUsableSources(evalCase);
+  if (!report.reportData) {
+    log('The case pins no report data to judge', {
+      case: evalCase.manifest.name,
     });
-  } else {
-    const repositories = getIntelligenceRepositories();
-    const resolved = await resolvePinnedReport(args);
-    if (!resolved) return;
-    report = resolved;
-    const sources = await repositories.sourceRepository.listForPeriod({
-      workspaceId: args.workspaceId,
-      periodStart: report.periodStart,
-      periodEnd: report.periodEnd,
-    });
-    if (sources.isError()) throw sources.getError();
-    sourceList = sources.get() as unknown as FixtureSource[];
+    return;
   }
 
-  log('Starting report evaluation', {
+  log('Judging the case reference report', {
+    case: evalCase.manifest.name,
     reportId: report.id,
-    sources: sourceList.length,
+    sources: sources.length,
     provider,
     model,
   });
 
-  const result = await generateLocalText({
-    provider,
-    model,
-    prompt: buildEvalPrompt({
-      report: report as Parameters<typeof buildEvalPrompt>[0]['report'],
-      sources: sourceList as Parameters<typeof buildEvalPrompt>[0]['sources'],
-    }),
-    action: 'evaluate_report',
-    label: `report-eval-${report.id}`,
-    runId,
-    rawOutputDir: config.rawOutputDir,
-    ollamaBaseUrl: config.ollamaBaseUrl,
-    ollamaNumCtx: config.ollamaNumCtx,
-  });
-
-  const verdict = extractJsonObject(result.text);
-  if (!verdict) {
-    log('Could not parse evaluation verdict');
-    return;
+  const phoenixConfig = getPhoenixConfig();
+  if (!phoenixConfig.enabled) {
+    console.error('PHOENIX_APP_URL and PHOENIX_API_KEY must be set');
+    process.exit(1);
   }
 
-  log('Evaluation verdict', verdict as Record<string, unknown>);
-
-  // A judge that answered "high" or "N/A" has not scored the report. Recording
-  // that as 0 would put a parse failure on the chart as the worst possible
-  // verdict, so refuse the whole record and say why.
-  const dimensions = ['claim_support', 'coverage', 'noise'] as const;
-  const raw = (verdict.scores ?? verdict) as JsonObject;
-  const parsed = dimensions.map(
-    (name) => [name, parseFiveScale(raw[name])] as const
-  );
-  const unparseable = parsed.filter(([, value]) => value === null);
-  if (unparseable.length > 0) {
-    log('Judge returned no usable scores; not recording this evaluation', {
-      reportId: report.id,
-      dimensions: unparseable.map(([name]) => name),
-      rawScores: raw,
-    });
-    return;
-  }
-  const scores = Object.fromEntries(parsed) as Record<
-    (typeof dimensions)[number],
-    number
-  >;
-
-  const evalResult = await evalAdapter.recordReportEvaluation({
-    workspaceId: args.workspaceId,
-    reportId: toWeeklyReportId(report.id),
-    reportData: (toJsonValue(report.reportData) ?? {}) as JsonObject,
-    sources: sourceList.map((s) => ({
-      id: toSourceRecordId(s.id),
-      title: s.title,
-      provider: s.providerName,
-      contentText: s.contentText,
-    })),
-    evaluation: {
-      claim_support: scores.claim_support,
-      coverage: scores.coverage,
-      noise: scores.noise,
-      violations: Array.isArray(verdict.violations)
-        ? (verdict.violations as JsonObject[])
-        : [],
-      missed_signals: Array.isArray(verdict.missed_signals)
-        ? (verdict.missed_signals as JsonObject[])
-        : [],
-      summary: typeof verdict.summary === 'string' ? verdict.summary : '',
+  const { createClient } = await import('@arizeai/phoenix-client');
+  const { runExperiment, asEvaluator } =
+    await import('@arizeai/phoenix-client/experiments');
+  const client = createClient({
+    options: {
+      baseUrl: phoenixConfig.appUrl,
+      headers: { Authorization: `Bearer ${phoenixConfig.apiKey}` },
     },
-    modelName: result.modelName,
-    modelProvider: result.modelProvider,
   });
 
-  if (evalResult.isOk()) {
-    log('Recorded report evaluation', {
-      experimentId: evalResult.get().experimentId,
-    });
+  // The reference report is already this dataset's expected output, so the
+  // reference and the generations it is compared against share one dataset.
+  const resolved = await ensureDataset({
+    client,
+    evalCase,
+    purpose: 'reportGeneration',
+    datasetName: `report-generation-${evalCase.manifest.name}`,
+    examples: [buildCompareExample(evalCase, report, sources)],
+    description: `Report generation comparison for eval case ${evalCase.manifest.name}`,
+    reconcile: args.reconcile,
+    log,
+  });
+
+  if (args.reconcile) {
+    log('Reconcile complete', { datasetId: resolved.datasetId });
+    return;
   }
+
+  const judges = createJudgeEvaluators(async ({ prompt, label }) => {
+    const result = await generateLocalText({
+      provider,
+      model,
+      prompt,
+      action: 'judge_report',
+      label,
+      runId,
+      rawOutputDir: config.rawOutputDir,
+      ollamaBaseUrl: config.ollamaBaseUrl,
+      ollamaNumCtx: config.ollamaNumCtx,
+      temperature: 0,
+    });
+    return result.text;
+  });
+
+  const experiment = await runExperiment({
+    client,
+    dataset: resolved.versionId
+      ? { datasetId: resolved.datasetId, versionId: resolved.versionId }
+      : { datasetId: resolved.datasetId },
+    experimentName: `evaluate-reference-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
+    experimentDescription: `Judge the published report ${report.id} of case ${evalCase.manifest.name}`,
+    experimentMetadata: {
+      caseName: evalCase.manifest.name,
+      mode: 'reference',
+      reportId: report.id,
+      judgeProvider: provider,
+      judgeModel: model,
+      judgePromptVersion: JUDGE_PROMPT_VERSION,
+      datasetVersionId: resolved.versionId,
+    },
+    // The report under judgement is the case's own reference.
+    task: () => report.reportData as Record<string, unknown>,
+    evaluators: judges.map((judge) =>
+      asEvaluator({
+        name: judge.name,
+        kind: 'LLM',
+        evaluate: async ({ output }) =>
+          judge.evaluate({
+            reportJson: JSON.stringify(output, null, 1),
+            reportData: output,
+            sources: sources as unknown as Parameters<
+              typeof judge.evaluate
+            >[0]['sources'],
+          }),
+      })
+    ),
+    setGlobalTracerProvider: false,
+  });
+
+  log('Reference report judgement complete', { experimentId: experiment.id });
 }
 
 async function runCompare(args: CliArgs) {
@@ -782,27 +769,7 @@ async function runCompare(args: CliArgs) {
     },
   });
 
-  const example = {
-    id: evalCase ? exampleId(evalCase) : `workspace-${args.workspaceId}`,
-    input: {
-      workspaceId: args.workspaceId,
-      reportId: report.id,
-      periodStart: report.periodStart.toISOString(),
-      periodEnd: report.periodEnd.toISOString(),
-      sourceCount: usableSources.length,
-      sources: usableSources.map((s) => ({
-        id: s.id,
-        title: s.title,
-        provider: s.providerName,
-        contentText: s.contentText?.slice(0, 2000),
-      })),
-    },
-    output: (report.reportData ?? {}) as Record<string, unknown>,
-    metadata: {
-      referenceModel: (report.modelMetadata as Record<string, unknown>)
-        ?.modelName,
-    },
-  };
+  const example = buildCompareExample(evalCase, report, usableSources);
 
   let datasetId: string;
   let versionId: string | undefined;
@@ -1183,14 +1150,12 @@ async function main() {
     process.exit(1);
   }
 
-  const evalAdapter = getEvalAdapter();
-
   try {
     if (args.command === 'summarize') {
       await runSummarizeCase(args);
     }
     if (args.command === 'evaluate') {
-      await runEvaluate(args, evalAdapter);
+      await runEvaluate(args);
     }
     if (args.command === 'compare') {
       await runCompare(args);

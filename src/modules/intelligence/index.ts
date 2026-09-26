@@ -29,7 +29,6 @@ export {
   type GenerateWeeklyReportOutcome,
   type WeeklyReportGenerationDeps,
 } from './application/generation/generate-weekly-report';
-export type * from './application/ports/eval-experiment-repository';
 export type * from './application/ports/ingestion-repository';
 export type * from './application/ports/provider-adapter';
 export type * from './application/ports/report-generator';

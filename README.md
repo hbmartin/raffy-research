@@ -359,8 +359,39 @@ pnpm eval:phoenix export --workspace <id> --report <id> --name acme-2026-06-15 \
 Then run experiments against it. With `--case`, no database is touched at all:
 
 ```bash
-pnpm eval:phoenix compare --workspace <id> --case fixtures/eval/acme-2026-06-15
+pnpm eval:phoenix compare   --workspace <id> --case fixtures/eval/acme-2026-06-15 [--judge]
+pnpm eval:phoenix summarize --workspace <id> --case fixtures/eval/acme-2026-06-15 [--sample]
+pnpm eval:phoenix evaluate  --workspace <id> --case fixtures/eval/acme-2026-06-15
 ```
+
+#### What `evaluate` is for
+
+`compare` generates a report and scores it. `evaluate` judges the report the
+case pins — the one that was actually published — with the same three judges,
+on the same dataset. It exists for two reasons, and neither is monitoring:
+
+**It anchors the scale.** A generated report scoring `coverage 3/5` means
+nothing on its own. Knowing what the shipped report scores on the same judge
+turns that into a comparison rather than a number.
+
+**It tests the judge.** The reference is a known-good artifact: a report that
+passed review and went out. If a judge marks it unsupported or full of noise,
+that is evidence about the judge, not the report — and a judge that returns the
+same scores for the reference and for a much weaker generation is not
+discriminating at all, whatever those scores are.
+
+That second use is not hypothetical. The first run of this on the committed
+case returned `claim_support 5/5, coverage 3/5, noise 3/5` for both the
+published report and a local `qwen3:14b` generation — even though the
+deterministic evaluators put them far apart, the generation citing 4 of 101
+sources against the reference's 19. Identical scores across clearly different
+reports say the judge is anchoring rather than reading, so verdicts from that
+judge should not be trusted until a stronger model separates them.
+
+Because the reference is fixed, re-running `evaluate` on one case measures
+judge variance rather than quality — which is the cheapest way to find the
+noise floor, and the reason to run it once per case before reading any
+`--judge` result.
 
 **One case, one Phoenix dataset, for life.** `case.json` records the `datasetId` the case was first pushed under, plus a content hash of the pushed example. On each run:
 
@@ -373,7 +404,7 @@ pnpm eval:phoenix compare --workspace <id> --case fixtures/eval/acme-2026-06-15
 
 Because the id lives in git, a teammate's run and a run three months from now land on the same Phoenix dataset. Experiments pin the exact `versionId` they used, so a chart of runs compares like with like.
 
-Two guardrails: `export` is the only command that reads live data on purpose, and `--case` is refused for `generate`/`full`, because those publish a report and would move the very baseline the case exists to pin.
+One guardrail worth knowing: `export` is the only command that reads live data. Every other command requires `--case` and is refused without one, because a run against whatever the database happens to hold is not comparable with anything — including its own previous run.
 
 ---
 
