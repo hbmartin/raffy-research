@@ -9,7 +9,7 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadEnv } from 'vite';
+import { loadEnv, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import mainConfig from '../../../playwright.config';
@@ -19,6 +19,7 @@ import {
   digestBuiltOutput,
   fixtureEnvironment,
 } from '../../../scripts/ssr-fixture-env';
+import { productionBuildMarker } from '../../../scripts/vite-build-marker';
 
 const require = createRequire(import.meta.url);
 const directories: string[] = [];
@@ -49,30 +50,42 @@ afterEach(() => {
 });
 
 describe('SSR tooling guardrails', () => {
-  it('does not treat Vite serve as a production build under production NODE_ENV', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    const { default: viteConfig } = await import('../../../vite.config');
-    const config = viteConfig({
-      command: 'serve',
-      mode: 'production',
-      isPreview: false,
-      isSsrBuild: false,
-    });
-    expect(config.define?.['import.meta.env.RAFFY_PRODUCTION_BUILD']).toBe(
-      'false'
-    );
-    const { isValidatedSsrFixtureRuntime } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-    expect(() =>
-      isValidatedSsrFixtureRuntime(false, {
-        AUTH_SECRET: 'a'.repeat(32),
-        HOST: '127.0.0.1',
-        NODE_ENV: 'production',
-        SSR_FIXTURE_MODE: 'true',
-        VITE_BASE_URL: 'http://127.0.0.1:3011',
-      })
-    ).toThrow('production build');
-  });
+  it.each([
+    ['serve', 'production', 'production', false],
+    ['serve', 'development', 'development', false],
+    ['build', 'development', 'development', false],
+    ['build', 'production', 'production', true],
+    ['build', 'staging', 'production', true],
+  ] as const)(
+    'uses resolved Vite production semantics: %s/%s/%s',
+    async (command, mode, nodeEnv, expected) => {
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      const config = await resolveConfig(
+        {
+          configFile: false,
+          envDir: false,
+          mode,
+          plugins: [productionBuildMarker()],
+          environments: { ssr: {} },
+        },
+        command
+      );
+      expect(config.define?.['import.meta.env.RAFFY_PRODUCTION_BUILD']).toBe(
+        String(expected)
+      );
+      const { isValidatedSsrFixtureRuntime } =
+        await import('@/modules/kernel/infrastructure/config/auth');
+      expect(() =>
+        isValidatedSsrFixtureRuntime(false, {
+          AUTH_SECRET: 'a'.repeat(32),
+          HOST: '127.0.0.1',
+          NODE_ENV: 'production',
+          SSR_FIXTURE_MODE: 'true',
+          VITE_BASE_URL: 'http://127.0.0.1:3011',
+        })
+      ).toThrow('production build');
+    }
+  );
 
   it('only removes the dedicated SSR basename from the normal suite', () => {
     const ignores = [mainConfig.testIgnore].flat() as RegExp[];
@@ -174,7 +187,14 @@ describe('SSR tooling guardrails', () => {
     mkdirSync(join(path, '.output/server'), { recursive: true });
     mkdirSync(join(path, '.output/public'), { recursive: true });
     writeFileSync(join(path, '.output/nitro.json'), '{');
-    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+    await expect(digest()).rejects.toThrow('Malformed SSR metadata');
+    writeFileSync(
+      join(path, '.output/nitro.json'),
+      JSON.stringify({ serverEntry: 'index.mjs', publicDir: 'assets' })
+    );
+    await expect(digest()).rejects.toThrow(
+      'expected serverEntry="server/index.mjs" and publicDir="public"; observed serverEntry="index.mjs" and publicDir="assets"'
+    );
     writeFileSync(
       join(path, '.output/nitro.json'),
       '{"serverEntry":"server/index.mjs","publicDir":"public"}'
@@ -183,7 +203,7 @@ describe('SSR tooling guardrails', () => {
     writeFileSync(join(path, '.output/server/index.mjs'), 'server entry');
     await expect(digest()).resolves.toMatch(/^[a-f0-9]{64}$/);
     rmSync(join(path, '.output/public'), { recursive: true });
-    await expect(digest()).rejects.toThrow('run pnpm build:e2e:ssr first');
+    await expect(digest()).rejects.toThrow('Missing SSR public directory');
   });
 
   it('requires the Nitro entry symlink to resolve to a file', async () => {

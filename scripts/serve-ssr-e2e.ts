@@ -2,9 +2,10 @@
 import { PGlite } from '@electric-sql/pglite';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+
+import { createFixtureSupervisor } from './fixture-supervisor.mjs';
 
 import {
   readFixtureEnvironment,
@@ -35,64 +36,31 @@ const collector = createServer((request, response) => {
   );
   response.end();
 });
-let child: ChildProcess | undefined;
-let stopping = false;
-let stopped: Promise<void> | undefined;
-
-const stop = () => {
-  if (stopped) return stopped;
-  stopping = true;
-  stopped = (async () => {
-    if (child && child.exitCode === null && child.signalCode === null) {
-      const closed = once(child, 'close');
-      child.kill('SIGTERM');
-      const forceStop = setTimeout(() => child?.kill('SIGKILL'), 5_000);
-      try {
-        await closed;
-      } finally {
-        clearTimeout(forceStop);
-      }
-    }
+const supervisor = createFixtureSupervisor();
+await supervisor.run(
+  async () => {
+    await database.waitReady;
+    supervisor.checkpoint();
+    await database.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
+    supervisor.checkpoint();
+    await socket.start();
+    supervisor.checkpoint();
+    collector.listen(SSR_COLLECTOR_PORT, '127.0.0.1');
+    await once(collector, 'listening');
+    for (const script of [
+      './src/modules/kernel/infrastructure/db/migrate-cli.ts',
+      './drizzle/seed/index.ts',
+    ])
+      await supervisor.runNode(['./run-jiti', script], env);
+    await supervisor.runNode(['.output/server/index.mjs'], env);
+  },
+  async () => {
     collector.closeAllConnections();
-    collector.close();
-    await socket.stop();
-    await database.close();
-  })();
-  return stopped;
-};
-
-process.once('SIGTERM', () => {
-  void stop();
-});
-process.once('SIGINT', () => {
-  void stop();
-});
-
-try {
-  await database.waitReady;
-  await database.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
-  await socket.start();
-  collector.listen(SSR_COLLECTOR_PORT, '127.0.0.1');
-  await once(collector, 'listening');
-  for (const command of ['e2e:ssr:db:init', 'start']) {
-    if (stopping) break;
-    // Launch the built server directly so shutdown targets the process that
-    // owns database connections, rather than an intermediate package runner.
-    child =
-      command === 'start'
-        ? spawn(process.execPath, ['.output/server/index.mjs'], {
-            env,
-            stdio: 'inherit',
-          })
-        : spawn('pnpm', [command], {
-            env,
-            stdio: 'inherit',
-            shell: process.platform === 'win32',
-          });
-    const [code] = await once(child, 'exit');
-    if (code !== 0 && !stopping)
-      throw new Error(`pnpm ${command} failed with exit code ${code}`);
+    await new Promise<void>((resolve) => collector.close(() => resolve()));
+    try {
+      await socket.stop();
+    } finally {
+      await database.close();
+    }
   }
-} finally {
-  await stop();
-}
+);

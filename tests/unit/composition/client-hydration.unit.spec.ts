@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   hydrateStart: vi.fn(),
   hydrateRoot: vi.fn(),
   reportHydrationFailure: vi.fn(),
+  showClientRecovery: vi.fn(),
   reportRootFailure: vi.fn(),
 }));
 vi.mock('@tanstack/start-client-core/client', () => ({
@@ -20,6 +21,7 @@ vi.mock('react-dom/client', () => ({ hydrateRoot: mocks.hydrateRoot }));
 vi.mock('@tanstack/react-router', () => ({ RouterProvider: () => null }));
 vi.mock('@/composition/hydration-failure', () => ({
   reportHydrationFailure: mocks.reportHydrationFailure,
+  showClientRecovery: mocks.showClientRecovery,
   reportRootFailure: mocks.reportRootFailure,
 }));
 afterEach(() => {
@@ -28,7 +30,7 @@ afterEach(() => {
 });
 
 const fixture = () => {
-  const document = {} as Document;
+  const document = new EventTarget() as Document;
   const bootstrap = { h: vi.fn() };
   const view = Object.assign(new EventTarget(), {
     document,
@@ -144,7 +146,7 @@ describe('client hydration cleanup ownership', () => {
     expect(mocks.reportRootFailure).not.toHaveBeenCalled();
   });
 
-  it('suppresses an uncommitted root error after pagehide', async () => {
+  it('records an actual uncommitted root error after pagehide without recovery', async () => {
     const { document, loading, view } = fixture();
     const hydration = startClientHydration({
       document,
@@ -156,8 +158,13 @@ describe('client hydration cleanup ownership', () => {
       onUncaughtError: (error: unknown) => void;
     };
     view.dispatchEvent(new Event('pagehide'));
-    options.onUncaughtError(new Error('navigation canceled hydration'));
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    const error = new Error('root failed during departure');
+    options.onUncaughtError(error);
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
+      document,
+      error,
+      false
+    );
     expect(mocks.reportRootFailure).not.toHaveBeenCalled();
   });
 
@@ -234,4 +241,44 @@ describe('client hydration cleanup ownership', () => {
     expect(view.$_TSR.h).not.toHaveBeenCalled();
     expect(mocks.hydrateRoot).not.toHaveBeenCalled();
   });
+});
+
+it.each([false, true])(
+  'records tentative root errors once and defers only recovery (committed=%s)',
+  async (committed) => {
+    const { document, loading, view } = fixture();
+    const hydration = hydrateClient(document);
+    loading.resolve({});
+    await hydration;
+    if (committed) markInitialHydrationCommitted(document);
+    const { onUncaughtError } = mocks.hydrateRoot.mock.calls[0]![2];
+    const failure = new Error('root failed while leaving');
+    view.dispatchEvent(new Event('beforeunload'));
+    onUncaughtError(failure);
+    onUncaughtError(failure);
+    const report = committed
+      ? mocks.reportRootFailure
+      : mocks.reportHydrationFailure;
+    expect(report).toHaveBeenCalledExactlyOnceWith(document, failure, false);
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+    view.dispatchEvent(new Event('focus'));
+    view.dispatchEvent(new Event('focus'));
+    expect(report).toHaveBeenCalledOnce();
+    expect(mocks.showClientRecovery).toHaveBeenCalledExactlyOnceWith(
+      document,
+      committed ? 'client.root_uncaught' : 'client.hydration_failed'
+    );
+  }
+);
+
+it('drops queued recovery when a newer root owns the document', async () => {
+  const { document, loading, view } = fixture();
+  const hydration = hydrateClient(document);
+  loading.resolve({});
+  await hydration;
+  view.dispatchEvent(new Event('beforeunload'));
+  mocks.hydrateRoot.mock.calls[0]![2].onUncaughtError(new Error('old owner'));
+  captureStartHydrationOwner(document);
+  view.dispatchEvent(new Event('focus'));
+  expect(mocks.showClientRecovery).not.toHaveBeenCalled();
 });

@@ -67,115 +67,125 @@ const ssrFixtureMarkerEnvSchema = baseEnvSchema.extend({
   VITE_BASE_URL: z.string().optional(),
 });
 
-const betterAuthEnvSchema = baseEnvSchema
-  .extend({
-    AUTH_SECRET: z.string().trim(),
-    AUTH_SESSION_EXPIRATION_IN_SECONDS: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .prefault(2_592_000),
-    AUTH_SESSION_UPDATE_AGE_IN_SECONDS: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .prefault(86_400),
-    AUTH_ALLOWED_HOSTS: z.string().optional(),
-    AUTH_TRUSTED_ORIGINS: z.string().optional(),
-    AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
-    VERCEL: z.string().optional(),
-    SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
-    HOST: z.string().optional(),
-    NITRO_HOST: z.string().optional(),
-    VITE_BASE_URL: z.string().optional(),
-    GITHUB_CLIENT_ID: zOptionalProviderSecret(),
-    GITHUB_CLIENT_SECRET: zOptionalProviderSecret(),
-  })
-  .superRefine((env, ctx) => {
-    if (!shouldSkipEnvValidation(env)) {
-      if (env.AUTH_SECRET.length < AUTH_SECRET_MIN_LENGTH) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['AUTH_SECRET'],
-          message: `AUTH_SECRET must be at least ${AUTH_SECRET_MIN_LENGTH} characters`,
-        });
+const isVercelRuntime = (env: { VERCEL?: string; VERCEL_REGION?: string }) =>
+  env.VERCEL === '1' && Boolean(env.VERCEL_REGION?.trim());
+
+const betterAuthEnvSchema = (phase: 'runtime' | 'build' = 'runtime') =>
+  baseEnvSchema
+    .extend({
+      AUTH_SECRET: z.string().trim(),
+      AUTH_SESSION_EXPIRATION_IN_SECONDS: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .prefault(2_592_000),
+      AUTH_SESSION_UPDATE_AGE_IN_SECONDS: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .prefault(86_400),
+      AUTH_ALLOWED_HOSTS: z.string().optional(),
+      AUTH_TRUSTED_ORIGINS: z.string().optional(),
+      AUTH_TRUSTED_CLIENT_IP_HEADER: z.string().trim().optional(),
+      VERCEL: z.string().optional(),
+      VERCEL_REGION: z.string().trim().optional(),
+      SSR_FIXTURE_MODE: z.enum(['true', 'false']).optional(),
+      HOST: z.string().optional(),
+      NITRO_HOST: z.string().optional(),
+      VITE_BASE_URL: z.string().optional(),
+      GITHUB_CLIENT_ID: zOptionalProviderSecret(),
+      GITHUB_CLIENT_SECRET: zOptionalProviderSecret(),
+    })
+    .superRefine((env, ctx) => {
+      if (!shouldSkipEnvValidation(env)) {
+        if (env.AUTH_SECRET.length < AUTH_SECRET_MIN_LENGTH) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['AUTH_SECRET'],
+            message: `AUTH_SECRET must be at least ${AUTH_SECRET_MIN_LENGTH} characters`,
+          });
+        }
+
+        if (isPlaceholderAuthSecret(env.AUTH_SECRET)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['AUTH_SECRET'],
+            message: 'AUTH_SECRET must not use a placeholder value',
+          });
+        }
       }
 
-      if (isPlaceholderAuthSecret(env.AUTH_SECRET)) {
+      if (!isProdRuntimeEnvironment(env)) return;
+
+      const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
+      const isVercelDeployment =
+        phase === 'build' ? env.VERCEL === '1' : isVercelRuntime(env);
+      const fixtureIsLoopback = isFixtureLoopbackAddress(env);
+      if (fixtureMode && !fixtureIsLoopback) {
         ctx.addIssue({
           code: 'custom',
-          path: ['AUTH_SECRET'],
-          message: 'AUTH_SECRET must not use a placeholder value',
-        });
-      }
-    }
-
-    if (!isProdRuntimeEnvironment(env)) return;
-
-    const fixtureMode = env.SSR_FIXTURE_MODE === 'true';
-    // VERCEL_REGION exists only at runtime, but this schema also runs at build time.
-    const isVercelDeployment = env.VERCEL === '1';
-    const fixtureIsLoopback = isFixtureLoopbackAddress(env);
-    if (fixtureMode && !fixtureIsLoopback) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['SSR_FIXTURE_MODE'],
-        message: 'SSR fixture mode requires a loopback host and base URL',
-      });
-    }
-    if (
-      !shouldSkipEnvValidation(env) &&
-      !isVercelDeployment &&
-      !fixtureMode &&
-      !env.AUTH_TRUSTED_CLIENT_IP_HEADER
-    ) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
-        message:
-          'A proxy-owned client IP header is required for self-hosted production',
-      });
-    }
-    if (env.AUTH_TRUSTED_CLIENT_IP_HEADER) {
-      try {
-        validateHeaderName(env.AUTH_TRUSTED_CLIENT_IP_HEADER);
-      } catch {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
-          message: 'Use a valid proxy-owned client IP header',
+          path: ['SSR_FIXTURE_MODE'],
+          message: 'SSR fixture mode requires a loopback host and base URL',
         });
       }
       if (
-        env.AUTH_TRUSTED_CLIENT_IP_HEADER.toLowerCase() === 'x-forwarded-for'
+        !shouldSkipEnvValidation(env) &&
+        !isVercelDeployment &&
+        !fixtureMode &&
+        !env.AUTH_TRUSTED_CLIENT_IP_HEADER
       ) {
         ctx.addIssue({
           code: 'custom',
           path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
-          message: 'Use a dedicated proxy-owned header, not X-Forwarded-For',
+          message:
+            'A proxy-owned client IP header is required for self-hosted production',
         });
       }
-    }
+      if (env.AUTH_TRUSTED_CLIENT_IP_HEADER) {
+        try {
+          validateHeaderName(env.AUTH_TRUSTED_CLIENT_IP_HEADER);
+        } catch {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+            message: 'Use a valid proxy-owned client IP header',
+          });
+        }
+        if (
+          env.AUTH_TRUSTED_CLIENT_IP_HEADER.toLowerCase() === 'x-forwarded-for'
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['AUTH_TRUSTED_CLIENT_IP_HEADER'],
+            message: 'Use a dedicated proxy-owned header, not X-Forwarded-For',
+          });
+        }
+      }
 
-    for (const field of ['GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET'] as const) {
-      if (env[field] === 'REPLACE ME') {
-        ctx.addIssue({
-          code: 'custom',
-          path: [field],
-          message: 'Update the value "REPLACE ME" or remove the variable',
-        });
+      for (const field of [
+        'GITHUB_CLIENT_ID',
+        'GITHUB_CLIENT_SECRET',
+      ] as const) {
+        if (env[field] === 'REPLACE ME') {
+          ctx.addIssue({
+            code: 'custom',
+            path: [field],
+            message: 'Update the value "REPLACE ME" or remove the variable',
+          });
+        }
       }
-    }
-  })
-  .transform((env) => ({
-    ...env,
-    GITHUB_CLIENT_ID:
-      env.GITHUB_CLIENT_ID === 'REPLACE ME' ? undefined : env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET:
-      env.GITHUB_CLIENT_SECRET === 'REPLACE ME'
-        ? undefined
-        : env.GITHUB_CLIENT_SECRET,
-  }));
+    })
+    .transform((env) => ({
+      ...env,
+      GITHUB_CLIENT_ID:
+        env.GITHUB_CLIENT_ID === 'REPLACE ME'
+          ? undefined
+          : env.GITHUB_CLIENT_ID,
+      GITHUB_CLIENT_SECRET:
+        env.GITHUB_CLIENT_SECRET === 'REPLACE ME'
+          ? undefined
+          : env.GITHUB_CLIENT_SECRET,
+    }));
 
 export type AuthProvider = 'better-auth' | 'workos';
 
@@ -227,8 +237,8 @@ export function getBetterAuthConfig(
 ): BetterAuthConfig {
   if (!source && cachedBetterAuthConfig) return cachedBetterAuthConfig;
 
-  const env = parseEnv(betterAuthEnvSchema, source);
-  const isVercelDeployment = env.VERCEL === '1';
+  const env = parseEnv(betterAuthEnvSchema(), source);
+  const isVercelDeployment = isVercelRuntime(env);
   const trustedClientIpHeader =
     env.AUTH_TRUSTED_CLIENT_IP_HEADER ??
     (isVercelDeployment ? 'x-vercel-forwarded-for' : undefined);
@@ -265,6 +275,19 @@ export function getAuthConfig(source?: Record<string, unknown>): AuthConfig {
     );
   }
   return getBetterAuthConfig(source);
+}
+
+/** Build validation never reads or fills runtime configuration caches. */
+export function validateAuthBuildConfig(
+  source?: Record<string, unknown>
+): void {
+  const { AUTH_PROVIDER: provider } = parseEnv(authProviderEnvSchema, source);
+  if (provider !== 'better-auth') {
+    throw new ConfigurationError(
+      `AUTH_PROVIDER=${provider} is not implemented in this build.`
+    );
+  }
+  parseEnv(betterAuthEnvSchema('build'), source);
 }
 
 export function isValidatedSsrFixtureRuntime(

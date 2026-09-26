@@ -13,6 +13,7 @@ import {
   createSentryTelemetryAdapter,
   sanitizeSentryEvent,
 } from './sentry-adapter';
+import { sentryDataCollection } from './sentry-data-collection';
 
 let initialized = false;
 
@@ -47,7 +48,7 @@ export const initTelemetryClient = (_router?: unknown) => {
     // A nullish override prevents the SDK from treating a zero sampling rate as
     // tracing enabled. OpenTelemetry is the sole trace owner.
     tracesSampleRate: null,
-    sendDefaultPii: false,
+    dataCollection: sentryDataCollection,
     tunnel: envClient.VITE_SENTRY_TUNNEL_PATH,
     beforeSend: sanitizeSentryEvent,
     integrations: [],

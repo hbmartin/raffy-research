@@ -14,18 +14,21 @@ export type RedisConfig = {
 
 let cachedRedisConfig: RedisConfig | null | undefined;
 
-export function getRedisConfig(): RedisConfig | null {
-  if (cachedRedisConfig !== undefined) return cachedRedisConfig;
+export function getRedisConfig(
+  source?: Record<string, unknown>
+): RedisConfig | null {
+  if (!source && cachedRedisConfig !== undefined) return cachedRedisConfig;
 
-  const env = parseEnv(redisEnvSchema);
+  const env = parseEnv(redisEnvSchema, source);
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
-    cachedRedisConfig = null;
-    return cachedRedisConfig;
+    if (!source) cachedRedisConfig = null;
+    return null;
   }
 
-  cachedRedisConfig = {
+  const config: RedisConfig | null = {
     restUrl: env.UPSTASH_REDIS_REST_URL,
     restToken: env.UPSTASH_REDIS_REST_TOKEN,
   };
-  return cachedRedisConfig;
+  if (!source) cachedRedisConfig = config;
+  return config;
 }
