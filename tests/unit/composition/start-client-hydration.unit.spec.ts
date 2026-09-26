@@ -8,14 +8,16 @@ import {
 
 const mocks = vi.hoisted(() => ({
   reportHydrationFailure: vi.fn(),
+  showClientRecovery: vi.fn(),
 }));
 
 vi.mock('@/composition/hydration-failure', () => ({
   reportHydrationFailure: mocks.reportHydrationFailure,
+  showClientRecovery: mocks.showClientRecovery,
 }));
 
 const fixture = () => {
-  const document = {} as Document;
+  const document = new EventTarget() as Document;
   const view = new EventTarget() as EventTarget & {
     document: Document;
     location: { reload: ReturnType<typeof vi.fn> };
@@ -147,7 +149,7 @@ describe('initial hydration coordinator', () => {
     expect(view.location.reload).toHaveBeenCalledOnce();
   });
 
-  it('hydrates after a canceled beforeunload clears its tentative exit', async () => {
+  it('hydrates immediately during tentative navigation', async () => {
     vi.useFakeTimers();
     const { document, view } = fixture();
     const hydrateClient = vi.fn(async () => undefined);
@@ -157,8 +159,7 @@ describe('initial hydration coordinator', () => {
     });
     view.dispatchEvent(new Event('beforeunload'));
     await Promise.resolve();
-    expect(hydrateClient).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1_000);
+    expect(hydrateClient).toHaveBeenCalledWith(document);
     await hydration;
     expect(hydrateClient).toHaveBeenCalledWith(document);
   });
@@ -173,12 +174,15 @@ describe('initial hydration coordinator', () => {
     });
     view.dispatchEvent(new Event('beforeunload'));
     loading.reject(new Error('chunk failed'));
-    await vi.runAllTimersAsync();
     await hydration;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    view.dispatchEvent(new Event('focus'));
+    view.dispatchEvent(new Event('focus'));
     expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
   });
 
-  it('removes beforeunload after the first commit and keeps a restored page', async () => {
+  it('keeps a committed document interactive after a cache restore', async () => {
     const { document, view } = fixture();
     await startClientHydration({
       document,
@@ -197,4 +201,53 @@ describe('initial hydration coordinator', () => {
     expect(isInitialHydrationDocumentActive(document)).toBe(true);
     expect(view.location.reload).not.toHaveBeenCalled();
   });
+});
+
+it('discards tentative import failures when departure is confirmed', async () => {
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  view.dispatchEvent(new Event('beforeunload'));
+  loading.reject(new Error('cancelled request'));
+  await hydration;
+  view.dispatchEvent(new Event('pagehide'));
+  view.dispatchEvent(new Event('focus'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+});
+
+it('does not flush recovery for a document replaced during tentative departure', async () => {
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  view.dispatchEvent(new Event('beforeunload'));
+  loading.reject(new Error('old request'));
+  await hydration;
+  view.document = {} as Document;
+  view.dispatchEvent(new Event('focus'));
+  view.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  expect(view.location.reload).not.toHaveBeenCalled();
+});
+
+it('ignores synthetic interaction and resumes on return to visible', async () => {
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  view.dispatchEvent(new Event('beforeunload'));
+  loading.reject(new Error('request failed'));
+  await hydration;
+  view.dispatchEvent(new Event('pointerdown'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  Object.assign(document, { visibilityState: 'visible' });
+  document.dispatchEvent(new Event('visibilitychange'));
+  expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
 });

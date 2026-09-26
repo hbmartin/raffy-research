@@ -276,13 +276,12 @@ test('does not report a hydration chunk canceled by navigation', async ({
 
   await page.goto('/login', { waitUntil: 'commit', timeout: 10_000 });
   await expect.poll(() => hydrationRequests).toBe(1);
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   const navigation = page.goto('about:blank', {
     waitUntil: 'load',
     timeout: 10_000,
   });
-  releaseFirstChunk.resolve();
   await navigation;
+  releaseFirstChunk.resolve();
   await page.unroute(hydrationChunkPattern);
   expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
     false
@@ -314,39 +313,169 @@ test('completes authenticated SSR and hydrates the manager after a hard reload',
   await guard.assertNoUnexpectedIssues();
 });
 
-test('rejects invalid production collector headers before readiness', async ({
-  browserName,
-}, testInfo) => {
-  test.skip(
-    browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
-    'Server startup is checked once; it does not depend on the browser.'
+for (const nodeEnv of [undefined, 'development', 'production'])
+  test(`rejects invalid production collector headers with NODE_ENV=${nodeEnv}`, async ({
+    browserName,
+  }, testInfo) => {
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
+      'Server startup is checked once; it does not depend on the browser.'
+    );
+    const env = await readFixtureEnvironment();
+    const child = spawn(process.execPath, ['.output/server/index.mjs'], {
+      env: {
+        ...env,
+        PORT: '3013',
+        NODE_ENV: nodeEnv,
+        SSR_FIXTURE_MODE: 'false',
+        AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
+        OTEL_EXPORTER_OTLP_TRACES_HEADERS:
+          'x-token=credential-sentinel%0Avalue',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const timer = setTimeout(() => child.kill('SIGKILL'), 8_000);
+    try {
+      const [code, signal] = await once(child, 'exit');
+      expect(signal).toBeNull();
+      expect(code).not.toBe(0);
+      expect(output).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS');
+      expect(output).not.toContain('credential-sentinel');
+      expect(output).not.toContain('Listening on');
+    } finally {
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+    }
+  });
+
+for (const completion of ['no-content', 'download', 'document'] as const) {
+  test(`keeps recovery quiet during a slow real navigation ending in ${completion}`, async ({
+    page,
+  }) => {
+    const destinationRequested = Promise.withResolvers<void>();
+    const releaseDestination = Promise.withResolvers<void>();
+    const downloaded = Promise.withResolvers<void>();
+    page.on('download', () => downloaded.resolve());
+    await page.route('**/quiet-destination', async (route) => {
+      destinationRequested.resolve();
+      await releaseDestination.promise;
+      if (completion === 'no-content') await route.fulfill({ status: 204 });
+      else if (completion === 'download')
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Content-Disposition': 'attachment; filename="fixture.txt"',
+          },
+          body: 'fixture',
+        });
+      else
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: '<html><body>Destination</body></html>',
+        });
+    });
+    try {
+      await page.goto('/login', { waitUntil: 'load' });
+      await expect(page.getByTestId('auth-login-form')).toHaveAttribute(
+        'data-hydrated',
+        'true'
+      );
+      const navigation = page
+        .goto('/quiet-destination', { waitUntil: 'commit' })
+        .catch((error: unknown) => {
+          if (completion === 'document') throw error;
+          // WebKit reports intercepted downloads through navigation failure,
+          // without emitting the download event used by the other browsers.
+          if (
+            completion === 'download' &&
+            error instanceof Error &&
+            error.message.includes('Download is starting')
+          )
+            downloaded.resolve();
+        });
+      await destinationRequested.promise;
+      // Specifically exceed the old one-second cancellation heuristic.
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      releaseDestination.resolve();
+      await navigation;
+      if (completion === 'download') await downloaded.promise;
+      if (completion === 'document')
+        await expect(
+          page.getByText('Destination', { exact: true })
+        ).toBeVisible();
+      else {
+        await page
+          .getByPlaceholder('Email', { exact: true })
+          .fill('resume@example.test');
+        await expect(
+          page.getByPlaceholder('Email', { exact: true })
+        ).toHaveValue('resume@example.test');
+        await expect(page.getByRole('alert')).toHaveCount(0);
+      }
+    } finally {
+      releaseDestination.resolve();
+    }
+  });
+}
+
+test('retains a chunk failure through a cancelled beforeunload dialog until interaction resumes', async ({
+  page,
+}) => {
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.abort('failed').catch(() => undefined);
+  });
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.goto('/login', { waitUntil: 'commit' });
+  await requested.promise;
+  // Unhydrated controls are intentionally inert; use trusted viewport input.
+  await page.mouse.click(8, 8);
+  await page.evaluate(() =>
+    window.addEventListener(
+      'beforeunload',
+      (event) => {
+        event.preventDefault();
+        event.returnValue = '';
+      },
+      { once: true }
+    )
   );
-  const env = await readFixtureEnvironment();
-  const child = spawn(process.execPath, ['.output/server/index.mjs'], {
-    env: {
-      ...env,
-      PORT: '3013',
-      OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'x-token=credential-sentinel%0Avalue',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const dialog = page.waitForEvent('dialog').then((dialog) => dialog.dismiss());
+  // A cancelled navigation has no load event. Initiate it from the document
+  // so the test does not wait for a page.goto load that Firefox/WebKit retain.
+  await page.evaluate(() => {
+    setTimeout(() => window.location.assign('/quiet-cancelled-destination'), 0);
   });
-  let output = '';
-  child.stdout.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-  child.stderr.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-  const timer = setTimeout(() => child.kill('SIGKILL'), 8_000);
-  try {
-    const [code, signal] = await once(child, 'exit');
-    expect(signal).toBeNull();
-    expect(code).not.toBe(0);
-    expect(output).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS');
-    expect(output).not.toContain('credential-sentinel');
-    expect(output).not.toContain('Listening on');
-  } finally {
-    clearTimeout(timer);
-    child.kill('SIGKILL');
-  }
+  await dialog;
+  expect(page.url()).toContain('/login');
+  release.resolve();
+  // The settled import failure is retained through a cancelled departure.
+  await expect
+    .poll(() => page.evaluate(() => document.readyState))
+    .toBe('complete');
+  // Unhydrated controls are intentionally inert; use trusted viewport input.
+  await page.mouse.click(8, 8);
+  await expect(page.getByRole('button', { name: 'Reload page' })).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        reports.filter((body) => body.includes('client.hydration_failed'))
+          .length
+    )
+    .toBe(1);
 });

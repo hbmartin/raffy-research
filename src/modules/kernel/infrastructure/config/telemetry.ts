@@ -154,40 +154,53 @@ export const resolveCollectorHeaders = (
   signal: 'traces' | 'metrics' | 'logs'
 ) => config.resolvedHeaders[signal];
 
-export function getSentryServerConfig(): SentryServerConfig {
-  if (cachedSentryServerConfig) return cachedSentryServerConfig;
+export function getSentryServerConfig(
+  source?: Record<string, unknown>
+): SentryServerConfig {
+  if (!source && cachedSentryServerConfig) return cachedSentryServerConfig;
+  let config: SentryServerConfig;
 
   try {
-    const env = parseEnv(sentryEnvSchema);
-    cachedSentryServerConfig = {
+    const env = parseEnv(sentryEnvSchema, source);
+    config = {
       dsn: env.SENTRY_DSN ?? env.VITE_SENTRY_DSN,
       browserDsn: env.VITE_SENTRY_DSN ?? env.SENTRY_DSN,
       environment: env.SENTRY_ENVIRONMENT,
     };
   } catch (error) {
-    if (!shouldSkipEnvValidation() || !(error instanceof ConfigurationError))
+    if (
+      !shouldSkipEnvValidation(source) ||
+      !(error instanceof ConfigurationError)
+    )
       throw error;
     reportInvalidConfigFallback('sentry');
-    cachedSentryServerConfig = {};
+    config = {};
   }
 
-  return cachedSentryServerConfig;
+  if (!source) cachedSentryServerConfig = config;
+  return config;
 }
 
-export function getTelemetryConfig(): TelemetryConfig {
-  if (cachedTelemetryConfig) return cachedTelemetryConfig;
+export function getTelemetryConfig(
+  source?: Record<string, unknown>
+): TelemetryConfig {
+  if (!source && cachedTelemetryConfig) return cachedTelemetryConfig;
+  let config: TelemetryConfig;
 
-  const sentryConfig = getSentryServerConfig();
+  const sentryConfig = getSentryServerConfig(source);
 
   try {
-    cachedTelemetryConfig = buildTelemetryConfig(sentryConfig);
+    config = buildTelemetryConfig(sentryConfig, source);
   } catch (error) {
-    if (!shouldSkipEnvValidation() || !(error instanceof ConfigurationError))
+    if (
+      !shouldSkipEnvValidation(source) ||
+      !(error instanceof ConfigurationError)
+    )
       throw error;
     // An explicit validation bypass must never export with partially parsed
     // credentials. Keep the app available with telemetry disabled instead.
     reportInvalidConfigFallback('otel');
-    cachedTelemetryConfig = {
+    config = {
       ...sentryConfig,
       collectorHeaders: {},
       signalHeaders: { traces: {}, metrics: {}, logs: {} },
@@ -200,13 +213,15 @@ export function getTelemetryConfig(): TelemetryConfig {
       logMaxEvents: 50,
     };
   }
-  return cachedTelemetryConfig;
+  if (!source) cachedTelemetryConfig = config;
+  return config;
 }
 
 function buildTelemetryConfig(
-  sentryConfig: SentryServerConfig
+  sentryConfig: SentryServerConfig,
+  source?: Record<string, unknown>
 ): TelemetryConfig {
-  const env = parseEnv(telemetryEnvSchema);
+  const env = parseEnv(telemetryEnvSchema, source);
   const isProduction = isProdRuntimeEnvironment(env);
   if (
     isProduction &&

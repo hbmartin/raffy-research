@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/tanstackstart-react';
 import { getSentryServerConfig } from '@/modules/kernel/infrastructure/config/telemetry';
 
 import { sanitizeSentryEvent } from './sentry-adapter';
+import { sentryDataCollection } from './sentry-data-collection';
 
 type SentryInitOptions = Parameters<typeof Sentry.init>[0];
 
@@ -24,6 +25,7 @@ export const initSentryServer = () => {
   try {
     const options = {
       beforeSend: sanitizeSentryEvent,
+      dataCollection: sentryDataCollection,
       defaultIntegrations: Sentry.getDefaultIntegrationsWithoutPerformance(),
       dsn: config.dsn,
       environment: config.environment,

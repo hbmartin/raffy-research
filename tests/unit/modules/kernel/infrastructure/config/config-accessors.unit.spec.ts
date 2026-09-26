@@ -1,12 +1,29 @@
 import { makeTestDatabaseUrl } from '@tests/server/test-database-url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { mergeRuntimeEnv } from '@/platform/env/merge-runtime-env';
+
+const environment = vi.hoisted(() => ({
+  build: {} as Record<string, unknown>,
+}));
+vi.mock('@/platform/env/runtime-env', async () => {
+  const { mergeRuntimeEnv } = await import('@/platform/env/merge-runtime-env');
+  return {
+    readRuntimeEnv: () => mergeRuntimeEnv(process.env, environment.build),
+  };
+});
+
 describe('server config accessors', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.unstubAllEnvs();
+    environment.build = {};
     vi.stubEnv('SKIP_ENV_VALIDATION', undefined);
+    vi.stubEnv('VERCEL', undefined);
+    vi.stubEnv('VERCEL_REGION', undefined);
+    vi.stubEnv('SSR_FIXTURE_MODE', undefined);
+    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', undefined);
   });
 
   it('caches parsed database config', async () => {
@@ -256,18 +273,52 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
   });
 
-  it('selects Vercel-overwritten headers during Vercel builds without a region', async () => {
+  it('validates Vercel builds without trusting or caching their runtime IP header', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
     vi.stubEnv('VERCEL', '1');
     vi.stubEnv('VERCEL_REGION', undefined);
-    const { getBetterAuthConfig } =
+    const { getBetterAuthConfig, validateAuthBuildConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
+    expect(validateAuthBuildConfig).not.toThrow();
+    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
     expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
       'x-vercel-forwarded-for'
     );
+    vi.stubEnv('AUTH_SECRET', 'too-short');
+    expect(validateAuthBuildConfig).toThrow('AUTH_SECRET');
   });
+
+  it.each(['', '   '])(
+    'does not trust an empty runtime region: %j',
+    async (region) => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+      vi.stubEnv('VERCEL', '1');
+      vi.stubEnv('VERCEL_REGION', region);
+      const { getBetterAuthConfig } =
+        await import('@/modules/kernel/infrastructure/config/auth');
+      expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+    }
+  );
+
+  it.each([undefined, 'development'])(
+    'retains built production validation with runtime NODE_ENV=%s',
+    async (nodeEnv) => {
+      environment.build = { PROD: true, DEV: false };
+      vi.stubEnv('NODE_ENV', nodeEnv);
+      vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
+      vi.stubEnv('OTEL_COLLECTOR_URL', undefined);
+      const { getBetterAuthConfig } =
+        await import('@/modules/kernel/infrastructure/config/auth');
+      const { getTelemetryConfig } =
+        await import('@/modules/kernel/infrastructure/config/telemetry');
+      expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
+      expect(getTelemetryConfig).toThrow('OTEL_COLLECTOR_URL');
+    }
+  );
 
   it('does not infer Vercel from a region without its deployment marker', async () => {
     vi.stubEnv('NODE_ENV', 'production');
@@ -331,16 +382,17 @@ describe('server config accessors', () => {
     vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
     const { getBetterAuthConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getBetterAuthConfig({ ...process.env }).fixtureSignInRateLimit).toBe(
-      true
-    );
+    expect(
+      getBetterAuthConfig(mergeRuntimeEnv(process.env, environment.build))
+        .fixtureSignInRateLimit
+    ).toBe(true);
     vi.resetModules();
     vi.stubEnv('HOST', '0.0.0.0');
     const { getBetterAuthConfig: getPublicConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
-    expect(() => getPublicConfig({ ...process.env })).toThrow(
-      'SSR_FIXTURE_MODE'
-    );
+    expect(() =>
+      getPublicConfig(mergeRuntimeEnv(process.env, environment.build))
+    ).toThrow('SSR_FIXTURE_MODE');
   });
 
   it('validates the fixture build, runtime, loopback, and auth config', async () => {
@@ -352,13 +404,26 @@ describe('server config accessors', () => {
     const { isValidatedSsrFixtureRuntime } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
-    expect(isValidatedSsrFixtureRuntime(true, { ...process.env })).toBe(true);
+    expect(
+      isValidatedSsrFixtureRuntime(
+        true,
+        mergeRuntimeEnv(process.env, environment.build)
+      )
+    ).toBe(true);
     expect(() =>
-      isValidatedSsrFixtureRuntime(false, { ...process.env })
+      isValidatedSsrFixtureRuntime(
+        false,
+        mergeRuntimeEnv(process.env, environment.build)
+      )
     ).toThrow('production build');
   });
 
   it('rejects a runtime loopback URL when the built VITE URL differs', async () => {
+    environment.build = {
+      VITE_BASE_URL: 'https://built.example',
+      PROD: true,
+      DEV: false,
+    };
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('SSR_FIXTURE_MODE', 'true');
     vi.stubEnv('HOST', '127.0.0.1');
@@ -390,7 +455,10 @@ describe('server config accessors', () => {
       await import('@/modules/kernel/infrastructure/config/auth');
 
     expect(() =>
-      isValidatedSsrFixtureRuntime(true, { ...process.env })
+      isValidatedSsrFixtureRuntime(
+        true,
+        mergeRuntimeEnv(process.env, environment.build)
+      )
     ).toThrow('SSR fixture mode');
   });
 
@@ -404,7 +472,10 @@ describe('server config accessors', () => {
       await import('@/modules/kernel/infrastructure/config/auth');
 
     expect(() =>
-      isValidatedSsrFixtureRuntime(true, { ...process.env })
+      isValidatedSsrFixtureRuntime(
+        true,
+        mergeRuntimeEnv(process.env, environment.build)
+      )
     ).toThrow('AUTH_SECRET');
   });
 
@@ -653,5 +724,53 @@ describe('server config accessors', () => {
       '"component":"otel"'
     );
     expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret');
+  });
+  it('build preflight leaves every runtime configuration cache empty', async () => {
+    vi.resetModules();
+    environment.build = {};
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
+    const { validateServerConfig } =
+      await import('@/modules/kernel/infrastructure/config/server');
+    vi.stubEnv('SKIP_ENV_VALIDATION', 'false');
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('VERCEL_REGION', undefined);
+    vi.stubEnv('AUTH_SECRET', 'b'.repeat(32));
+    vi.stubEnv('DATABASE_URL', 'postgres://localhost/build');
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'http://127.0.0.1:43191');
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', 'http://127.0.0.1:9991');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'build-placeholder');
+    vi.stubEnv('LOGGER_LEVEL', 'warn');
+    vi.stubEnv('SENTRY_DSN', 'http://public@127.0.0.1:43191/1');
+    vi.stubEnv('VITE_SENTRY_DSN', undefined);
+    validateServerConfig('build');
+
+    vi.stubEnv('VERCEL_REGION', 'sfo1');
+    vi.stubEnv('AUTH_SECRET', 'r'.repeat(32));
+    vi.stubEnv('DATABASE_URL', 'postgres://localhost/runtime');
+    vi.stubEnv('OTEL_COLLECTOR_URL', 'http://127.0.0.1:43192');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'runtime-placeholder');
+    vi.stubEnv('LOGGER_LEVEL', 'error');
+    vi.stubEnv('SENTRY_DSN', 'http://public@127.0.0.1:43192/2');
+    const { getAuthConfig } =
+      await import('@/modules/kernel/infrastructure/config/auth');
+    const { getDatabaseConfig } =
+      await import('@/modules/kernel/infrastructure/config/database');
+    const { getLoggerConfig } =
+      await import('@/modules/kernel/infrastructure/config/logger');
+    const { getRedisConfig } =
+      await import('@/modules/kernel/infrastructure/config/redis');
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(getAuthConfig().secret).toBe('r'.repeat(32));
+    expect(getDatabaseConfig().databaseUrl).toBe(
+      'postgres://localhost/runtime'
+    );
+    expect(getLoggerConfig().level).toBe('error');
+    expect(getRedisConfig()?.restToken).toBe('runtime-placeholder');
+    expect(getTelemetryConfig()).toMatchObject({
+      collectorUrl: 'http://127.0.0.1:43192',
+      dsn: 'http://public@127.0.0.1:43192/2',
+    });
   });
 });

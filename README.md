@@ -530,8 +530,9 @@ Start's response stream owns SSR cleanup. Request middleware preserves the
 original response body; replacing it with a transformed body can dispose the
 underlying stream before serialization completes. Script nonces are supplied
 during rendering through the router and theme provider. Production CSP allows
-inline style elements with `style-src-elem 'self' 'unsafe-inline'`; scripts still
-require a nonce. Base UI's scrollbar CSS remains in the external app stylesheet.
+nonced style elements by default. Only visual tests and validated loopback SSR
+fixtures allow inline style elements; those directives contain no nonce. Scripts
+still require a nonce. Base UI's scrollbar CSS remains in the external app stylesheet.
 The browser entry disables Zod JIT
 probing so Firefox can validate forms without triggering unsafe-eval violations.
 Client hydration also retains the original document and bootstrap state while
@@ -540,10 +541,24 @@ document's state through a reused WebKit window. The core hydration API and the
 isolated `start-hydration-compat` shim check ownership before signaling
 completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
+A composition boundary records the first React commit, including Strict Mode.
+`beforeunload` is only a tentative departure: hydration continues immediately.
+Actual root errors are recorded once (using beacon delivery while leaving), but
+recovery notices wait for trusted pointer/keyboard input, focus, visibility, or
+`pageshow`. Import failures are retained while departure is tentative and discarded
+if `pagehide` confirms it. There is no timeout: cancelled navigation can leave the
+notice deferred until the next resumption signal. A committed cache restore stays
+interactive; an uncommitted restore reloads once.
 
 Sentry `11.0.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects
-trace metadata into HTML. OpenTelemetry remains the sole owner of tracing.
+trace metadata into HTML. HEAD responses cancel their unused bodies and finish
+telemetry before returning headers. OpenTelemetry remains the sole owner of tracing.
+Browser and server share an explicit privacy policy disabling automatic identity,
+cookies, HTTP headers/bodies, URL queries, model inputs/outputs, database query data,
+GraphQL and queue payloads, and frame variables. The final event filter allows only
+request method and a URL without credentials, query, or fragment, plus opaque user
+ID and role/segment. Event IDs, fingerprints, stacks, and trace correlation survive.
 The Sentry Vite plugin runs only with a browser DSN and upload credentials;
 middleware auto-instrumentation and plugin telemetry are disabled. Runtime
 Sentry error capture and local SSR tests work without upload credentials.
@@ -553,10 +568,20 @@ Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
 separately: the build has a ten-minute budget; database initialization and server
 readiness have two minutes. Both use the same generated fixture manifest under
 `.ssr-fixture/`, an explicit environment, and an empty Vite env
-directory. Developer `.env` files and application credentials are not inherited.
+directory. Nitro's separate dotenv loader is disabled for this fixture too.
+Developer `.env` files and application credentials are not inherited.
 The manifest is written after a successful build and includes a digest of the
 `.output` files; built-only tests reject a stale or overwritten build.
 The fixture reserves local ports 3011 (app), 54331 (database), and 43191 (receiver).
+Playwright starts the Node supervisors directly. They own their PGlite instances,
+sockets, and setup children, stop startup on shutdown, and await child exits before
+closing resources. Children receive SIGTERM and escalate after five seconds;
+supervisor cleanup is capped at ten seconds, within Playwright's fifteen-second
+fallback. Canonical pnpm commands remain the interactive entrypoints.
+Fixture relaxation also requires a production Vite build (`build --mode staging`
+qualifies when Vite resolves production semantics), runtime `NODE_ENV=production`,
+loopback host and built base URL, valid auth, and no validation bypass. A dev server
+or development build cannot enable it.
 
 Desktop/mobile Chromium, Firefox, and mobile WebKit checks consume complete
 login and authenticated SSR responses within ten seconds, exercise sign-in,
@@ -650,8 +675,18 @@ pnpm start    # node .output/server/index.mjs
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
 
 Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header
-when its `VERCEL=1` deployment marker is present during build or runtime. An
-explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence.
+only when `VERCEL=1` and a nonempty `VERCEL_REGION` are present at runtime.
+An explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence. Build preflight
+uses a separate internal validation phase that accepts `VERCEL=1` before a region
+exists; it neither enables runtime trust nor fills runtime configuration caches.
+There is no operator-facing build-phase environment variable.
+
+`pnpm build` applies `NODE_ENV=production` to all preparation and bundle steps;
+`pnpm start` applies it to the server. Vite owns `DEV`, `PROD`, and `VITE_*` in the
+artifact; runtime values own private configuration. Shared environment predicates
+prefer build flags and fall back to `NODE_ENV` in unbundled CLI tools. Directly
+launching a production artifact with absent or conflicting `NODE_ENV` therefore
+retains production validation and keeps the local-AI endpoint disabled.
 Self-hosted production requires `AUTH_TRUSTED_CLIENT_IP_HEADER` set to a dedicated
 header that the reverse proxy overwrites on every request; block direct access
 to the Nitro origin. `X-Forwarded-For` is not accepted as that trusted header.

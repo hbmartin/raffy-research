@@ -48,6 +48,22 @@ export const createErrorOnlyFetch =
       throw error;
     }
     const responseBody = response.body;
+    // h3 discards HEAD bodies without consuming or cancelling our stream.
+    // Finish ownership here before returning to the HTTP adapter.
+    if (args[0].method === 'HEAD') {
+      try {
+        await responseBody?.cancel();
+      } catch (error) {
+        reporter.captureException(error, unhandledHttpError);
+      } finally {
+        await flush();
+      }
+      return new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    }
     if (!responseBody || !needsStreamObservation(response)) {
       await flush();
       return response;

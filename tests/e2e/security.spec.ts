@@ -15,6 +15,8 @@ test('E2E HTML uses the intended style directives', async ({ page }) => {
   if (process.env.VITE_VISUAL_TEST === 'true') {
     expect(style).toContain("'unsafe-inline'");
     expect(styleElement).toContain("'unsafe-inline'");
+    expect(style).not.toContain("'nonce-");
+    expect(styleElement).not.toContain("'nonce-");
   } else {
     expect(style).toContain("'nonce-");
     expect(styleElement).toContain("'nonce-");
