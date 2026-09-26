@@ -383,19 +383,33 @@ coverage 3/5, noise 3/5` for both the published report and a local
 `qwen3:14b` generation, even though the deterministic evaluators put them far
 apart — the generation cited 4 of 101 sources against the reference's 19.
 
-That is worth treating as a flag rather than a verdict. It is consistent with
-the judge anchoring on the scale instead of reading the report, but it is also
-consistent with less interesting explanations: both reports may genuinely miss
-enough to deserve 3/5; `claim_support` is gameable, since a report citing four
-sources can be perfectly supported on those four; the coverage judge sees only
-400 chars per source and may not have the evidence to separate them; and one
-sample per side says nothing about variance.
+`judge-check` settled what that meant:
 
-To distinguish those, feed the judge a report you know is bad — take the
-reference, strip its evidence arrays or inject a fabricated claim, and re-run.
-If `claim_support` stays at 5/5 on a report that cannot support itself, the
-judge is not reading. If it drops, the judge works and the identical scores
-were a real result about the two reports.
+```bash
+pnpm eval:phoenix judge-check --workspace <id> --case fixtures/eval/acme-2026-06-15
+```
+
+It degrades the reference in ways a working judge must notice — every claim
+replaced with something no source supports, citations left intact so the judge
+has to read them; and every topic cluster repeated, which is padding by
+construction — then scores the original and the degraded version:
+
+| Report | `claim_support` | `noise` |
+|---|---|---|
+| Reference | 5/5 | 3/5 |
+| Claims fabricated | **5/5** | — |
+| Clusters repeated 4× | — | **3/5** |
+
+`qwen3:14b` returns the same score whatever it is shown. Its verdicts carry no
+information, so `--judge` results from it should not be read at all. The
+deterministic evaluators are unaffected.
+
+What this does not say is whether the fault is the model or the prompts: a
+1–5 scale with loose anchors, asked as a single integer over a 20k-token
+prompt, may be too coarse a question for any model. Re-running `judge-check`
+with a stronger `--judge-model` distinguishes those in one command, which is
+why it exits non-zero on failure and is worth running before trusting any
+judge.
 
 Because the reference is fixed, re-running `evaluate` on one case measures
 judge variance rather than quality — which is the cheapest way to find the

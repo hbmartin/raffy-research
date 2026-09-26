@@ -44,6 +44,7 @@ import {
 } from './eval/case';
 import { exportCase } from './eval/export-case';
 import { createJudgeEvaluators } from './eval/judge-evaluators';
+import { JUDGE_PROBES, runJudgeProbes } from './eval/judge-probes';
 import { ensureDataset } from './eval/phoenix-dataset';
 import { REPORT_EVALUATORS } from './eval/report-evaluators';
 import {
@@ -52,7 +53,7 @@ import {
   type SummaryExampleOutput,
 } from './eval/summary-evaluators';
 
-type Command = 'summarize' | 'evaluate' | 'compare' | 'export';
+type Command = 'summarize' | 'evaluate' | 'compare' | 'export' | 'judge-check';
 
 type CliArgs = {
   command: Command;
@@ -81,14 +82,9 @@ function parseArgs(argv: string[]): CliArgs {
   const args = allArgs.filter((a) => !a.endsWith('.ts'));
   const command = args[0] as Command;
   if (
-    ![
-      'summarize',
-      'generate',
-      'evaluate',
-      'compare',
-      'full',
-      'export',
-    ].includes(command)
+    !['summarize', 'evaluate', 'compare', 'export', 'judge-check'].includes(
+      command
+    )
   ) {
     console.error(
       [
@@ -98,6 +94,7 @@ function parseArgs(argv: string[]): CliArgs {
         '  export     Write a git-storable eval case from the database',
         '  compare    Regenerate a report and score it against the case reference',
         "  summarize  Summarize a case's sources and score the result",
+        '  judge-check  Check the judges notice a deliberately degraded report',
         "  evaluate   Judge the case's published reference report with the LLM judges",
         '',
         'Options:',
@@ -692,6 +689,78 @@ async function runEvaluate(args: CliArgs) {
   log('Reference report judgement complete', { experimentId: experiment.id });
 }
 
+/**
+ * Asks whether the judges can tell a good report from a bad one.
+ *
+ * Scores mean nothing until this passes: a judge returning a constant looks
+ * identical to a judge that works, and its verdicts would quietly steer
+ * prompt and model decisions. Exits non-zero when a judge fails to notice, so
+ * it can gate anything that reads judge scores.
+ */
+async function runJudgeCheck(args: CliArgs) {
+  if (!args.caseDir) throw new Error('--case is required');
+  const evalCase = loadCase(args.caseDir);
+  const config = getLocalAiConfig();
+  const provider = (args.judgeProvider ??
+    config.provider) as LocalAiProviderName;
+  const model = args.judgeModel ?? config.model;
+  const runId = randomUUID();
+
+  const reference = evalCase.report.reportData;
+  if (!reference) {
+    log('The case pins no report data to probe', {
+      case: evalCase.manifest.name,
+    });
+    return;
+  }
+
+  log('Probing the judges with degraded reports', {
+    case: evalCase.manifest.name,
+    provider,
+    model,
+    probes: JUDGE_PROBES.length,
+  });
+
+  const judges = createJudgeEvaluators(async ({ prompt, label }) => {
+    const result = await generateLocalText({
+      provider,
+      model,
+      prompt,
+      action: 'judge_check',
+      label,
+      runId,
+      rawOutputDir: config.rawOutputDir,
+      ollamaBaseUrl: config.ollamaBaseUrl,
+      ollamaNumCtx: config.ollamaNumCtx,
+      temperature: 0,
+    });
+    return result.text;
+  });
+
+  const results = await runJudgeProbes({
+    judges,
+    reference,
+    sources: caseUsableSources(evalCase),
+    log,
+  });
+
+  const blind = results.filter((r) => !r.discriminated);
+  if (blind.length === 0) {
+    log('All probes passed: the judges respond to report quality', {
+      probes: results.length,
+    });
+    return;
+  }
+
+  console.error(
+    `[phoenix-eval] ${blind.length} of ${results.length} probes failed. ` +
+      `${model} returns the same score for a good report and a deliberately ` +
+      'broken one, so its verdicts carry no information. Treat --judge ' +
+      'results from this model as unusable until a probe passes.'
+  );
+  process.exit(1);
+}
+
 async function runCompare(args: CliArgs) {
   if (args.split) {
     // One compare example is a whole report, so there is no subset to select.
@@ -958,6 +1027,9 @@ async function main() {
     }
     if (args.command === 'compare') {
       await runCompare(args);
+    }
+    if (args.command === 'judge-check') {
+      await runJudgeCheck(args);
     }
     log('Done');
     // Telemetry exporters and DB pools can keep the loop alive; every path
