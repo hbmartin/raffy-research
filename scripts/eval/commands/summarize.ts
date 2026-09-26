@@ -193,6 +193,13 @@ export async function runSummarizeCase(args: CliArgs) {
     concurrency: args.concurrency ?? 4,
     // A limit runs a subset locally without recording, for quick iteration.
     ...(args.limit ? { dryRun: args.limit } : {}),
+    // Left off deliberately. runExperiment would clear the global telemetry we
+    // just registered and install its own for the duration of the task, then
+    // restore it. That buys nothing here: the AI SDK integration resolves
+    // `trace.getTracer` at module load and OpenTelemetry's proxy tracer caches
+    // that delegate, so model calls keep reporting to our provider either way
+    // -- verified by running with it on and watching the span still arrive in
+    // the default project. Not worth swapping process globals for a no-op.
     setGlobalTracerProvider: false,
   });
 
