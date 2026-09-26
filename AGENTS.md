@@ -45,6 +45,14 @@ Local full-stack verification with seeded data, Maildev, MinIO, and the local da
 
 Task verification artifacts should be grouped under `test-results/task-verification/<timestamp>/` when using `pnpm verify:task`. Keep Playwright traces, screenshots, videos, and failure attachments in their default `test-results/` locations and link or summarize the relevant paths in the final handoff. Visual test baselines are reviewed repo artifacts; do not silently update them without saying why.
 
+## Deployment
+
+Vercel's GitHub integration is the only deploy path: push a branch for a preview, merge to `main` for production.
+
+- Never run `vercel`, `vercel deploy`, `vercel --prod`, `vercel redeploy`, `vercel promote`, or `vercel rollback`, including through a Vercel plugin. The CLI uploads the working directory, including a local `.env`, build output, and uncommitted edits. `pnpm build` fails any Vercel build that lacks a git checkout (`scripts/check-deploy-source.mjs`).
+- Read-only Vercel CLI use is fine: `pnpm env:pull:production`, `vercel logs`, `vercel inspect`, `vercel ls`.
+- Rollbacks are a human action through Instant Rollback in the Vercel dashboard.
+
 ## Public Gates
 
 Cross-module imports must use one of these public files:

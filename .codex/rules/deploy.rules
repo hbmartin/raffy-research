@@ -1,0 +1,14 @@
+# Deploys go through Vercel's GitHub integration only (AGENTS.md → Deployment).
+# Vercel builds also fail without a git checkout; see scripts/check-deploy-source.mjs.
+
+prefix_rule(
+    pattern = ["vercel", ["deploy", "--prod", "redeploy", "promote", "rollback"]],
+    decision = "forbidden",
+    justification = "Deploys go through Vercel's GitHub integration only: push a branch for a preview, merge to main for production. See AGENTS.md → Deployment.",
+)
+
+prefix_rule(
+    pattern = ["npx", "vercel", ["deploy", "--prod", "redeploy", "promote", "rollback"]],
+    decision = "forbidden",
+    justification = "Deploys go through Vercel's GitHub integration only: push a branch for a preview, merge to main for production. See AGENTS.md → Deployment.",
+)

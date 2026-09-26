@@ -649,6 +649,8 @@ pnpm start    # node .output/server/index.mjs
 
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
 
+On Vercel, deploys come only from the GitHub integration: pushing a branch builds a preview, and merging to `main` builds production. Don't deploy with `vercel` / `vercel deploy --prod`; the CLI uploads the local working directory (including `.env` and uncommitted edits), and `pnpm build` fails any Vercel build without a git checkout. Roll back with Instant Rollback in the Vercel dashboard.
+
 Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header
 when its `VERCEL=1` deployment marker is present during build or runtime. An
 explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence.

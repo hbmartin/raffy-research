@@ -3,5 +3,17 @@
   "attribution": {
     "commit": "Co-authored-by: Claude <noreply@anthropic.com>",
     "pr": "Generated with [Claude](https://claude.ai)"
+  },
+  "permissions": {
+    "deny": [
+      "Bash(vercel)",
+      "Bash(vercel deploy:*)",
+      "Bash(vercel --prod:*)",
+      "Bash(vercel redeploy:*)",
+      "Bash(vercel promote:*)",
+      "Bash(vercel rollback:*)",
+      "Bash(npx vercel deploy:*)",
+      "Bash(npx vercel --prod:*)"
+    ]
   }
 }
