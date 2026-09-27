@@ -57,8 +57,8 @@ describe('Better Auth security configuration', () => {
 
     const options = mocks.betterAuth.mock.calls[0]?.[0] as ExplicitAny;
 
-    expect(options.advanced.disableCSRFCheck).toBeUndefined();
-    expect(options.advanced.disableOriginCheck).toBeUndefined();
+    expect(options.advanced.disableCSRFCheck).toBe(false);
+    expect(options.advanced.disableOriginCheck).toBe(false);
     expect(options.advanced.ipAddress.ipAddressHeaders).toEqual([]);
     expect(options.rateLimit).toEqual({ enabled: import.meta.env.PROD });
     expect(options.account.encryptOAuthTokens).toBe(true);

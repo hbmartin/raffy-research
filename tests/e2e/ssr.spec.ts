@@ -251,9 +251,9 @@ test('enforces nonced production styles outside the fixture relaxation', async (
   }
 });
 
-test('reports a failed hydration chunk after interaction and shows a reload control', async ({
+test('reports a failed hydration chunk without interaction and shows a reload control', async ({
   page,
-}) => {
+}, testInfo) => {
   const reports: string[] = [];
   const reportStatuses: number[] = [];
   page.on('request', (request) => {
@@ -273,21 +273,13 @@ test('reports a failed hydration chunk after interaction and shows a reload cont
   });
   await page.goto('/login', { waitUntil: 'load', timeout: 10_000 });
   await failedChunk;
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
-    false
-  );
-  await page.mouse.click(8, 8);
+  await expect.poll(() => reports.length).toBeGreaterThan(0);
   await expect(page.getByRole('alert')).toContainText(
     'This page could not finish loading'
   );
   await expect(page.getByRole('button', { name: 'Reload page' })).toBeVisible();
-  await expect
-    .poll(() =>
-      reports.some((body) => body.includes('client.hydration_failed'))
-    )
-    .toBe(true);
   await expect.poll(() => reportStatuses).toContain(202);
+  await captureSsrScreenshot(page, testInfo, 'hydration-recovery.png');
 });
 
 test('does not report a hydration chunk canceled by navigation', async ({
@@ -340,16 +332,12 @@ test('does not report a hydration chunk canceled by navigation', async ({
     await failedChunk;
     await page.mouse.click(8, 8);
     expect(recoveryAlerts()).toBe(0);
-    expect(
-      reports.some((body) => body.includes('client.hydration_failed'))
-    ).toBe(false);
+    expect(reports).toHaveLength(0);
     releaseDestination.resolve();
     await navigation;
     await expect(page.getByText('Destination', { exact: true })).toBeVisible();
     expect(recoveryAlerts()).toBe(0);
-    expect(
-      reports.some((body) => body.includes('client.hydration_failed'))
-    ).toBe(false);
+    expect(reports).toHaveLength(0);
   } finally {
     releaseFirstChunk.resolve();
     releaseDestination.resolve();
@@ -422,6 +410,45 @@ for (const nodeEnv of [undefined, 'development', 'production'])
     }
   });
 
+test('does not print collector credentials when startup rejects invalid headers', async ({
+  browserName,
+}, testInfo) => {
+  test.skip(
+    browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
+    'Startup output is checked once.'
+  );
+  const env = await readFixtureEnvironment();
+  const child = spawn(process.execPath, ['.output/server/index.mjs'], {
+    env: {
+      ...env,
+      PORT: '3014',
+      NODE_ENV: 'production',
+      SSR_FIXTURE_MODE: 'false',
+      OTEL_EXPORTER_OTLP_TRACES_HEADERS: 'x-token=credential-sentinel%0Avalue',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    output += chunk.toString();
+  });
+  const timer = setTimeout(() => child.kill('SIGKILL'), 8_000);
+  try {
+    const [code, signal] = await once(child, 'exit');
+    expect(signal).toBeNull();
+    expect(code).not.toBe(0);
+    expect(output).toContain('OTEL_EXPORTER_OTLP_TRACES_HEADERS');
+    expect(output).not.toContain('credential-sentinel');
+    expect(output).not.toContain('Listening on');
+  } finally {
+    clearTimeout(timer);
+    child.kill('SIGKILL');
+  }
+});
+
 test('keeps production sign-in rate limiting with NODE_ENV=development', async ({
   browserName,
 }, testInfo) => {
@@ -478,8 +505,87 @@ test('keeps production sign-in rate limiting with NODE_ENV=development', async (
   }
 });
 
+for (const [label, nodeEnv, testValue, port] of [
+  ['NODE_ENV=test', 'test', undefined, '3019'],
+  ['TEST=0', 'production', '0', '3020'],
+] as const) {
+  test(`keeps Better Auth origin and CSRF checks with ${label}`, async ({
+    browserName,
+  }, testInfo) => {
+    test.skip(
+      browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
+      'The runtime auth boundary is checked once per environment.'
+    );
+    const origin = `http://127.0.0.1:${port}`;
+    const env = await readFixtureEnvironment();
+    const child = spawn(process.execPath, ['.output/server/index.mjs'], {
+      env: {
+        ...env,
+        AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
+        AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
+        NODE_ENV: nodeEnv,
+        TEST: testValue,
+        PORT: port,
+        SSR_FIXTURE_MODE: 'false',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const signIn = (headers: Record<string, string>, callbackURL?: string) =>
+      fetch(`${origin}/api/auth/sign-in/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          ...headers,
+        },
+        body: new URLSearchParams({
+          email: 'missing@example.test',
+          password: 'invalid-password',
+          ...(callbackURL ? { callbackURL } : {}),
+        }),
+      });
+    try {
+      await waitForHttpReady(`${origin}/login`, child, () => output);
+      const crossSite = await signIn({
+        Origin: 'https://evil.example',
+        'Sec-Fetch-Site': 'cross-site',
+        'Sec-Fetch-Mode': 'navigate',
+      });
+      expect(crossSite.status).toBe(403);
+      await crossSite.arrayBuffer();
+      const forgedCookie = await signIn({
+        Cookie: 'probe=1',
+        Origin: 'https://evil.example',
+      });
+      expect(forgedCookie.status).toBe(403);
+      await forgedCookie.arrayBuffer();
+      const untrustedRedirect = await signIn(
+        { Origin: origin },
+        'https://evil.example/after-login'
+      );
+      expect(untrustedRedirect.status).toBe(403);
+      await untrustedRedirect.arrayBuffer();
+      const sameOrigin = await signIn({ Origin: origin });
+      expect(sameOrigin.status).not.toBe(403);
+      await sameOrigin.arrayBuffer();
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit');
+        child.kill('SIGTERM');
+        await exited;
+      }
+    }
+  });
+}
+
 for (const completion of ['no-content', 'download', 'document'] as const) {
-  test(`keeps recovery quiet during a slow real navigation ending in ${completion}`, async ({
+  test(`handles a failed chunk during a slow navigation ending in ${completion}`, async ({
     page,
   }) => {
     const chunkRequested = Promise.withResolvers<void>();
@@ -544,17 +650,23 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
       // Specifically exceed the old one-second cancellation heuristic.
       await new Promise((resolve) => setTimeout(resolve, 1_200));
       expect(recoveryAlerts()).toBe(0);
-      expect(
-        reports.some((body) => body.includes('client.hydration_failed'))
-      ).toBe(false);
+      expect(reports).toHaveLength(0);
       releaseDestination.resolve();
       await navigation;
       if (completion === 'download') await downloaded.promise;
-      if (completion === 'document')
+      if (completion === 'document') {
         await expect(
           page.getByText('Destination', { exact: true })
         ).toBeVisible();
-      else await expect(page.getByRole('alert')).toHaveCount(0);
+        expect(recoveryAlerts()).toBe(0);
+        expect(reports).toHaveLength(0);
+      } else {
+        await page.mouse.click(8, 8);
+        await expect(page.getByRole('alert')).toContainText(
+          'This page could not finish loading'
+        );
+        await expect.poll(() => reports.length).toBeGreaterThan(0);
+      }
     } finally {
       releaseChunk.resolve();
       releaseDestination.resolve();
@@ -562,8 +674,9 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
   });
 }
 
-test('discards a chunk failure after a cancelled beforeunload dialog', async ({
+test('reports a chunk failure after a cancelled navigation without swallowing its click', async ({
   page,
+  browserName,
 }) => {
   const requested = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -579,6 +692,21 @@ test('discards a chunk failure after a cancelled beforeunload dialog', async ({
   });
   await page.goto('/login', { waitUntil: 'commit' });
   await requested.promise;
+  await page.locator('body').waitFor({ state: 'attached' });
+  await page.evaluate((placeBelowNotice) => {
+    const probe = document.createElement('button');
+    probe.id = 'hydration-click-probe';
+    probe.textContent = 'Activation probe';
+    probe.style.cssText = placeBelowNotice
+      ? 'position:fixed;bottom:20px;right:20px;z-index:1;padding:12px'
+      : 'position:fixed;top:20px;right:20px;z-index:1;padding:12px';
+    probe.addEventListener('click', () => {
+      document.body.dataset.probeClicks = String(
+        Number(document.body.dataset.probeClicks ?? '0') + 1
+      );
+    });
+    document.body.append(probe);
+  }, browserName === 'webkit');
   const failedChunk = page.waitForEvent('requestfailed', {
     predicate: (request) =>
       /\/assets\/hydrate-client-[^/]+\.js$/.test(request.url()),
@@ -603,19 +731,68 @@ test('discards a chunk failure after a cancelled beforeunload dialog', async ({
   });
   await dialog;
   expect(page.url()).toContain('/login');
+  // Reassert tentative departure after the dialog closes; Safari may still
+  // emit a later focus event and recover before the next click.
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
   release.resolve();
   await failedChunk;
   await expect
     .poll(() => page.evaluate(() => document.readyState))
     .toBe('complete');
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
-    false
+  if (browserName !== 'webkit') {
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(reports).toHaveLength(0);
+  }
+  await page.getByRole('button', { name: 'Activation probe' }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-probe-clicks', '1');
+  await expect(page.getByRole('alert')).toContainText(
+    'This page could not finish loading'
   );
-  // The attempted departure makes this import failure ambiguous.
-  await page.mouse.click(8, 8);
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  expect(reports.some((body) => body.includes('client.hydration_failed'))).toBe(
-    false
-  );
+  await expect.poll(() => reports.length).toBeGreaterThan(0);
+});
+
+test('keeps the original page interactive after a cancelled navigation when its chunk loads', async ({
+  page,
+}) => {
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await page.goto('/login', { waitUntil: 'commit' });
+    await requested.promise;
+    await page.evaluate(() =>
+      window.addEventListener(
+        'beforeunload',
+        (event) => {
+          event.preventDefault();
+          event.returnValue = '';
+        },
+        { once: true }
+      )
+    );
+    const dialog = page.waitForEvent('dialog').then((item) => item.dismiss());
+    await page.evaluate(() => {
+      setTimeout(
+        () => window.location.assign('/quiet-cancelled-destination'),
+        0
+      );
+    });
+    await dialog;
+    release.resolve();
+    await expect(page.getByTestId('auth-login-form')).toHaveAttribute(
+      'data-hydrated',
+      'true'
+    );
+    await page.getByPlaceholder('Email', { exact: true }).fill(ADMIN_EMAIL);
+    await expect(page.getByPlaceholder('Email', { exact: true })).toHaveValue(
+      ADMIN_EMAIL
+    );
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  } finally {
+    release.resolve();
+  }
 });

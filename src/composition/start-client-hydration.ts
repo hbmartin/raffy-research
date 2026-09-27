@@ -12,29 +12,28 @@ type PendingFailure = {
   isCurrent: () => boolean;
   event: 'client.hydration_failed' | 'client.root_uncaught';
   recorded: boolean;
+  noticeScheduled: boolean;
 };
 type Lifecycle = {
   tentativeDeparture: boolean;
-  navigationAttempted: boolean;
   departed: boolean;
   committed: boolean;
   reloadRequested: boolean;
   failures: PendingFailure[];
   recordedErrors: Set<unknown>;
+  resume: () => void;
 };
 const lifecycles = new WeakMap<Document, Lifecycle>();
 const coordinators = new WeakMap<Document, object>();
+// WebKit can withhold beforeunload until a slow document response commits.
+// Give that navigation time to reach pagehide before classifying an import error.
+const IMPORT_FAILURE_SETTLE_MS = 2_000;
 const ownsDocument = (document: Document) =>
   document.defaultView?.document === document;
 
-const reportFailure = (
-  document: Document,
-  failure: PendingFailure,
-  showRecovery: boolean
-) => {
+const reportFailure = (document: Document, failure: PendingFailure) => {
   if (failure.event === 'client.root_uncaught')
-    reportRootFailure(document, failure.error, showRecovery);
-  else if (showRecovery) reportHydrationFailure(document, failure.error);
+    reportRootFailure(document, failure.error, false);
   else reportHydrationFailure(document, failure.error, false);
   failure.recorded = true;
 };
@@ -44,44 +43,55 @@ const lifecycleFor = (document: Document): Lifecycle => {
   if (existing) return existing;
   const state: Lifecycle = {
     tentativeDeparture: false,
-    navigationAttempted: false,
     departed: false,
     committed: false,
     reloadRequested: false,
     failures: [],
     recordedErrors: new Set(),
+    resume: () => {},
   };
   lifecycles.set(document, state);
   const view = document.defaultView;
-  const resume = (onInteraction = false) => {
+  const scheduleRecovery = (failure: PendingFailure) => {
+    if (failure.noticeScheduled) return;
+    failure.noticeScheduled = true;
+    setTimeout(() => {
+      failure.noticeScheduled = false;
+      if (
+        !ownsDocument(document) ||
+        !failure.isCurrent() ||
+        state.departed ||
+        state.reloadRequested ||
+        state.tentativeDeparture ||
+        document.visibilityState === 'hidden'
+      )
+        return;
+      showClientRecovery(document, failure.event);
+      state.failures = state.failures.filter((pending) => pending !== failure);
+    }, 0);
+  };
+  const resume = () => {
     if (!ownsDocument(document) || state.departed || state.reloadRequested)
       return;
     if (document.visibilityState === 'hidden') return;
-    const wasDeparting = state.tentativeDeparture;
     state.tentativeDeparture = false;
-    for (const failure of state.failures.splice(0)) {
-      if (!failure.isCurrent()) continue;
-      if (failure.recorded) {
-        showClientRecovery(document, failure.event);
-      } else if (!wasDeparting && onInteraction) {
-        reportFailure(document, failure, true);
-      } else if (!wasDeparting) {
-        state.failures.push(failure);
-      }
+    state.failures = state.failures.filter((failure) => failure.isCurrent());
+    for (const failure of state.failures) {
+      if (!failure.recorded) reportFailure(document, failure);
+      scheduleRecovery(failure);
     }
   };
+  state.resume = resume;
   view?.addEventListener('beforeunload', () => {
     if (ownsDocument(document)) {
       state.tentativeDeparture = true;
-      state.navigationAttempted = true;
     }
   });
   view?.addEventListener('pagehide', () => {
     if (!ownsDocument(document)) return;
     state.departed = true;
     state.tentativeDeparture = false;
-    // Only actual React errors survive a cache restore. Import failures during
-    // navigation are indistinguishable from the browser cancelling a request.
+    // An import canceled by a completed navigation is not an application error.
     state.failures = state.failures.filter((failure) => failure.recorded);
   });
   view?.addEventListener('pageshow', (event) => {
@@ -93,20 +103,32 @@ const lifecycleFor = (document: Document): Lifecycle => {
         view.location.reload();
       }
     }
-    resume();
+    if (event.persisted || state.tentativeDeparture) resume();
   });
-  view?.addEventListener('focus', () => resume());
+  view?.addEventListener('focus', () => {
+    if (state.tentativeDeparture) resume();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       state.tentativeDeparture = true;
-      state.navigationAttempted = true;
-    } else if (document.visibilityState === 'visible') resume();
+    } else if (
+      document.visibilityState === 'visible' &&
+      state.tentativeDeparture
+    )
+      resume();
   });
   const resumeOnInteraction = (event: Event) => {
-    if (event.isTrusted) resume(true);
+    if (!event.isTrusted) return;
+    // An input event can still occur while a slow navigation is in flight.
+    // Keep uncertain imports pending long enough for pagehide to settle it.
+    if (state.failures.some((failure) => !failure.recorded))
+      setTimeout(resume, IMPORT_FAILURE_SETTLE_MS);
+    else resume();
   };
-  view?.addEventListener('pointerdown', resumeOnInteraction, { capture: true });
-  view?.addEventListener('keydown', resumeOnInteraction, { capture: true });
+  // Click includes assistive-technology activation. Delaying recovery until a
+  // later task lets the activating event finish before the overlay is inserted.
+  view?.addEventListener('click', resumeOnInteraction, { capture: true });
+  view?.addEventListener('keyup', resumeOnInteraction, { capture: true });
   return state;
 };
 
@@ -125,33 +147,32 @@ export const handleClientHydrationFailure = (
   document: Document,
   error: unknown,
   isCurrent: () => boolean = () => true,
-  source: 'bootstrap' | 'root' = 'bootstrap'
+  source: 'module_import' | 'hydrate_start' | 'root' = 'module_import'
 ) => {
   const state = lifecycleFor(document);
   if (!ownsDocument(document) || !isCurrent() || state.reloadRequested) return;
-  if (source === 'bootstrap' && state.departed) return;
-  if (source === 'bootstrap' && state.navigationAttempted) return;
+  if (source === 'module_import' && state.departed) return;
   if (state.recordedErrors.has(error)) return;
   state.recordedErrors.add(error);
   const failure: PendingFailure = {
     error,
     isCurrent,
     recorded: false,
+    noticeScheduled: false,
     event:
       source === 'root' && state.committed
         ? 'client.root_uncaught'
         : 'client.hydration_failed',
   };
-  const leaving = state.tentativeDeparture || state.departed;
-  // A bootstrap import failure may have been caused by navigation. Only a
-  // later trusted interaction on the current document confirms recovery is useful.
-  if (source === 'bootstrap') {
-    state.failures.push(failure);
-    return;
+  state.failures.push(failure);
+  // Import failures during departure may be canceled requests. Other failures
+  // have reached application code and can be recorded even while leaving.
+  if (source !== 'module_import') {
+    reportFailure(document, failure);
+    if (!state.tentativeDeparture && !state.departed) state.resume();
+  } else if (!state.tentativeDeparture && !state.departed) {
+    setTimeout(() => state.resume(), IMPORT_FAILURE_SETTLE_MS);
   }
-  // Actual root errors are recorded immediately, even while recovery UI is quiet.
-  reportFailure(document, failure, !leaving);
-  if (leaving) state.failures.push(failure);
 };
 
 export const startClientHydration = ({
@@ -165,13 +186,21 @@ export const startClientHydration = ({
   const token = {};
   coordinators.set(document, token);
   const isCurrent = () => coordinators.get(document) === token;
-  return loadHydrationModule()
-    .then(({ hydrateClient }) => {
+  return loadHydrationModule().then(
+    ({ hydrateClient }) => {
       if (isCurrent() && isInitialHydrationDocumentActive(document))
-        return hydrateClient(document);
+        return Promise.resolve()
+          .then(() => hydrateClient(document))
+          .catch((error: unknown) =>
+            handleClientHydrationFailure(
+              document,
+              error,
+              isCurrent,
+              'hydrate_start'
+            )
+          );
       return undefined;
-    })
-    .catch((error: unknown) =>
-      handleClientHydrationFailure(document, error, isCurrent)
-    );
+    },
+    (error: unknown) => handleClientHydrationFailure(document, error, isCurrent)
+  );
 };

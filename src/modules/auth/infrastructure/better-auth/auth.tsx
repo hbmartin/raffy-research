@@ -44,6 +44,8 @@ export function createAuth(input?: Database | CreateAuthOptions) {
       ...createAuthCookieSecurityOptions(envClient.VITE_BASE_URL, {
         isProduction: import.meta.env.PROD,
       }),
+      disableOriginCheck: false,
+      disableCSRFCheck: false,
       ipAddress: {
         ipAddressHeaders: authConfig.trustedClientIpHeader
           ? [authConfig.trustedClientIpHeader]

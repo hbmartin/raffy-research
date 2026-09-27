@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process';
 
 // All children inherit Playwright's process group. Never insert package runners
 // here: they can create a new group which Playwright's final signal cannot reach.
-export const createFixtureSupervisor = ({ failOnSignal = false } = {}) => {
+export const createFixtureSupervisor = ({
+  failOnSignal = false,
+  childrenShareSignalGroup = false,
+} = {}) => {
   const children = new Map();
   const requested = Promise.withResolvers();
   let stopping = false;
@@ -12,7 +15,7 @@ export const createFixtureSupervisor = ({ failOnSignal = false } = {}) => {
   const checkpoint = () => {
     if (stopping) throw new Error('Fixture shutdown requested');
   };
-  const stop = () => {
+  const stop = ({ groupSignaled = false } = {}) => {
     if (shutdown) return shutdown;
     stopping = true;
     requested.resolve();
@@ -21,7 +24,7 @@ export const createFixtureSupervisor = ({ failOnSignal = false } = {}) => {
       process.exit(1);
     }, 10_000);
     const active = [...children];
-    for (const [child] of active) child.kill('SIGTERM');
+    if (!groupSignaled) for (const [child] of active) child.kill('SIGTERM');
     const escalate = setTimeout(() => {
       for (const [child] of children) child.kill('SIGKILL');
     }, 5_000);
@@ -48,7 +51,7 @@ export const createFixtureSupervisor = ({ failOnSignal = false } = {}) => {
   const onSignal = (exitCode) => {
     if (failOnSignal && process.exitCode === undefined)
       process.exitCode = exitCode;
-    void stop().catch((error) => {
+    void stop({ groupSignaled: childrenShareSignalGroup }).catch((error) => {
       console.error(error);
       process.exitCode = 1;
     });

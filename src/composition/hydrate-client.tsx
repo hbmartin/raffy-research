@@ -16,7 +16,12 @@ export const hydrateClient = async (document: Document) => {
   try {
     router = await hydrateStart();
   } catch (error) {
-    handleClientHydrationFailure(document, error, owner.isCurrent);
+    handleClientHydrationFailure(
+      document,
+      error,
+      owner.isCurrent,
+      'hydrate_start'
+    );
     return;
   }
   if (!owner.isCurrent() || !isInitialHydrationDocumentActive(document)) return;

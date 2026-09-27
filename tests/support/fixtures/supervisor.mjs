@@ -4,6 +4,7 @@ import { createFixtureSupervisor } from '../../../scripts/fixture-supervisor.mjs
 
 const supervisor = createFixtureSupervisor({
   failOnSignal: process.argv[2] === 'signal-failure',
+  childrenShareSignalGroup: process.argv[2] === 'group-signal',
 });
 const server = createServer();
 await supervisor.run(
@@ -17,6 +18,7 @@ await supervisor.run(
     const server = require('node:net').createServer();
     server.listen(0, '127.0.0.1', () => console.log('CHILD:' + process.pid + ':' + server.address().port));
     ${mode === 'stuck' ? "process.on('SIGTERM', () => {});" : ''}
+    ${mode === 'group-signal' ? "process.on('SIGTERM', () => { console.log('CHILD_SIGTERM'); setTimeout(() => server.close(), 100); });" : ''}
   `,
     ]);
     if (mode === 'failure') {

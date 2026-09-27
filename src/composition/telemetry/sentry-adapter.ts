@@ -80,6 +80,52 @@ const toStringTags = (tags: unknown): Record<string, string> | undefined => {
   });
 };
 
+const SDK_CONTEXT_NAMES = {
+  runtime: new Set(['node', 'bun', 'deno', 'browser']),
+  os: new Set([
+    'Mac OS X',
+    'macOS',
+    'Linux',
+    'Fedora',
+    'Red Hat Linux',
+    'Centos',
+    'SUSE Linux',
+    'Ubuntu Linux',
+    'Arch Linux',
+    'Debian',
+    'Gentoo Linux',
+    'Alpine Linux',
+    'Windows',
+    'IBM AIX',
+    'FreeBSD',
+    'OpenBSD',
+    'SunOS',
+    'OpenHarmony',
+    'Android',
+  ]),
+};
+
+const withSdkContextNames = (
+  original: Record<string, unknown>,
+  sanitized: Record<string, unknown>
+) => {
+  for (const contextKey of ['runtime', 'os'] as const) {
+    const context = original[contextKey];
+    const safeContext = sanitized[contextKey];
+    if (
+      !context ||
+      typeof context !== 'object' ||
+      !safeContext ||
+      typeof safeContext !== 'object'
+    )
+      continue;
+    const name = (context as Record<string, unknown>).name;
+    if (typeof name === 'string' && SDK_CONTEXT_NAMES[contextKey].has(name))
+      (safeContext as Record<string, unknown>).name = name;
+  }
+  return sanitized;
+};
+
 export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
   event: TEvent
 ): TEvent => {
@@ -105,7 +151,10 @@ export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
         role: event.user.role,
       },
     }),
-    contexts: sanitized.contexts as Record<string, unknown>,
+    contexts: withSdkContextNames(
+      event.contexts ?? {},
+      sanitized.contexts as Record<string, unknown>
+    ),
     extra: sanitized.extra as Record<string, unknown>,
     tags: toStringTags(sanitized.tags),
   };

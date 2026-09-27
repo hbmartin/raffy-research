@@ -15,7 +15,7 @@ process.env.DATABASE_URL =
 process.env.DATABASE_MIGRATION_URL = process.env.DATABASE_URL;
 process.env.DATABASE_DRIVER = 'node-pg';
 process.env.DATABASE_MIGRATION_DRIVER = 'node-pg';
-const supervisor = createFixtureSupervisor();
+const supervisor = createFixtureSupervisor({ childrenShareSignalGroup: true });
 const require = createRequire(import.meta.url);
 const vite = resolve(
   dirname(require.resolve('vite/package.json')),

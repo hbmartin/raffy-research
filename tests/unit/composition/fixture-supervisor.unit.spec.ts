@@ -3,13 +3,20 @@ import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { expect, it } from 'vitest';
 
-it.each(['normal', 'repeated', 'failure', 'stuck', 'signal-failure'])(
+it.each([
+  'normal',
+  'repeated',
+  'failure',
+  'stuck',
+  'signal-failure',
+  'group-signal',
+])(
   'cleans up managed children and ports: %s',
   async (mode) => {
     const child = spawn(
       process.execPath,
       ['tests/support/fixtures/supervisor.mjs', mode],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
+      { stdio: ['ignore', 'pipe', 'pipe'], detached: mode === 'group-signal' }
     );
     const exited = once(child, 'exit');
     let output = '';
@@ -24,7 +31,8 @@ it.each(['normal', 'repeated', 'failure', 'stuck', 'signal-failure'])(
         .poll(() => output, { timeout: 3_000 })
         .toMatch(/CHILD:\d+:\d+/);
       const started = Date.now();
-      if (mode !== 'failure') child.kill('SIGTERM');
+      if (mode === 'group-signal') process.kill(-child.pid!, 'SIGTERM');
+      else if (mode !== 'failure') child.kill('SIGTERM');
       if (mode === 'repeated') {
         child.kill('SIGINT');
         child.kill('SIGTERM');
@@ -35,6 +43,8 @@ it.each(['normal', 'repeated', 'failure', 'stuck', 'signal-failure'])(
         signal: null,
       });
       expect(output.match(/CLEANED/g)).toHaveLength(1);
+      if (mode === 'group-signal')
+        expect(output.match(/CHILD_SIGTERM/g)).toHaveLength(1);
       expect(Date.now() - started).toBeLessThan(10_000);
       const [, ownedPid, ownedPort] = output.match(/CHILD:(\d+):(\d+)/)!;
       expect(() => process.kill(Number(ownedPid), 0)).toThrow();

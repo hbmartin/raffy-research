@@ -24,7 +24,8 @@ vi.mock('@/composition/hydration-failure', () => ({
   showClientRecovery: mocks.showClientRecovery,
   reportRootFailure: mocks.reportRootFailure,
 }));
-afterEach(() => {
+afterEach(async () => {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -46,14 +47,10 @@ const fixture = () => {
   return { document, bootstrap, view, loading };
 };
 
-const trustedPointer = () => {
-  const event = new Event('pointerdown');
-  Object.defineProperty(event, 'isTrusted', { value: true });
-  return event;
-};
+const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('client hydration cleanup ownership', () => {
-  it('suppresses a pending route import failure after pagehide', async () => {
+  it('records a hydrateStart failure even after pagehide', async () => {
     const { document, loading, view } = fixture();
     const hydration = startClientHydration({
       document,
@@ -65,23 +62,28 @@ describe('client hydration cleanup ownership', () => {
     loading.reject(new Error('navigation canceled the route chunk'));
     await hydration;
 
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
+      document,
+      expect.any(Error),
+      false
+    );
   });
 
-  it('reports a route import failure after interaction with the current owner', async () => {
-    const { document, loading, view } = fixture();
+  it('reports a hydrateStart failure without waiting for interaction', async () => {
+    const { document, loading } = fixture();
     const failure = new Error('route chunk failed');
     const hydration = hydrateClient(document);
 
     loading.reject(failure);
     await hydration;
 
-    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
-    view.dispatchEvent(trustedPointer());
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
-      failure
+      failure,
+      false
     );
+    await nextTask();
+    expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
     expect(mocks.hydrateRoot).not.toHaveBeenCalled();
   });
 
@@ -131,7 +133,7 @@ describe('client hydration cleanup ownership', () => {
     expect(mocks.reportRootFailure).toHaveBeenCalledWith(
       document,
       failure,
-      true
+      false
     );
   });
 
@@ -149,7 +151,8 @@ describe('client hydration cleanup ownership', () => {
 
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
-      failure
+      failure,
+      false
     );
     expect(mocks.reportRootFailure).not.toHaveBeenCalled();
   });
@@ -272,6 +275,7 @@ it.each([false, true])(
     view.dispatchEvent(new Event('focus'));
     view.dispatchEvent(new Event('focus'));
     expect(report).toHaveBeenCalledOnce();
+    await nextTask();
     expect(mocks.showClientRecovery).toHaveBeenCalledExactlyOnceWith(
       document,
       committed ? 'client.root_uncaught' : 'client.hydration_failed'
@@ -288,5 +292,6 @@ it('drops queued recovery when a newer root owns the document', async () => {
   mocks.hydrateRoot.mock.calls[0]![2].onUncaughtError(new Error('old owner'));
   captureStartHydrationOwner(document);
   view.dispatchEvent(new Event('focus'));
+  await nextTask();
   expect(mocks.showClientRecovery).not.toHaveBeenCalled();
 });

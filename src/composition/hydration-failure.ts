@@ -24,7 +24,9 @@ const reportClientFailure = (
   } catch {
     // Attempt to flush any previously queued logs even if logging failed.
   }
-  void flushFrontendLogs({ preferBeacon: !showRecovery }).catch(() => {
+  // Fetch with keepalive retains the payload during departure; WebKit's
+  // sendBeacon can omit the Blob body for this early startup report.
+  void flushFrontendLogs({ preferBeacon: false }).catch(() => {
     // The recovery control still works when flushing fails.
   });
 

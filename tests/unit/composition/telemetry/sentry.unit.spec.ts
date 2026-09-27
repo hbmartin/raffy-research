@@ -162,6 +162,42 @@ describe('Sentry telemetry composition', () => {
     });
   });
 
+  it('keeps known runtime and OS names while redacting identity names', async () => {
+    const { sanitizeSentryEvent } =
+      await import('@/composition/telemetry/sentry-adapter');
+
+    expect(
+      sanitizeSentryEvent({
+        contexts: {
+          runtime: { name: 'node', version: 'v22' },
+          os: { name: 'Linux', version: '6.0' },
+          request: { name: 'Private Person' },
+          custom: { name: 'Private Person' },
+        },
+        extra: { name: 'Private Person' },
+      })
+    ).toMatchObject({
+      contexts: {
+        runtime: { name: 'node', version: 'v22' },
+        os: { name: 'Linux', version: '6.0' },
+        request: { name: '[REDACTED]' },
+        custom: { name: '[REDACTED]' },
+      },
+      extra: { name: '[REDACTED]' },
+    });
+    expect(
+      sanitizeSentryEvent({
+        contexts: {
+          runtime: { name: 'Private Person' },
+          os: { name: 'Private Person' },
+        },
+      }).contexts
+    ).toEqual({
+      runtime: { name: '[REDACTED]' },
+      os: { name: '[REDACTED]' },
+    });
+  });
+
   it('drops unsupported Sentry event tag values after sanitizing', async () => {
     const { sanitizeSentryEvent } =
       await import('@/composition/telemetry/sentry-adapter');

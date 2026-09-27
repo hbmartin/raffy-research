@@ -242,7 +242,7 @@ const forwardSentryEnvelope = async (
       body,
       headers: {
         'Content-Type': 'application/x-sentry-envelope',
-        'User-Agent': userAgent ?? '',
+        ...(userAgent ? { 'User-Agent': userAgent } : {}),
       },
       method: 'POST',
     });
@@ -256,7 +256,11 @@ const forwardSentryEnvelope = async (
     });
     return new Response(null, { status: 502 });
   }
-  const status = sentryResponse.ok ? 202 : 502;
+  const status = sentryResponse.ok
+    ? 202
+    : sentryResponse.status === 429
+      ? 429
+      : 502;
   if (!sentryResponse.ok)
     recordProxyFailure('sentry_tunnel', undefined, sentryResponse.status);
 
@@ -267,7 +271,14 @@ const forwardSentryEnvelope = async (
     summary: { forwarded: true, sentryStatus: sentryResponse.status },
   });
 
-  return new Response(null, { status });
+  const responseHeaders = new Headers();
+  if (status === 429) {
+    for (const header of ['Retry-After', 'X-Sentry-Rate-Limits']) {
+      const value = sentryResponse.headers.get(header);
+      if (value) responseHeaders.set(header, value);
+    }
+  }
+  return new Response(null, { status, headers: responseHeaders });
 };
 
 export const handleOtlpProxyRequest = async (
