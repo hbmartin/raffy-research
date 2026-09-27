@@ -22,6 +22,8 @@ import type {
 export type NormalizedIngest = {
   sourceRecords: SourceRecordWriteInput[];
   searchResults: SearchResultWriteInput[];
+  requestsSucceeded?: number;
+  requestsFailed?: number;
 };
 
 export type ProviderDailyContext = {

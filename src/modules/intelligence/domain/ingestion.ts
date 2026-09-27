@@ -9,11 +9,17 @@ import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 import type { ProviderName } from './provider';
 
 export type IngestionRunType = 'daily' | 'callback' | 'manual' | 'weekly';
-export type IngestionRunStatus = 'started' | 'succeeded' | 'failed' | 'skipped';
+export type IngestionRunStatus =
+  | 'started'
+  | 'succeeded'
+  | 'partial'
+  | 'failed'
+  | 'skipped';
 
 export type IngestionRun = {
   id: IngestionRunId;
   workspaceId: WorkspaceId | null;
+  scheduledJobRunId?: string | null;
   providerName: string;
   runType: IngestionRunType;
   status: IngestionRunStatus;
@@ -51,6 +57,7 @@ export type ProviderCallbackEventWriteInput = {
 
 export type IngestionRunWriteInput = {
   workspaceId?: WorkspaceId | null;
+  scheduledJobRunId?: string | null;
   providerName: ProviderName | string;
   runType: IngestionRunType;
   status: IngestionRunStatus;

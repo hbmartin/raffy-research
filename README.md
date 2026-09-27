@@ -567,6 +567,14 @@ console details; they are outside that request-field filter.
 The Sentry Vite plugin runs only with a browser DSN and upload credentials;
 middleware auto-instrumentation and plugin telemetry are disabled. Runtime
 Sentry error capture and local SSR tests work without upload credentials.
+Weekly report failures emit a synthetic, sanitized Sentry exception tagged
+`job=weekly_reports` and a safe failure code. `SENTRY_ALERT_AUTH_TOKEN` is an
+optional server-side credential reserved for creating the weekly-report issue
+alert later; it is separate from the source-map upload token and is not needed
+by the app at runtime. Configure the issue alert for the
+`job=weekly_reports` tag, first-seen/regression/reappearance triggers, and
+email to issue owners. Verify that the project's ownership rules route to an
+active operator before enabling it.
 
 Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
 `pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages

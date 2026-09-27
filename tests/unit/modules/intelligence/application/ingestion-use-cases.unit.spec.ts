@@ -351,4 +351,119 @@ describe('ingestion use cases', () => {
 
     expectErrorCode(result, 'FINISH_RUN_FAILED');
   });
+
+  it.each([
+    {
+      requestsSucceeded: 1,
+      requestsFailed: 1,
+      status: 'partial',
+      providersPartial: 1,
+      providersFailed: 0,
+    },
+    {
+      requestsSucceeded: 0,
+      requestsFailed: 2,
+      status: 'failed',
+      providersPartial: 0,
+      providersFailed: 1,
+    },
+  ])(
+    'records $status when pull requests have mixed outcomes',
+    async (counts) => {
+      const finishRun = vi.fn(async () =>
+        Result.Ok({ type: 'run_updated' as const })
+      );
+      const deps = makeDeps({
+        ingestionRepository: { ...makeDeps().ingestionRepository, finishRun },
+        registry: {
+          get: vi.fn(() => ({
+            name: 'awario' as const,
+            isConfigured: () => true,
+            runDailyIngest: async () =>
+              Result.Ok({
+                sourceRecords: [],
+                searchResults: [],
+                requestsSucceeded: counts.requestsSucceeded,
+                requestsFailed: counts.requestsFailed,
+              }),
+          })),
+          all: vi.fn(() => []),
+        },
+      });
+      const result = await runWorkspaceIngest(deps, {
+        workspaceId,
+        now,
+        scheduledJobRunId: 'job-1',
+      });
+      if (result.isError()) throw result.getError();
+      expect(result.get()).toMatchObject({
+        type: 'workspace_ingested',
+        providersPartial: counts.providersPartial,
+        providersFailed: counts.providersFailed,
+        requestsFailed: counts.requestsFailed,
+      });
+      expect(finishRun).toHaveBeenCalledWith(
+        ingestionRun.id,
+        expect.objectContaining({
+          status: counts.status,
+          failureReason: 'Provider requests failed',
+        })
+      );
+      expect(deps.ingestionRepository.startRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          scheduledJobRunId: 'job-1',
+        })
+      );
+    }
+  );
+
+  it('keeps the provider summary and stored status aligned after a write fails', async () => {
+    const finishRun = vi.fn(async () =>
+      Result.Ok({ type: 'run_updated' as const })
+    );
+    const deps = makeDeps({
+      sourceRepository: {
+        ...makeDeps().sourceRepository,
+        createSourceRecord: vi.fn(async () =>
+          Result.Error(appError('SOURCE_WRITE_FAILED'))
+        ),
+      },
+      ingestionRepository: { ...makeDeps().ingestionRepository, finishRun },
+      registry: {
+        get: vi.fn(() => ({
+          name: 'awario' as const,
+          isConfigured: () => true,
+          runDailyIngest: async () =>
+            Result.Ok({
+              sourceRecords: [sourceRecord],
+              searchResults: [],
+              requestsSucceeded: 1,
+              requestsFailed: 0,
+            }),
+        })),
+        all: vi.fn(() => []),
+      },
+    });
+    const result = await runWorkspaceIngest(deps, { workspaceId, now });
+    if (result.isError()) throw result.getError();
+    expect(result.get()).toMatchObject({
+      providersPartial: 1,
+      providersFailed: 0,
+    });
+    expect(finishRun).toHaveBeenCalledWith(
+      ingestionRun.id,
+      expect.objectContaining({ status: 'partial', itemsIngested: 0 })
+    );
+  });
+
+  it('treats a workspace with no scheduled pull providers as successful no-work', async () => {
+    const result = await runWorkspaceIngest(makeDeps(), { workspaceId, now });
+    if (result.isError()) throw result.getError();
+    expect(result.get()).toMatchObject({
+      type: 'workspace_ingested',
+      providersRun: 0,
+      providersFailed: 0,
+      requestsFailed: 0,
+    });
+  });
 });

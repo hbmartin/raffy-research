@@ -7,6 +7,7 @@ import {
   listReports,
   listReportSources,
 } from './application/use-cases/report-queries';
+import { listScheduledJobs } from './application/use-cases/scheduled-job-queries';
 import {
   getReportRubricScore,
   scoreReport,
@@ -54,6 +55,8 @@ export function createIntelligenceUseCases(deps: IntelligenceUseCaseDeps) {
     listProviderCallbacks: (
       input: Parameters<typeof listProviderCallbacks>[1]
     ) => listProviderCallbacks(deps, input),
+    listScheduledJobs: (input: Parameters<typeof listScheduledJobs>[1]) =>
+      listScheduledJobs(deps, input),
   };
 }
 

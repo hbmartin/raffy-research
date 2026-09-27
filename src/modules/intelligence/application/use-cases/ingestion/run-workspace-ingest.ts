@@ -9,9 +9,23 @@ import type { ProviderDailyContext } from '../../ports/provider-adapter';
 
 const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+function providerOutcomeStatus(input: {
+  persistenceFailed: boolean;
+  requestsFailed: number;
+  requestsSucceeded: number;
+  itemsIngested: number;
+}): 'succeeded' | 'partial' | 'failed' {
+  if (!input.persistenceFailed && input.requestsFailed === 0)
+    return 'succeeded';
+  return input.itemsIngested > 0 || input.requestsSucceeded > 0
+    ? 'partial'
+    : 'failed';
+}
+
 export type RunWorkspaceIngestInput = {
   workspaceId: WorkspaceId;
   now?: Date;
+  scheduledJobRunId?: string;
 };
 
 export type RunWorkspaceIngestOutcome =
@@ -19,6 +33,10 @@ export type RunWorkspaceIngestOutcome =
       type: 'workspace_ingested';
       providersRun: number;
       providersSkipped: number;
+      providersPartial: number;
+      providersFailed: number;
+      requestsSucceeded: number;
+      requestsFailed: number;
       sourceRecords: number;
       searchResults: number;
     }
@@ -61,6 +79,10 @@ export async function runWorkspaceIngest(
 
   let providersRun = 0;
   let providersSkipped = 0;
+  let providersPartial = 0;
+  let providersFailed = 0;
+  let requestsSucceeded = 0;
+  let requestsFailed = 0;
   let sourceRecordCount = 0;
   let searchResultCount = 0;
 
@@ -73,6 +95,7 @@ export async function runWorkspaceIngest(
     if (!adapter.isConfigured({ config, credential })) {
       const skipped = await deps.ingestionRepository.startRun({
         workspaceId: workspace.id,
+        scheduledJobRunId: input.scheduledJobRunId,
         providerName: config.providerName,
         runType: 'daily',
         status: 'skipped',
@@ -85,6 +108,7 @@ export async function runWorkspaceIngest(
 
     const run = await deps.ingestionRepository.startRun({
       workspaceId: workspace.id,
+      scheduledJobRunId: input.scheduledJobRunId,
       providerName: config.providerName,
       runType: 'daily',
       status: 'started',
@@ -108,9 +132,11 @@ export async function runWorkspaceIngest(
 
     const ingest = await adapter.runDailyIngest(context);
     if (ingest.isError()) {
+      providersFailed += 1;
+      requestsFailed += 1;
       const finished = await finishRun(deps, runId, {
         status: 'failed',
-        failureReason: ingest.getError().message,
+        failureReason: 'Provider ingestion failed',
         finishedAt: deps.clock.now(),
       });
       if (finished.isError()) return Result.Error(finished.getError());
@@ -118,50 +144,66 @@ export async function runWorkspaceIngest(
     }
 
     const { sourceRecords, searchResults } = ingest.get();
+    const providerRequestsSucceeded = ingest.get().requestsSucceeded ?? 1;
+    const providerRequestsFailed = ingest.get().requestsFailed ?? 0;
+    requestsSucceeded += providerRequestsSucceeded;
+    requestsFailed += providerRequestsFailed;
     let ingested = 0;
+    let persistenceFailed = false;
     for (const record of sourceRecords) {
       const created = await deps.sourceRepository.createSourceRecord(record);
       if (created.isError()) {
-        const finished = await finishRun(deps, runId, {
-          status: 'failed',
-          failureReason: created.getError().message,
-          finishedAt: deps.clock.now(),
-        });
-        if (finished.isError()) return Result.Error(finished.getError());
-        return Result.Error(created.getError());
+        persistenceFailed = true;
+        break;
       }
       sourceRecordCount += 1;
       ingested += 1;
     }
-    for (const searchResult of searchResults) {
+    for (const searchResult of persistenceFailed ? [] : searchResults) {
       const created =
         await deps.sourceRepository.createSearchResult(searchResult);
       if (created.isError()) {
-        const finished = await finishRun(deps, runId, {
-          status: 'failed',
-          failureReason: created.getError().message,
-          finishedAt: deps.clock.now(),
-        });
-        if (finished.isError()) return Result.Error(finished.getError());
-        return Result.Error(created.getError());
+        persistenceFailed = true;
+        break;
       }
       searchResultCount += 1;
       ingested += 1;
     }
 
-    const finished = await finishRun(deps, runId, {
-      status: 'succeeded',
+    const providerStatus = providerOutcomeStatus({
+      persistenceFailed,
+      requestsFailed: providerRequestsFailed,
+      requestsSucceeded: providerRequestsSucceeded,
       itemsIngested: ingested,
+    });
+    const finished = await finishRun(deps, runId, {
+      status: providerStatus,
+      itemsIngested: ingested,
+      failureReason: persistenceFailed
+        ? 'Source persistence failed'
+        : providerRequestsFailed > 0
+          ? 'Provider requests failed'
+          : null,
+      metadata: {
+        requestsSucceeded: providerRequestsSucceeded,
+        requestsFailed: providerRequestsFailed,
+      },
       finishedAt: deps.clock.now(),
     });
     if (finished.isError()) return Result.Error(finished.getError());
-    providersRun += 1;
+    if (providerStatus === 'partial') providersPartial += 1;
+    else if (providerStatus === 'failed') providersFailed += 1;
+    else providersRun += 1;
   }
 
   return Result.Ok({
     type: 'workspace_ingested',
     providersRun,
     providersSkipped,
+    providersPartial,
+    providersFailed,
+    requestsSucceeded,
+    requestsFailed,
     sourceRecords: sourceRecordCount,
     searchResults: searchResultCount,
   });

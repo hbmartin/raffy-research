@@ -2,6 +2,7 @@ import { Result } from '@swan-io/boxed';
 
 import type { Clock, Logger } from '@/modules/kernel';
 import type { ApplicationResult } from '@/modules/kernel/application/result';
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type {
   SourceRecordId,
   WeeklyReportId,
@@ -18,6 +19,7 @@ import type { AlertPort, ReportGeneratorPort } from '../ports/report-generator';
 import type { ReportRepository } from '../ports/report-repository';
 import type { SourceRepository } from '../ports/source-repository';
 import type { WorkspaceRepository } from '../ports/workspace-repository';
+import { safeAppErrorDetails } from '../safe-diagnostics';
 import { computeWeeklyPeriod, formatPeriodDate } from '../../domain/period';
 import type { WeeklyReport, WeeklyReportSummary } from '../../domain/report';
 import type { GeneratedReportDataValidation } from '../../domain/report-data';
@@ -136,12 +138,17 @@ export async function generateWeeklyReport(
   });
 
   // Generate, then a single bounded repair pass if the JSON is invalid.
-  const first = await deps.reportGenerator.generate({ prompt });
+  const first = await deps.reportGenerator.generate({
+    prompt,
+    stage: 'initial',
+  });
   if (first.isError()) {
     return recordFailure(deps, {
       workspace,
       period,
-      reason: first.getError().message,
+      reason: 'Report generation failed',
+      failureCode: first.getError().code,
+      diagnostics: safeAppErrorDetails(first.getError()),
     });
   }
 
@@ -161,12 +168,15 @@ export async function generateWeeklyReport(
         invalidOutput: first.get().text,
         issues: validation.issues,
       }),
+      stage: 'repair',
     });
     if (repair.isError()) {
       return recordFailure(deps, {
         workspace,
         period,
-        reason: repair.getError().message,
+        reason: 'Report repair failed',
+        failureCode: repair.getError().code,
+        diagnostics: safeAppErrorDetails(repair.getError()),
       });
     }
     modelName = repair.get().modelName;
@@ -179,7 +189,8 @@ export async function generateWeeklyReport(
     return recordFailure(deps, {
       workspace,
       period,
-      reason: `schema validation failed: ${validation.issues.join('; ')}`,
+      reason: 'Report schema validation failed',
+      failureCode: 'REPORT_SCHEMA_INVALID',
     });
   }
 
@@ -218,7 +229,8 @@ export async function generateWeeklyReport(
       workspace,
       period,
       reservedReportId: reportId,
-      reason: `schema validation failed: ${reportDataValidation.issues.join('; ')}`,
+      reason: 'Report schema validation failed',
+      failureCode: 'REPORT_SCHEMA_INVALID',
     });
   }
   const reportData = reportDataValidation.data;
@@ -285,12 +297,28 @@ async function recordFailure(
     period: { periodStart: Date; periodEnd: Date };
     reservedReportId?: WeeklyReportId;
     reason: string;
+    failureCode?: string;
+    diagnostics?: Record<string, unknown>;
   }
 ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> {
   const now = deps.clock.now();
   deps.logger.error({
     event: 'intelligence.report.failed',
-    details: { workspaceId: input.workspace.id, reason: input.reason },
+    exception: new AppError({
+      code: 'WEEKLY_REPORT_FAILED',
+      category: 'system',
+      status: 502,
+      message: 'Scheduled weekly report failed',
+    }),
+    details: {
+      workspaceId: input.workspace.id,
+      failureCode: input.failureCode ?? 'REPORT_FAILED',
+      ...input.diagnostics,
+    },
+    sentryTags: {
+      job: 'weekly_reports',
+      failureCode: input.failureCode ?? 'REPORT_FAILED',
+    },
   });
 
   if (input.reservedReportId) {
@@ -390,7 +418,7 @@ async function sendFailureAlert(
     const error = alert.getError();
     deps.logger.warn({
       event: 'intelligence.report.failure_alert_failed',
-      error: error.message,
+      error: 'Weekly report alert delivery failed',
       details: {
         errorCode: error.code,
         workspaceId: input.workspace.id,

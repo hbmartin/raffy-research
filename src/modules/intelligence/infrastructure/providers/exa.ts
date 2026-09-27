@@ -6,6 +6,7 @@ import type {
   NormalizedIngest,
   ProviderAdapter,
 } from '../../application/ports/provider-adapter';
+import { safeAppErrorDetails } from '../../application/safe-diagnostics';
 import type {
   SearchResultWriteInput,
   SourceRecordWriteInput,
@@ -26,6 +27,8 @@ export const exaAdapter: ProviderAdapter = {
     }
     const sourceRecords: SourceRecordWriteInput[] = [];
     const searchResults: SearchResultWriteInput[] = [];
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
 
     for (const keyword of ctx.keywords) {
       const response = await fetchJson('exa', EXA_SEARCH_URL, {
@@ -42,12 +45,14 @@ export const exaAdapter: ProviderAdapter = {
         }),
       });
       if (response.isError()) {
+        requestsFailed += 1;
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
-          details: { provider: 'exa', keyword: keyword.keywordString },
+          details: safeAppErrorDetails(response.getError()),
         });
         continue;
       }
+      requestsSucceeded += 1;
 
       const results = asArray(pick(response.get(), 'results'));
       results.forEach((rawResult, index) => {
@@ -87,6 +92,8 @@ export const exaAdapter: ProviderAdapter = {
     return Result.Ok({
       sourceRecords,
       searchResults,
+      requestsSucceeded,
+      requestsFailed,
     } satisfies NormalizedIngest);
   },
 };

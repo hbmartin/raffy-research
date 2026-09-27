@@ -137,6 +137,15 @@ export const intelligenceListProviderCallbacks = createServerFn({
     )
   );
 
+export const intelligenceListScheduledJobs = createServerFn({ method: 'GET' })
+  .inputValidator(zWorkspaceConfigInput())
+  .handler(async ({ data }) =>
+    runProtected.withOperation('intelligence.listScheduledJobs')(
+      data,
+      ({ handlers }, ctx, input) => handlers.listScheduledJobs(ctx, input)
+    )
+  );
+
 export const intelligenceScoreReport = createServerFn({ method: 'POST' })
   .inputValidator(zScoreReportInput())
   .handler(async ({ data }) =>
@@ -173,6 +182,7 @@ export type IntelligenceServerFunctions = {
   intelligenceGetWorkspaceConfig: typeof intelligenceGetWorkspaceConfig;
   intelligenceListReports: typeof intelligenceListReports;
   intelligenceListProviderCallbacks: typeof intelligenceListProviderCallbacks;
+  intelligenceListScheduledJobs: typeof intelligenceListScheduledJobs;
   intelligenceScoreReport: typeof intelligenceScoreReport;
   intelligenceGetReportScore: typeof intelligenceGetReportScore;
   intelligenceLabelSource: typeof intelligenceLabelSource;

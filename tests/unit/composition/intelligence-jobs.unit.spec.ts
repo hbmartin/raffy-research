@@ -76,6 +76,13 @@ describe('intelligence job request auth', () => {
       sourceRepository: {},
       ingestionRepository: {},
       reportRepository: {},
+      scheduledJobRepository: {
+        start: vi.fn(async () => Result.Ok({ type: 'run_started' })),
+        finish: vi.fn(async () => Result.Ok({ type: 'run_finished' })),
+        upsertWorkspace: vi.fn(async () =>
+          Result.Ok({ type: 'workspace_recorded' })
+        ),
+      },
     });
     mocks.handleProviderCallback.mockResolvedValue(
       Result.Ok({
@@ -113,8 +120,136 @@ describe('intelligence job request auth', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
+      status: 'succeeded',
       total: 0,
     });
+  });
+
+  it('returns HTTP 200 and ok false when workspace listing fails', async () => {
+    mocks.getCronSecret.mockReturnValue('cron-secret');
+    mocks.getIntelligenceRepositories.mockReturnValue({
+      ...mocks.getIntelligenceRepositories(),
+      workspaceRepository: {
+        list: vi.fn(async () => Result.Error({ code: 'WORKSPACE_LIST_ERROR' })),
+      },
+    });
+    const { handleDailyIngestCron } =
+      await import('@/composition/intelligence-jobs');
+    const response = await handleDailyIngestCron(
+      new Request('https://example.com/api/cron/daily-ingest', {
+        headers: { authorization: 'Bearer cron-secret' },
+      })
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: 'failed',
+      failed: 1,
+      workspaces: 0,
+      runId: expect.any(String),
+    });
+  });
+
+  it('reports mixed daily ingestion as partial and records both workspaces', async () => {
+    mocks.getCronSecret.mockReturnValue('cron-secret');
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.workspaceRepository.list = vi.fn(async () =>
+      Result.Ok([{ id: 'ws-1' }, { id: 'ws-2' }])
+    );
+    mocks.runWorkspaceIngest
+      .mockResolvedValueOnce(
+        Result.Ok({
+          type: 'workspace_ingested',
+          providersRun: 1,
+          providersSkipped: 0,
+          providersPartial: 0,
+          providersFailed: 0,
+          requestsSucceeded: 1,
+          requestsFailed: 0,
+          sourceRecords: 1,
+          searchResults: 0,
+        })
+      )
+      .mockResolvedValueOnce(
+        Result.Ok({
+          type: 'workspace_ingested',
+          providersRun: 0,
+          providersSkipped: 0,
+          providersPartial: 0,
+          providersFailed: 1,
+          requestsSucceeded: 0,
+          requestsFailed: 1,
+          sourceRecords: 0,
+          searchResults: 0,
+        })
+      );
+    const { handleDailyIngestCron } =
+      await import('@/composition/intelligence-jobs');
+    const response = await handleDailyIngestCron(
+      new Request('https://example.com/api/cron/daily-ingest', {
+        headers: { authorization: 'Bearer cron-secret' },
+      })
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: 'partial',
+      workspaces: 2,
+      ingested: 1,
+      failed: 1,
+      providersFailed: 1,
+      requestsFailed: 1,
+    });
+    expect(
+      repositories.scheduledJobRepository.upsertWorkspace
+    ).toHaveBeenCalledTimes(2);
+    expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'partial',
+        failureCode: 'WORKSPACE_INGEST_FAILED',
+      })
+    );
+  });
+
+  it('reports weekly partial failure without changing the HTTP status', async () => {
+    mocks.getCronSecret.mockReturnValue('cron-secret');
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.workspaceRepository.list = vi.fn(async () =>
+      Result.Ok([{ id: 'ws-1' }, { id: 'ws-2' }])
+    );
+    mocks.generateWeeklyReport
+      .mockResolvedValueOnce(
+        Result.Ok({ type: 'report_published', report: { id: 'report-1' } })
+      )
+      .mockResolvedValueOnce(
+        Result.Ok({ type: 'report_failed', reason: 'Report generation failed' })
+      );
+    const { handleWeeklyReportsCron } =
+      await import('@/composition/intelligence-jobs');
+    const response = await handleWeeklyReportsCron(
+      new Request('https://example.com/api/cron/weekly-reports', {
+        headers: { authorization: 'Bearer cron-secret' },
+      })
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: 'partial',
+      total: 2,
+      generated: 1,
+      failed: 1,
+    });
+    expect(
+      repositories.scheduledJobRepository.upsertWorkspace
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-1', reportId: 'report-1' })
+    );
+    expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'partial',
+        failureCode: 'WORKSPACE_REPORT_FAILED',
+      })
+    );
   });
 
   it('rejects cron requests with the wrong bearer token', async () => {

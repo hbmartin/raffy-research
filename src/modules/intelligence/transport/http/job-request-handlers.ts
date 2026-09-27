@@ -1,13 +1,16 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import type { Logger } from '@/modules/kernel';
 import type { ApplicationResult } from '@/modules/kernel/application/result';
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import { type WorkspaceId, zWorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
 import type { HandleProviderCallbackOutcome } from '../../application/use-cases/ingestion/handle-provider-callback';
 
 type WeeklyReportsRunSummary = {
+  runId: string;
+  status: 'succeeded' | 'partial' | 'failed' | 'started';
   total: number;
   generated: number;
   failed: number;
@@ -15,16 +18,25 @@ type WeeklyReportsRunSummary = {
 };
 
 type DailyIngestRunSummary = {
+  runId: string;
+  status: 'succeeded' | 'partial' | 'failed' | 'started';
   workspaces: number;
   ingested: number;
+  failed: number;
+  partial: number;
+  providersSucceeded: number;
+  providersPartial: number;
+  providersFailed: number;
+  providersSkipped: number;
+  requestsFailed: number;
 };
 
 type JobRequestHandlerDeps = {
   getCronSecret: () => string | null;
   getProviderWebhookSecret: () => string | null;
   getLogger: () => Logger;
-  runWeeklyReports: () => Promise<WeeklyReportsRunSummary>;
-  runDailyIngest: () => Promise<DailyIngestRunSummary>;
+  runWeeklyReports: (runId: string) => Promise<WeeklyReportsRunSummary>;
+  runDailyIngest: (runId: string) => Promise<DailyIngestRunSummary>;
   handleProviderCallback: (input: {
     providerName: string;
     workspaceId: WorkspaceId | null;
@@ -120,16 +132,73 @@ export function createIntelligenceJobRequestHandlers(
       if (!isAuthorizedCronRequest(deps, request)) {
         return jsonResponse({ error: 'unauthorized' }, 401);
       }
-      const summary = await deps.runWeeklyReports();
-      return jsonResponse({ ok: true, ...summary });
+      const runId = randomUUID();
+      try {
+        const summary = await deps.runWeeklyReports(runId);
+        return jsonResponse({ ok: summary.status === 'succeeded', ...summary });
+      } catch {
+        const summary = {
+          runId,
+          status: 'failed' as const,
+          total: 0,
+          generated: 0,
+          failed: 1,
+          skipped: 0,
+        };
+        deps.getLogger().error({
+          event: 'intelligence.weekly_reports.unexpected_failure',
+          exception: new AppError({
+            code: 'WEEKLY_REPORT_FAILED',
+            category: 'system',
+            status: 502,
+            message: 'Scheduled weekly report failed',
+          }),
+          details: { runId, failureCode: 'UNEXPECTED_ERROR' },
+          sentryTags: {
+            job: 'weekly_reports',
+            failureCode: 'UNEXPECTED_ERROR',
+          },
+        });
+        deps.getLogger().info({
+          event: 'intelligence.weekly_reports.completed',
+          details: summary,
+        });
+        return jsonResponse({ ok: false, ...summary });
+      }
     },
 
     async handleDailyIngestCron(request: Request): Promise<Response> {
       if (!isAuthorizedCronRequest(deps, request)) {
         return jsonResponse({ error: 'unauthorized' }, 401);
       }
-      const summary = await deps.runDailyIngest();
-      return jsonResponse({ ok: true, ...summary });
+      const runId = randomUUID();
+      try {
+        const summary = await deps.runDailyIngest(runId);
+        return jsonResponse({ ok: summary.status === 'succeeded', ...summary });
+      } catch {
+        const summary = {
+          runId,
+          status: 'failed' as const,
+          workspaces: 0,
+          ingested: 0,
+          failed: 1,
+          partial: 0,
+          providersSucceeded: 0,
+          providersPartial: 0,
+          providersFailed: 0,
+          providersSkipped: 0,
+          requestsFailed: 0,
+        };
+        deps.getLogger().error({
+          event: 'intelligence.daily_ingest.unexpected_failure',
+          details: { runId, failureCode: 'UNEXPECTED_ERROR' },
+        });
+        deps.getLogger().info({
+          event: 'intelligence.daily_ingest.completed',
+          details: summary,
+        });
+        return jsonResponse({ ok: false, ...summary });
+      }
     },
 
     async handleProviderCallbackRequest(

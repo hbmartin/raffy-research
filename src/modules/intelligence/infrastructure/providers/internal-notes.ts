@@ -8,6 +8,10 @@ import type {
   ProviderAdapter,
   ProviderDailyContext,
 } from '../../application/ports/provider-adapter';
+import {
+  safeAppErrorDetails,
+  safeFailureDiagnostics,
+} from '../../application/safe-diagnostics';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
 const NOTION_API_VERSION = '2022-06-28';
@@ -25,6 +29,8 @@ export const slackAdapter: ProviderAdapter = {
     if (!ctx.credential)
       return Result.Ok({ sourceRecords: [], searchResults: [] });
     const sourceRecords: SourceRecordWriteInput[] = [];
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
 
     for (const note of notesFor(ctx, 'slack')) {
       const response = await fetchJson(
@@ -32,18 +38,29 @@ export const slackAdapter: ProviderAdapter = {
         `https://slack.com/api/conversations.history?channel=${encodeURIComponent(note.sourceRef)}&limit=50`,
         { headers: { Authorization: `Bearer ${ctx.credential}` } }
       );
-      if (response.isError()) continue;
-      const body = asObject(response.get());
-      if (body.ok === false) {
+      if (response.isError()) {
+        requestsFailed += 1;
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
-          details: {
-            provider: 'slack',
-            error: asString(body.error) ?? 'unknown',
-          },
+          details: safeAppErrorDetails(response.getError()),
         });
         continue;
       }
+      const body = asObject(response.get());
+      if (body.ok === false) {
+        requestsFailed += 1;
+        ctx.logger.warn({
+          event: 'intelligence.ingest.provider_error',
+          details: safeFailureDiagnostics({
+            error: { code: body.error },
+            stage: 'response',
+            provider: 'slack',
+            durationMs: 0,
+          }),
+        });
+        continue;
+      }
+      requestsSucceeded += 1;
       const messages = asArray(body.messages);
       for (const rawMessage of messages) {
         const message = asObject(rawMessage);
@@ -62,7 +79,12 @@ export const slackAdapter: ProviderAdapter = {
         });
       }
     }
-    return Result.Ok({ sourceRecords, searchResults: [] });
+    return Result.Ok({
+      sourceRecords,
+      searchResults: [],
+      requestsSucceeded,
+      requestsFailed,
+    });
   },
 };
 
@@ -88,6 +110,8 @@ export const notionAdapter: ProviderAdapter = {
     if (!ctx.credential)
       return Result.Ok({ sourceRecords: [], searchResults: [] });
     const sourceRecords: SourceRecordWriteInput[] = [];
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
 
     for (const note of notesFor(ctx, 'notion')) {
       const response = await fetchJson(
@@ -100,7 +124,15 @@ export const notionAdapter: ProviderAdapter = {
           },
         }
       );
-      if (response.isError()) continue;
+      if (response.isError()) {
+        requestsFailed += 1;
+        ctx.logger.warn({
+          event: 'intelligence.ingest.provider_error',
+          details: safeAppErrorDetails(response.getError()),
+        });
+        continue;
+      }
+      requestsSucceeded += 1;
       const blocks = asArray(pick(response.get(), 'results'));
       const text = extractNotionText(blocks);
       if (!text) continue;
@@ -117,6 +149,11 @@ export const notionAdapter: ProviderAdapter = {
         metadata: { page: note.sourceRef },
       });
     }
-    return Result.Ok({ sourceRecords, searchResults: [] });
+    return Result.Ok({
+      sourceRecords,
+      searchResults: [],
+      requestsSucceeded,
+      requestsFailed,
+    });
   },
 };

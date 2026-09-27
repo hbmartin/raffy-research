@@ -20,6 +20,7 @@ export type * from './application/ports/provider-adapter';
 export type * from './application/ports/report-generator';
 export type * from './application/ports/report-repository';
 export type * from './application/ports/rubric-score-repository';
+export type * from './application/ports/scheduled-job-repository';
 export type * from './application/ports/source-repository';
 export type * from './application/ports/workspace-repository';
 export {
@@ -42,6 +43,7 @@ export * from './domain/provider';
 export * from './domain/report';
 export * from './domain/report-data';
 export * from './domain/rubric';
+export * from './domain/scheduled-job';
 export * from './domain/source';
 export { isSafeHttpUrl, normalizeHttpUrl } from './domain/url';
 export * from './domain/workspace';
