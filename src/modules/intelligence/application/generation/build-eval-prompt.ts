@@ -1,8 +1,15 @@
-import { UNTRUSTED_SOURCE_GUIDANCE } from './build-report-prompt';
+import {
+  truncateForPrompt,
+  UNTRUSTED_SOURCE_GUIDANCE,
+} from './build-report-prompt';
 import type { WeeklyReport } from '../../domain/report';
 import type { SourceRecord } from '../../domain/source';
 
-export const EVAL_PROMPT_VERSION = 'report-eval-v1';
+export const EVAL_PROMPT_VERSION = 'report-eval-v2';
+
+/** What the monolithic evaluator prompt shows of each source. */
+export const EVAL_CONTENT_LIMIT = 4000;
+export const EVAL_DIFF_ADDED_LIMIT = 1500;
 
 const renderSourceForEval = (source: SourceRecord) =>
   [
@@ -13,9 +20,11 @@ const renderSourceForEval = (source: SourceRecord) =>
     source.authorOrAccount ? `author: ${source.authorOrAccount}` : null,
     source.externalUrl ? `url: ${source.externalUrl}` : null,
     source.relevanceLabel ? `analyst_label: ${source.relevanceLabel}` : null,
-    source.contentText ? `content: ${source.contentText.slice(0, 4000)}` : null,
+    source.contentText
+      ? `content: ${truncateForPrompt(source.contentText, EVAL_CONTENT_LIMIT)}`
+      : null,
     source.diffAddedText
-      ? `added: ${source.diffAddedText.slice(0, 1500)}`
+      ? `added: ${truncateForPrompt(source.diffAddedText, EVAL_DIFF_ADDED_LIMIT)}`
       : null,
   ]
     .filter(Boolean)

@@ -10,10 +10,13 @@
  * supported should be reading the cited sources, not hunting for them among a
  * hundred others.
  */
-import { UNTRUSTED_SOURCE_GUIDANCE } from './build-report-prompt';
+import {
+  truncateForPrompt,
+  UNTRUSTED_SOURCE_GUIDANCE,
+} from './build-report-prompt';
 import type { SourceRecord } from '../../domain/source';
 
-export const JUDGE_PROMPT_VERSION = 'report-judge-v1';
+export const JUDGE_PROMPT_VERSION = 'report-judge-v2';
 
 /** Cited sources are read closely, so they keep a generous budget. */
 export const CLAIM_SUPPORT_CONTENT_LIMIT = 4000;
@@ -25,16 +28,21 @@ export const CLAIM_SUPPORT_CONTENT_LIMIT = 4000;
  */
 export const COVERAGE_CONTENT_LIMIT = 400;
 
+/** Titles are short; this only guards against a pathological one. */
+export const JUDGE_TITLE_LIMIT = 200;
+
 const JSON_ONLY = 'Return ONLY compact JSON. No prose outside the JSON.';
 
 const renderSource = (source: SourceRecord, contentLimit: number) =>
   [
     `id: ${source.id}`,
     `provider: ${source.providerName}`,
-    source.title ? `title: ${source.title.slice(0, 200)}` : null,
+    source.title
+      ? `title: ${truncateForPrompt(source.title, JUDGE_TITLE_LIMIT)}`
+      : null,
     source.relevanceLabel ? `analyst_label: ${source.relevanceLabel}` : null,
     source.contentText
-      ? `content: ${source.contentText.slice(0, contentLimit)}`
+      ? `content: ${truncateForPrompt(source.contentText, contentLimit)}`
       : null,
   ]
     .filter(Boolean)

@@ -304,7 +304,7 @@ sequenceDiagram
     H-->>UI: done {reportId, parsedVerdict}
 ```
 
-**The judge prompt** (`build-eval-prompt.ts`, version `report-eval-v1`) instructs the model to act as an adversarial evaluator, judge only what is verifiable from the provided source records, and explicitly not reward fluent writing. It embeds the same `UNTRUSTED_SOURCE_GUIDANCE` boundary as generation. Required output shape:
+**The judge prompt** (`build-eval-prompt.ts`, version `report-eval-v2`) instructs the model to act as an adversarial evaluator, judge only what is verifiable from the provided source records, and explicitly not reward fluent writing. It embeds the same `UNTRUSTED_SOURCE_GUIDANCE` boundary as generation. Required output shape:
 
 ```json
 {

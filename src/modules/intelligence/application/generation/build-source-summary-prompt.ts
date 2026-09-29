@@ -1,6 +1,7 @@
+import { truncateForPrompt } from './build-report-prompt';
 import type { SourceRecord } from '../../domain/source';
 
-export const SOURCE_SUMMARY_PROMPT_VERSION = 'local-source-summary-v1';
+export const SOURCE_SUMMARY_PROMPT_VERSION = 'local-source-summary-v2';
 
 /**
  * How much of a source the summarizer sees.
@@ -24,13 +25,13 @@ export function renderSourceForSummary(source: SourceRecord): string {
     source.authorOrAccount ? `author: ${source.authorOrAccount}` : null,
     source.externalUrl ? `url: ${source.externalUrl}` : null,
     source.contentText
-      ? `content: ${source.contentText.slice(0, SOURCE_SUMMARY_CONTENT_LIMIT)}`
+      ? `content: ${truncateForPrompt(source.contentText, SOURCE_SUMMARY_CONTENT_LIMIT)}`
       : null,
     source.diffAddedText
-      ? `added: ${source.diffAddedText.slice(0, SOURCE_SUMMARY_DIFF_ADDED_LIMIT)}`
+      ? `added: ${truncateForPrompt(source.diffAddedText, SOURCE_SUMMARY_DIFF_ADDED_LIMIT)}`
       : null,
     source.diffRemovedText
-      ? `removed: ${source.diffRemovedText.slice(0, SOURCE_SUMMARY_DIFF_REMOVED_LIMIT)}`
+      ? `removed: ${truncateForPrompt(source.diffRemovedText, SOURCE_SUMMARY_DIFF_REMOVED_LIMIT)}`
       : null,
   ]
     .filter(Boolean)
