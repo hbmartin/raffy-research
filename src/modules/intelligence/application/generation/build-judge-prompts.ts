@@ -11,6 +11,7 @@
  * hundred others.
  */
 import {
+  REPORT_PROMPT_BUDGETS,
   truncateForPrompt,
   UNTRUSTED_SOURCE_GUIDANCE,
 } from './build-report-prompt';
@@ -22,11 +23,23 @@ export const JUDGE_PROMPT_VERSION = 'report-judge-v2';
 export const CLAIM_SUPPORT_CONTENT_LIMIT = 4000;
 
 /**
- * Coverage only asks whether a signal was worth including, which a title and
- * opening lines answer. The whole source set has to fit alongside the report,
- * so the per-source budget is what keeps the prompt inside a local window.
+ * Exactly what the generator saw, by construction.
+ *
+ * Coverage asks whether a signal worth reporting was left out. Answering that
+ * on less of each source than the report's author read is incoherent: a signal
+ * sitting past the judge's budget but inside the generator's is invisible to
+ * the grader and visible to the graded. This sat at 400 against the
+ * generator's 600 because each prompt picked a budget that fit the window on
+ * its own, and nobody compared them.
+ *
+ * Deriving it removes the question. Measured on the committed 101-source case,
+ * coverage at 600 is ~22.5k tokens against qwen3:14b's 40,960 -- the same 55%
+ * the generator already occupies, so matching it costs nothing.
+ *
+ * claim_support keeps its own larger budget: it reads only the handful of
+ * cited sources, and reads them closely.
  */
-export const COVERAGE_CONTENT_LIMIT = 400;
+export const COVERAGE_CONTENT_LIMIT = REPORT_PROMPT_BUDGETS.sourceContent;
 
 /** Titles are short; this only guards against a pathological one. */
 export const JUDGE_TITLE_LIMIT = 200;

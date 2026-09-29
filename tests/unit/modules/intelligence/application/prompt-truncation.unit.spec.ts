@@ -119,6 +119,29 @@ const builders: [string, number, (source: SourceRecord) => string][] = [
   ],
 ];
 
+describe('judge and generator budgets', () => {
+  /**
+   * The coverage judge is asked whether the report missed a signal. If it
+   * reads less of each source than the generator did, a signal between the
+   * two budgets is visible to the author and invisible to its grader -- the
+   * judge cannot see what it is grading. Deriving one from the other makes
+   * that unrepresentable; this pins it so a future edit has to be deliberate.
+   */
+  it('shows the coverage judge exactly what the generator saw', () => {
+    expect(COVERAGE_CONTENT_LIMIT).toBe(REPORT_PROMPT_BUDGETS.sourceContent);
+  });
+
+  /**
+   * claim_support is deliberately the exception: it reads only cited sources,
+   * so it can afford to read them closely.
+   */
+  it('lets claim_support read cited sources more closely', () => {
+    expect(CLAIM_SUPPORT_CONTENT_LIMIT).toBeGreaterThan(
+      REPORT_PROMPT_BUDGETS.sourceContent
+    );
+  });
+});
+
 describe('prompt truncation', () => {
   it.each(builders)(
     '%s survives a UTF-8 round trip when its budget splits a surrogate pair',
