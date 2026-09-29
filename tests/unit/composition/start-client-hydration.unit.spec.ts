@@ -259,6 +259,46 @@ it('discards tentative import failures when departure is confirmed', async () =>
   expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
 });
 
+it('recovers a failed import when a download leaves the original document active', async () => {
+  vi.useFakeTimers();
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  view.dispatchEvent(new Event('beforeunload'));
+  view.dispatchEvent(new Event('pagehide'));
+  loading.reject(new Error('chunk failed during download'));
+  await hydration;
+
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  view.dispatchEvent(trustedInteraction('click'));
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+  await vi.runAllTimersAsync();
+  expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+});
+
+it('recovers an import failure after a provisional document is replaced', async () => {
+  vi.useFakeTimers();
+  const { document, view } = fixture();
+  const loading = Promise.withResolvers<never>();
+  const hydration = startClientHydration({
+    document,
+    loadHydrationModule: () => loading.promise,
+  });
+  view.document = {} as Document;
+  loading.reject(new Error('chunk failed during navigation'));
+  await hydration;
+
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  view.document = document;
+  view.dispatchEvent(trustedInteraction('click'));
+  await vi.advanceTimersByTimeAsync(2_000);
+  expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+});
+
 it('does not flush recovery for a document replaced during tentative departure', async () => {
   const { document, view } = fixture();
   const loading = Promise.withResolvers<never>();

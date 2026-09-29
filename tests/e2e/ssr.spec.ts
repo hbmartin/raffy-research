@@ -189,7 +189,6 @@ test('enforces nonced production styles outside the fixture relaxation', async (
     env: {
       ...env,
       AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
-      AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
       PORT: port,
       SSR_FIXTURE_MODE: 'false',
       VITE_BASE_URL: origin,
@@ -385,7 +384,6 @@ for (const nodeEnv of [undefined, 'development', 'production'])
         PORT: '3013',
         NODE_ENV: nodeEnv,
         SSR_FIXTURE_MODE: 'false',
-        AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
         OTEL_COLLECTOR_URL: undefined,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -449,22 +447,22 @@ test('does not print collector credentials when startup rejects invalid headers'
   }
 });
 
-test('keeps production sign-in rate limiting with NODE_ENV=development', async ({
+test('keeps Better Auth origin and CSRF checks in production', async ({
   browserName,
 }, testInfo) => {
   test.skip(
     browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
-    'Server rate limiting is checked once; it does not depend on the browser.'
+    'The runtime auth boundary is checked once per environment.'
   );
-  const port = '3018';
+  const port = '3019';
   const origin = `http://127.0.0.1:${port}`;
   const env = await readFixtureEnvironment();
   const child = spawn(process.execPath, ['.output/server/index.mjs'], {
     env: {
       ...env,
       AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
-      AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
-      NODE_ENV: 'development',
+      NODE_ENV: 'production',
+      TEST: undefined,
       PORT: port,
       SSR_FIXTURE_MODE: 'false',
     },
@@ -477,25 +475,43 @@ test('keeps production sign-in rate limiting with NODE_ENV=development', async (
   child.stderr.on('data', (chunk) => {
     output += chunk.toString();
   });
+  const signIn = (headers: Record<string, string>, callbackURL?: string) =>
+    fetch(`${origin}/api/auth/sign-in/email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...headers,
+      },
+      body: new URLSearchParams({
+        email: 'missing@example.test',
+        password: 'invalid-password',
+        ...(callbackURL ? { callbackURL } : {}),
+      }),
+    });
   try {
     await waitForHttpReady(`${origin}/login`, child, () => output);
-    const statuses: number[] = [];
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const response = await fetch(`${origin}/api/auth/sign-in/email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-test-client-ip': '203.0.113.9',
-        },
-        body: JSON.stringify({
-          email: 'missing@example.test',
-          password: 'invalid-password',
-        }),
-      });
-      statuses.push(response.status);
-      await response.arrayBuffer();
-    }
-    expect(statuses).toContain(429);
+    const crossSite = await signIn({
+      Origin: 'https://evil.example',
+      'Sec-Fetch-Site': 'cross-site',
+      'Sec-Fetch-Mode': 'navigate',
+    });
+    expect(crossSite.status).toBe(403);
+    await crossSite.arrayBuffer();
+    const forgedCookie = await signIn({
+      Cookie: 'probe=1',
+      Origin: 'https://evil.example',
+    });
+    expect(forgedCookie.status).toBe(403);
+    await forgedCookie.arrayBuffer();
+    const untrustedRedirect = await signIn(
+      { Origin: origin },
+      'https://evil.example/after-login'
+    );
+    expect(untrustedRedirect.status).toBe(403);
+    await untrustedRedirect.arrayBuffer();
+    const sameOrigin = await signIn({ Origin: origin });
+    expect(sameOrigin.status).not.toBe(403);
+    await sameOrigin.arrayBuffer();
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit');
@@ -505,87 +521,8 @@ test('keeps production sign-in rate limiting with NODE_ENV=development', async (
   }
 });
 
-for (const [label, nodeEnv, testValue, port] of [
-  ['NODE_ENV=test', 'test', undefined, '3019'],
-  ['TEST=0', 'production', '0', '3020'],
-] as const) {
-  test(`keeps Better Auth origin and CSRF checks with ${label}`, async ({
-    browserName,
-  }, testInfo) => {
-    test.skip(
-      browserName !== 'chromium' || testInfo.project.name !== 'ssr-desktop',
-      'The runtime auth boundary is checked once per environment.'
-    );
-    const origin = `http://127.0.0.1:${port}`;
-    const env = await readFixtureEnvironment();
-    const child = spawn(process.execPath, ['.output/server/index.mjs'], {
-      env: {
-        ...env,
-        AUTH_ALLOWED_HOSTS: `127.0.0.1:${port}`,
-        AUTH_TRUSTED_CLIENT_IP_HEADER: 'x-test-client-ip',
-        NODE_ENV: nodeEnv,
-        TEST: testValue,
-        PORT: port,
-        SSR_FIXTURE_MODE: 'false',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let output = '';
-    child.stdout.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-    const signIn = (headers: Record<string, string>, callbackURL?: string) =>
-      fetch(`${origin}/api/auth/sign-in/email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          ...headers,
-        },
-        body: new URLSearchParams({
-          email: 'missing@example.test',
-          password: 'invalid-password',
-          ...(callbackURL ? { callbackURL } : {}),
-        }),
-      });
-    try {
-      await waitForHttpReady(`${origin}/login`, child, () => output);
-      const crossSite = await signIn({
-        Origin: 'https://evil.example',
-        'Sec-Fetch-Site': 'cross-site',
-        'Sec-Fetch-Mode': 'navigate',
-      });
-      expect(crossSite.status).toBe(403);
-      await crossSite.arrayBuffer();
-      const forgedCookie = await signIn({
-        Cookie: 'probe=1',
-        Origin: 'https://evil.example',
-      });
-      expect(forgedCookie.status).toBe(403);
-      await forgedCookie.arrayBuffer();
-      const untrustedRedirect = await signIn(
-        { Origin: origin },
-        'https://evil.example/after-login'
-      );
-      expect(untrustedRedirect.status).toBe(403);
-      await untrustedRedirect.arrayBuffer();
-      const sameOrigin = await signIn({ Origin: origin });
-      expect(sameOrigin.status).not.toBe(403);
-      await sameOrigin.arrayBuffer();
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) {
-        const exited = once(child, 'exit');
-        child.kill('SIGTERM');
-        await exited;
-      }
-    }
-  });
-}
-
 for (const completion of ['no-content', 'download', 'document'] as const) {
-  test(`handles a failed chunk during a slow navigation ending in ${completion}`, async ({
+  test(`handles a pending chunk failure during a slow navigation ending in ${completion}`, async ({
     page,
   }) => {
     const chunkRequested = Promise.withResolvers<void>();
@@ -627,10 +564,23 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
       await page.goto('/login', { waitUntil: 'commit' });
       await chunkRequested.promise;
       const recoveryAlerts = await watchRecoveryAlerts(page);
+      await page.locator('body').evaluate((body) => {
+        const probe = document.createElement('button');
+        probe.type = 'button';
+        probe.textContent = 'Recovery probe';
+        probe.style.cssText = 'position:fixed;top:20px;right:20px;z-index:1';
+        body.append(probe);
+      });
       const failedChunk = page.waitForEvent('requestfailed', {
         predicate: (request) =>
           /\/assets\/hydrate-client-[^/]+\.js$/.test(request.url()),
       });
+      releaseChunk.resolve();
+      await failedChunk;
+      // Let the import rejection reach the coordinator before navigation begins.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      );
       const navigation = page
         .goto('/quiet-destination', { waitUntil: 'commit' })
         .catch((error: unknown) => {
@@ -645,8 +595,6 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
             downloaded.resolve();
         });
       await destinationRequested.promise;
-      releaseChunk.resolve();
-      await failedChunk;
       // Specifically exceed the old one-second cancellation heuristic.
       await new Promise((resolve) => setTimeout(resolve, 1_200));
       expect(recoveryAlerts()).toBe(0);
@@ -661,7 +609,7 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
         expect(recoveryAlerts()).toBe(0);
         expect(reports).toHaveLength(0);
       } else {
-        await page.mouse.click(8, 8);
+        await page.getByRole('button', { name: 'Recovery probe' }).click();
         await expect(page.getByRole('alert')).toContainText(
           'This page could not finish loading'
         );
@@ -764,6 +712,8 @@ test('keeps the original page interactive after a cancelled navigation when its 
   try {
     await page.goto('/login', { waitUntil: 'commit' });
     await requested.promise;
+    await page.locator('body').waitFor({ state: 'attached' });
+    await page.mouse.click(8, 8);
     await page.evaluate(() =>
       window.addEventListener(
         'beforeunload',

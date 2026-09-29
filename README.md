@@ -687,26 +687,13 @@ pnpm start    # node .output/server/index.mjs
 
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
 
-Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header
-only when `VERCEL=1` and a nonempty `VERCEL_REGION` are present at runtime.
-An explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence. Build preflight
-uses a separate internal validation phase that accepts `VERCEL=1` before a region
-exists; it neither enables runtime trust nor fills runtime configuration caches.
-There is no operator-facing build-phase environment variable.
-
 `pnpm build` applies `NODE_ENV=production` to all preparation and bundle steps;
 `pnpm start` applies it to the server. Vite owns `DEV`, `PROD`, and `VITE_*` in the
 artifact; runtime values own private configuration. Shared environment predicates
 prefer build flags and fall back to `NODE_ENV` in unbundled CLI tools. Directly
 launching a production artifact with absent or conflicting `NODE_ENV` therefore
 retains production validation and keeps the local-AI endpoint disabled.
-Self-hosted production requires `AUTH_TRUSTED_CLIENT_IP_HEADER` set to a dedicated
-header that the reverse proxy overwrites on every request; block direct access
-to the Nitro origin. `X-Forwarded-For` is not accepted as that trusted header.
-Setting `SKIP_ENV_VALIDATION=true` bypasses this startup requirement, but leaves
-Better Auth using one shared sign-in rate-limit bucket. A few abusive sign-in
-attempts can then temporarily lock out every user; production operators accept
-that risk when enabling the bypass.
+Better Auth request rate limiting is disabled in this app.
 
 Environment hint banner for non-production deploys:
 

@@ -11,17 +11,14 @@ type PendingFailure = {
   error: unknown;
   isCurrent: () => boolean;
   event: 'client.hydration_failed' | 'client.root_uncaught';
-  recorded: boolean;
-  noticeScheduled: boolean;
+  status: 'pending' | 'reported' | 'scheduled' | 'shown';
 };
 type Lifecycle = {
   tentativeDeparture: boolean;
   departed: boolean;
   committed: boolean;
   reloadRequested: boolean;
-  failures: PendingFailure[];
-  recordedErrors: Set<unknown>;
-  resume: () => void;
+  failures: Map<unknown, PendingFailure>;
 };
 const lifecycles = new WeakMap<Document, Lifecycle>();
 const coordinators = new WeakMap<Document, object>();
@@ -35,7 +32,43 @@ const reportFailure = (document: Document, failure: PendingFailure) => {
   if (failure.event === 'client.root_uncaught')
     reportRootFailure(document, failure.error, false);
   else reportHydrationFailure(document, failure.error, false);
-  failure.recorded = true;
+  failure.status = 'reported';
+};
+
+const resumeRecovery = (document: Document, state: Lifecycle) => {
+  if (
+    !ownsDocument(document) ||
+    state.departed ||
+    state.reloadRequested ||
+    document.visibilityState === 'hidden'
+  )
+    return;
+  state.tentativeDeparture = false;
+  for (const [error, failure] of state.failures) {
+    if (!failure.isCurrent()) {
+      state.failures.delete(error);
+      continue;
+    }
+    if (failure.status === 'pending') reportFailure(document, failure);
+    if (failure.status !== 'reported') continue;
+    failure.status = 'scheduled';
+    // Let a click finish before inserting a notice over its target.
+    setTimeout(() => {
+      if (
+        !ownsDocument(document) ||
+        !failure.isCurrent() ||
+        state.departed ||
+        state.reloadRequested ||
+        state.tentativeDeparture ||
+        document.visibilityState === 'hidden'
+      ) {
+        failure.status = 'reported';
+        return;
+      }
+      showClientRecovery(document, failure.event);
+      failure.status = 'shown';
+    }, 0);
+  }
 };
 
 const lifecycleFor = (document: Document): Lifecycle => {
@@ -46,42 +79,11 @@ const lifecycleFor = (document: Document): Lifecycle => {
     departed: false,
     committed: false,
     reloadRequested: false,
-    failures: [],
-    recordedErrors: new Set(),
-    resume: () => {},
+    failures: new Map(),
   };
   lifecycles.set(document, state);
   const view = document.defaultView;
-  const scheduleRecovery = (failure: PendingFailure) => {
-    if (failure.noticeScheduled) return;
-    failure.noticeScheduled = true;
-    setTimeout(() => {
-      failure.noticeScheduled = false;
-      if (
-        !ownsDocument(document) ||
-        !failure.isCurrent() ||
-        state.departed ||
-        state.reloadRequested ||
-        state.tentativeDeparture ||
-        document.visibilityState === 'hidden'
-      )
-        return;
-      showClientRecovery(document, failure.event);
-      state.failures = state.failures.filter((pending) => pending !== failure);
-    }, 0);
-  };
-  const resume = () => {
-    if (!ownsDocument(document) || state.departed || state.reloadRequested)
-      return;
-    if (document.visibilityState === 'hidden') return;
-    state.tentativeDeparture = false;
-    state.failures = state.failures.filter((failure) => failure.isCurrent());
-    for (const failure of state.failures) {
-      if (!failure.recorded) reportFailure(document, failure);
-      scheduleRecovery(failure);
-    }
-  };
-  state.resume = resume;
+  const resume = () => resumeRecovery(document, state);
   view?.addEventListener('beforeunload', () => {
     if (ownsDocument(document)) {
       state.tentativeDeparture = true;
@@ -91,8 +93,8 @@ const lifecycleFor = (document: Document): Lifecycle => {
     if (!ownsDocument(document)) return;
     state.departed = true;
     state.tentativeDeparture = false;
-    // An import canceled by a completed navigation is not an application error.
-    state.failures = state.failures.filter((failure) => failure.recorded);
+    // Keep uncertain imports until a trusted interaction proves this document
+    // survived the navigation (for example, because it became a download).
   });
   view?.addEventListener('pageshow', (event) => {
     if (!ownsDocument(document)) return;
@@ -119,9 +121,14 @@ const lifecycleFor = (document: Document): Lifecycle => {
   });
   const resumeOnInteraction = (event: Event) => {
     if (!event.isTrusted) return;
+    if (state.departed && ownsDocument(document)) state.departed = false;
     // An input event can still occur while a slow navigation is in flight.
     // Keep uncertain imports pending long enough for pagehide to settle it.
-    if (state.failures.some((failure) => !failure.recorded))
+    if (
+      [...state.failures.values()].some(
+        (failure) => failure.status === 'pending'
+      )
+    )
       setTimeout(resume, IMPORT_FAILURE_SETTLE_MS);
     else resume();
   };
@@ -150,32 +157,38 @@ export const handleClientHydrationFailure = (
   source: 'module_import' | 'hydrate_start' | 'root' = 'module_import'
 ) => {
   const state = lifecycleFor(document);
-  if (!ownsDocument(document) || !isCurrent() || state.reloadRequested) return;
-  if (source === 'module_import' && state.departed) return;
-  if (state.recordedErrors.has(error)) return;
-  state.recordedErrors.add(error);
+  // A provisional navigation can briefly replace WebKit's current document.
+  // Keep import failures pending until the original document either returns or
+  // is gone for good; application errors still require current ownership.
+  if (
+    (source !== 'module_import' && !ownsDocument(document)) ||
+    !isCurrent() ||
+    state.reloadRequested
+  )
+    return;
+  if (state.failures.has(error)) return;
   const failure: PendingFailure = {
     error,
     isCurrent,
-    recorded: false,
-    noticeScheduled: false,
+    status: 'pending',
     event:
       source === 'root' && state.committed
         ? 'client.root_uncaught'
         : 'client.hydration_failed',
   };
-  state.failures.push(failure);
+  state.failures.set(error, failure);
   // Import failures during departure may be canceled requests. Other failures
   // have reached application code and can be recorded even while leaving.
   if (source !== 'module_import') {
     reportFailure(document, failure);
-    if (!state.tentativeDeparture && !state.departed) state.resume();
+    if (!state.tentativeDeparture && !state.departed)
+      resumeRecovery(document, state);
   } else if (!state.tentativeDeparture && !state.departed) {
-    setTimeout(() => state.resume(), IMPORT_FAILURE_SETTLE_MS);
+    setTimeout(() => resumeRecovery(document, state), IMPORT_FAILURE_SETTLE_MS);
   }
 };
 
-export const startClientHydration = ({
+export const startClientHydration = async ({
   document,
   loadHydrationModule,
 }: {
@@ -186,21 +199,17 @@ export const startClientHydration = ({
   const token = {};
   coordinators.set(document, token);
   const isCurrent = () => coordinators.get(document) === token;
-  return loadHydrationModule().then(
-    ({ hydrateClient }) => {
-      if (isCurrent() && isInitialHydrationDocumentActive(document))
-        return Promise.resolve()
-          .then(() => hydrateClient(document))
-          .catch((error: unknown) =>
-            handleClientHydrationFailure(
-              document,
-              error,
-              isCurrent,
-              'hydrate_start'
-            )
-          );
-      return undefined;
-    },
-    (error: unknown) => handleClientHydrationFailure(document, error, isCurrent)
-  );
+  let module: HydrationModule;
+  try {
+    module = await loadHydrationModule();
+  } catch (error) {
+    handleClientHydrationFailure(document, error, isCurrent);
+    return;
+  }
+  if (!isCurrent() || !isInitialHydrationDocumentActive(document)) return;
+  try {
+    await module.hydrateClient(document);
+  } catch (error) {
+    handleClientHydrationFailure(document, error, isCurrent, 'hydrate_start');
+  }
 };
