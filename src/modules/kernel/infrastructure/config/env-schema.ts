@@ -1,34 +1,25 @@
-/* oxlint-disable no-process-env */
 import { join, map, pipe, unique } from 'remeda';
 import { z } from 'zod';
 
 import {
-  mergeRuntimeEnv,
+  isDevelopmentEnv,
+  isProductionEnv,
   type RuntimeEnv,
 } from '@/platform/env/merge-runtime-env';
+import { readRuntimeEnv } from '@/platform/env/runtime-env';
 
 import { ConfigurationError } from '../../domain/errors/configuration-error';
 
-const runtimeEnv = (): RuntimeEnv =>
-  mergeRuntimeEnv(
-    typeof process === 'undefined' ? {} : process.env,
-    (import.meta as ImportMeta & { env?: RuntimeEnv }).env
-  );
-
 const isTruthy = (value: unknown) => value === true || value === 'true';
 
-export const isProdRuntimeEnvironment = (source?: RuntimeEnv) => {
-  const env = source ?? runtimeEnv();
-  return env.NODE_ENV ? env.NODE_ENV === 'production' : isTruthy(env.PROD);
-};
+export const isProdRuntimeEnvironment = (source?: RuntimeEnv) =>
+  isProductionEnv(source ?? readRuntimeEnv());
 
-export const isDevRuntimeEnvironment = (source?: RuntimeEnv) => {
-  const env = source ?? runtimeEnv();
-  return env.NODE_ENV ? env.NODE_ENV === 'development' : isTruthy(env.DEV);
-};
+export const isDevRuntimeEnvironment = (source?: RuntimeEnv) =>
+  isDevelopmentEnv(source ?? readRuntimeEnv());
 
 export const shouldSkipEnvValidation = (source?: RuntimeEnv) => {
-  const env = source ?? runtimeEnv();
+  const env = source ?? readRuntimeEnv();
   return isTruthy(env.SKIP_ENV_VALIDATION);
 };
 
@@ -48,7 +39,7 @@ export function parseEnv<TSchema extends z.ZodType>(
   schema: TSchema,
   source?: Record<string, unknown>
 ): z.infer<TSchema> {
-  const result = schema.safeParse(source ?? runtimeEnv());
+  const result = schema.safeParse(source ?? readRuntimeEnv());
   if (result.success) return result.data;
 
   const issues = pipe(

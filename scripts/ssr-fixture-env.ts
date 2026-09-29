@@ -136,13 +136,21 @@ const validateRuntimeOutput = async (root: string) => {
   let metadata: unknown;
   try {
     metadata = JSON.parse(contents);
-  } catch {
-    throw missingBuildOutput();
+  } catch (cause) {
+    throw new Error(
+      'Malformed SSR metadata in .output/nitro.json: expected a JSON object.',
+      { cause }
+    );
   }
-  if (!metadata || typeof metadata !== 'object') throw missingBuildOutput();
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))
+    throw new Error(
+      'Malformed SSR metadata in .output/nitro.json: expected a JSON object.'
+    );
   const { serverEntry, publicDir } = metadata as Record<string, unknown>;
   if (serverEntry !== 'server/index.mjs' || publicDir !== 'public')
-    throw missingBuildOutput();
+    throw new Error(
+      `Unsupported Nitro output layout: expected serverEntry="server/index.mjs" and publicDir="public"; observed serverEntry=${JSON.stringify(serverEntry)} and publicDir=${JSON.stringify(publicDir)}.`
+    );
   try {
     if (!(await stat(resolve(root, serverEntry))).isFile())
       throw missingRuntimeEntry();
@@ -152,9 +160,10 @@ const validateRuntimeOutput = async (root: string) => {
   }
   try {
     if (!(await stat(resolve(root, publicDir))).isDirectory())
-      throw missingBuildOutput();
+      throw new Error('Missing SSR public directory .output/public.');
   } catch (error) {
-    if (isMissingPathError(error)) throw missingBuildOutput();
+    if (isMissingPathError(error))
+      throw new Error('Missing SSR public directory .output/public.');
     throw error;
   }
 };

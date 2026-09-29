@@ -36,9 +36,26 @@ export type SentryLike = {
 };
 
 type SentryEventLike = {
+  request?: { method?: string; url?: string };
+  user?: { id?: string | number; segment?: string; role?: string };
   contexts?: Record<string, unknown>;
   extra?: Record<string, unknown>;
   tags?: Record<string, unknown>;
+};
+
+const safeRequestUrl = (value: string | undefined) => {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 };
 
 const toStringTags = (tags: unknown): Record<string, string> | undefined => {
@@ -62,6 +79,19 @@ export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
 
   return {
     ...event,
+    ...(event.request && {
+      request: {
+        method: event.request.method,
+        url: safeRequestUrl(event.request.url),
+      },
+    }),
+    ...(event.user && {
+      user: {
+        id: event.user.id,
+        segment: event.user.segment,
+        role: event.user.role,
+      },
+    }),
     contexts: sanitized.contexts as Record<string, unknown>,
     extra: sanitized.extra as Record<string, unknown>,
     tags: toStringTags(sanitized.tags),

@@ -25,6 +25,7 @@ const testAliases = [
 ];
 
 export default defineConfig({
+  envDir: false,
   plugins: [react()],
   test: {
     coverage: {
@@ -35,6 +36,7 @@ export default defineConfig({
     },
     projects: [
       {
+        envDir: false,
         optimizeDeps: {
           include: [
             '@base-ui/react/merge-props',
@@ -68,6 +70,7 @@ export default defineConfig({
         },
       },
       {
+        envDir: false,
         test: {
           name: 'unit',
           environment: 'node',
@@ -86,6 +89,7 @@ export default defineConfig({
         },
       },
       {
+        envDir: false,
         test: {
           name: 'integration',
           environment: 'node',

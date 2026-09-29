@@ -3,10 +3,14 @@ import { sentryTanstackStart } from '@sentry/tanstackstart-react/vite';
 import { devtools } from '@tanstack/devtools-vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact, { reactCompilerPreset } from '@vitejs/plugin-react';
+import { createNitro } from 'nitro/builder';
+import type { NitroConfig } from 'nitro/types';
 import { nitro } from 'nitro/vite';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+import { productionBuildMarker } from './scripts/vite-build-marker';
 
 function srcJsonImportPlugin(): Plugin {
   return {
@@ -66,7 +70,7 @@ function srcJsonImportPlugin(): Plugin {
   };
 }
 
-export default defineConfig(({ mode, command }) => {
+export default defineConfig(async ({ mode, command }) => {
   // Load env file based on `mode` in the current working directory.
   const envDirectory = process.env.SSR_FIXTURE_ENV_DIR ?? process.cwd();
   const env = loadEnv(mode, envDirectory, 'VITE_');
@@ -93,14 +97,24 @@ export default defineConfig(({ mode, command }) => {
           release: { create: true, finalize: true },
         })
       : [];
+  const nitroConfig: NitroConfig = {
+    plugins: ['./src/composition/telemetry/bootstrap.ts'],
+    // These packages are loaded dynamically at runtime, so Nitro cannot
+    // discover them from static imports when tracing Vercel functions.
+    traceDeps: ['@sentry/core*', 'ws*'],
+  };
+  // Nitro independently loads root .env files, even when Vite uses an empty
+  // fixture envDir. Supply its supported preinitialized instance so fixture
+  // builds keep the same isolated environment throughout both bundlers.
+  const fixtureNitro = process.env.SSR_FIXTURE_ENV_DIR
+    ? await createNitro(
+        { ...nitroConfig, builder: 'vite', dev: command === 'serve' },
+        { dotenv: false }
+      )
+    : undefined;
 
   return {
     envDir: envDirectory,
-    define: {
-      'import.meta.env.RAFFY_PRODUCTION_BUILD': JSON.stringify(
-        command === 'build'
-      ),
-    },
     build: {
       target: 'baseline-widely-available',
     },
@@ -115,14 +129,13 @@ export default defineConfig(({ mode, command }) => {
     // in development; prebundling it would retain server-only Node imports.
     optimizeDeps: { exclude: ['@tanstack/start-client-core'] },
     plugins: [
+      productionBuildMarker(),
       ...(isTestRuntime ? [] : devtools()),
       srcJsonImportPlugin(),
       tanstackStart(),
       nitro({
-        plugins: ['./src/composition/telemetry/bootstrap.ts'],
-        // These packages are loaded dynamically at runtime, so Nitro cannot
-        // discover them from static imports when tracing Vercel functions.
-        traceDeps: ['@sentry/core*', 'ws*'],
+        ...nitroConfig,
+        _nitro: fixtureNitro,
       }),
       // react's vite plugin must come after start's vite plugin
       viteReact(),

@@ -10,6 +10,76 @@ const reporter = () => ({
 });
 
 describe('error-only server entry', () => {
+  it.each([false, true])(
+    'finishes an unconsumed HEAD body even when flush rejects: %s',
+    async (rejectFlush) => {
+      const report = reporter();
+      if (rejectFlush)
+        report.flush.mockRejectedValue(new Error('collector unavailable'));
+      const close = vi.fn();
+      const cancel = vi.fn();
+      const pull = vi.fn();
+      const fetch = createErrorOnlyFetch(
+        async () =>
+          new Response(
+            new ReadableStream({ pull, cancel }, { highWaterMark: 0 }),
+            {
+              status: 202,
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': '42',
+                'x-test': 'preserved',
+              },
+            }
+          ),
+        report,
+        undefined,
+        close
+      );
+      const response = await fetch(
+        new Request('https://app.example', { method: 'HEAD' }),
+        { context: { requestId: 'head-test' } }
+      );
+      expect(response.body).toBeNull();
+      expect(response.status).toBe(202);
+      expect(response.headers.get('Content-Length')).toBe('42');
+      expect(response.headers.get('x-test')).toBe('preserved');
+      expect(pull).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(report.flush).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('flushes HEAD cancellation failures without changing the HTTP response', async () => {
+    const report = reporter();
+    const close = vi.fn();
+    const error = new Error('cancel failed');
+    const fetch = createErrorOnlyFetch(
+      async () =>
+        new Response(
+          new ReadableStream({
+            cancel() {
+              throw error;
+            },
+          })
+        ),
+      report,
+      undefined,
+      close
+    );
+    const response = await fetch(
+      new Request('https://app.example', { method: 'HEAD' }),
+      { context: { requestId: 'head-test' } }
+    );
+    expect(response.body).toBeNull();
+    expect(report.captureException).toHaveBeenCalledWith(
+      error,
+      expect.anything()
+    );
+    expect(report.flush).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
   it('preserves HTML bytes and headers without injecting trace metadata', async () => {
     const report = reporter();
     const html = '<html><head></head><body>hello</body></html>';

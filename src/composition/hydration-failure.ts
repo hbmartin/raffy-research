@@ -7,7 +7,6 @@ const reportClientFailure = (
   document: Document,
   error: unknown,
   event: 'client.hydration_failed' | 'client.root_uncaught',
-  noticeTitle: string,
   showRecovery: boolean
 ) => {
   const view = document.defaultView;
@@ -29,14 +28,25 @@ const reportClientFailure = (
     // The recovery control still works when flushing fails.
   });
 
-  if (!showRecovery) return;
+  if (showRecovery) showClientRecovery(document, event);
+};
+
+export const showClientRecovery = (
+  document: Document,
+  event: 'client.hydration_failed' | 'client.root_uncaught'
+) => {
+  const view = document.defaultView;
+  if (view?.document !== document) return;
   if (document.getElementById('hydration-failure')) return;
   const notice = document.createElement('aside');
   notice.id = 'hydration-failure';
   notice.className = 'hydration-failure';
   notice.setAttribute('role', 'alert');
   const title = document.createElement('h2');
-  title.textContent = noticeTitle;
+  title.textContent =
+    event === 'client.hydration_failed'
+      ? 'This page could not finish loading'
+      : 'This page encountered an error';
   const explanation = document.createElement('p');
   explanation.textContent = 'Reload the page to try again.';
   const reload = document.createElement('button');
@@ -47,25 +57,16 @@ const reportClientFailure = (
   document.body?.prepend(notice);
 };
 
-export const reportHydrationFailure = (document: Document, error: unknown) => {
-  reportClientFailure(
-    document,
-    error,
-    'client.hydration_failed',
-    'This page could not finish loading',
-    true
-  );
+export const reportHydrationFailure = (
+  document: Document,
+  error: unknown,
+  showRecovery = true
+) => {
+  reportClientFailure(document, error, 'client.hydration_failed', showRecovery);
 };
 
 export const reportRootFailure = (
   document: Document,
   error: unknown,
   showRecovery: boolean
-) =>
-  reportClientFailure(
-    document,
-    error,
-    'client.root_uncaught',
-    'This page encountered an error',
-    showRecovery
-  );
+) => reportClientFailure(document, error, 'client.root_uncaught', showRecovery);

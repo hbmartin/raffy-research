@@ -49,15 +49,18 @@ function assertMigrationDriver(
   }
 }
 
-export function getDatabaseConfig(): DatabaseConfig {
-  if (cachedDatabaseConfig) return cachedDatabaseConfig;
+export function getDatabaseConfig(
+  source?: Record<string, unknown>
+): DatabaseConfig {
+  if (!source && cachedDatabaseConfig) return cachedDatabaseConfig;
 
-  const env = parseEnv(databaseEnvSchema);
-  cachedDatabaseConfig = {
+  const env = parseEnv(databaseEnvSchema, source);
+  const config: DatabaseConfig = {
     databaseUrl: env.DATABASE_URL,
     driver: env.DATABASE_DRIVER,
   };
-  return cachedDatabaseConfig;
+  if (!source) cachedDatabaseConfig = config;
+  return config;
 }
 
 export function isLikelyTransactionPooledDatabaseUrl(url: string): boolean {

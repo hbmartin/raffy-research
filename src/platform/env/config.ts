@@ -1,20 +1,11 @@
-/* oxlint-disable no-process-env */
 import { z } from 'zod';
 
-import { mergeRuntimeEnv, type RuntimeEnv } from './merge-runtime-env';
-
-const runtimeEnv = (): RuntimeEnv =>
-  mergeRuntimeEnv(
-    typeof process === 'undefined' ? {} : process.env,
-    import.meta.env
-  );
+import { isDevelopmentEnv, type RuntimeEnv } from './merge-runtime-env';
+import { readRuntimeEnv } from './runtime-env';
 
 const isTruthy = (value: unknown) => value === true || value === 'true';
 
-const isDev = () => {
-  const env = runtimeEnv();
-  return env.NODE_ENV ? env.NODE_ENV === 'development' : isTruthy(env.DEV);
-};
+const isDev = () => isDevelopmentEnv(readRuntimeEnv());
 
 export const isDevEnvironment = isDev;
 
@@ -87,7 +78,7 @@ let cachedClientEnv: EnvClient | undefined;
 
 export function getEnvClient(): EnvClient {
   if (cachedClientEnv) return cachedClientEnv;
-  const raw = runtimeEnv();
+  const raw = readRuntimeEnv();
   cachedClientEnv = clientSchema().parse({
     ...raw,
     VITE_BASE_URL: getBaseUrl(raw),

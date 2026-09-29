@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConfigEnv, UserConfig } from 'vite';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   babel: vi.fn(() => ({ name: 'babel' })),
   clientEnv: {} as Record<string, string>,
+  createNitro: vi.fn(async () => ({ name: 'isolated-nitro' })),
   devtools: vi.fn(() => [{ name: 'devtools' }]),
   loadEnv: vi.fn(),
   nitro: vi.fn(() => ({ name: 'nitro' })),
@@ -25,6 +27,7 @@ vi.mock('@vitejs/plugin-react', () => ({
   reactCompilerPreset: () => 'react-compiler-preset',
 }));
 vi.mock('nitro/vite', () => ({ nitro: mocks.nitro }));
+vi.mock('nitro/builder', () => ({ createNitro: mocks.createNitro }));
 vi.mock('vite', () => ({
   defineConfig: (config: unknown) => config,
   loadEnv: mocks.loadEnv,
@@ -32,14 +35,13 @@ vi.mock('vite', () => ({
 
 import viteConfig from '../../../vite.config';
 
-type ConfigFactory = (input: { mode: string }) => {
-  plugins: Array<{ name?: string }>;
-};
+type ConfigFactory = (input: ConfigEnv) => Promise<UserConfig>;
 
 const createConfig = viteConfig as unknown as ConfigFactory;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('SSR_FIXTURE_ENV_DIR', undefined);
   for (const key of Object.keys(mocks.clientEnv)) delete mocks.clientEnv[key];
   for (const key of Object.keys(mocks.privateEnv)) delete mocks.privateEnv[key];
   mocks.loadEnv.mockImplementation(
@@ -47,26 +49,27 @@ beforeEach(() => {
       prefix === 'VITE_' ? mocks.clientEnv : mocks.privateEnv
   );
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe('Vite Sentry upload configuration', () => {
-  it('omits the upload plugin when any private credential is missing', () => {
+  it('omits the upload plugin when any private credential is missing', async () => {
     mocks.clientEnv.VITE_SENTRY_DSN = 'https://public@sentry.example/1';
     mocks.privateEnv.SENTRY_ORG = 'example-org';
     mocks.privateEnv.SENTRY_PROJECT = 'example-project';
 
-    const config = createConfig({ mode: 'production' });
+    const config = await createConfig({ mode: 'production', command: 'build' });
 
     expect(mocks.sentry).not.toHaveBeenCalled();
     expect(config.plugins).not.toContainEqual({ name: 'sentry-upload' });
   });
 
-  it('enables upload with a narrowed, unconditional configuration', () => {
+  it('enables upload with a narrowed, unconditional configuration', async () => {
     mocks.clientEnv.VITE_SENTRY_DSN = 'https://public@sentry.example/1';
     mocks.privateEnv.SENTRY_AUTH_TOKEN = 'sentry-token';
     mocks.privateEnv.SENTRY_ORG = 'example-org';
     mocks.privateEnv.SENTRY_PROJECT = 'example-project';
 
-    const config = createConfig({ mode: 'production' });
+    const config = await createConfig({ mode: 'production', command: 'build' });
 
     expect(mocks.sentry).toHaveBeenCalledWith({
       authToken: 'sentry-token',
@@ -79,4 +82,21 @@ describe('Vite Sentry upload configuration', () => {
     });
     expect(config.plugins).toContainEqual({ name: 'sentry-upload' });
   });
+});
+
+it('isolates the fixture from both Vite and Nitro dotenv loading', async () => {
+  vi.stubEnv('SSR_FIXTURE_ENV_DIR', '/fixture-env');
+  await createConfig({ mode: 'staging', command: 'build' });
+  expect(mocks.loadEnv).toHaveBeenCalledWith(
+    'staging',
+    '/fixture-env',
+    'VITE_'
+  );
+  expect(mocks.createNitro).toHaveBeenCalledWith(
+    expect.objectContaining({ builder: 'vite', dev: false }),
+    { dotenv: false }
+  );
+  expect(mocks.nitro).toHaveBeenCalledWith(
+    expect.objectContaining({ _nitro: { name: 'isolated-nitro' } })
+  );
 });

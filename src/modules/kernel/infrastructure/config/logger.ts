@@ -20,14 +20,17 @@ export type LoggerConfig = {
 
 let cachedLoggerConfig: LoggerConfig | undefined;
 
-export function getLoggerConfig(): LoggerConfig {
-  if (cachedLoggerConfig) return cachedLoggerConfig;
+export function getLoggerConfig(
+  source?: Record<string, unknown>
+): LoggerConfig {
+  if (!source && cachedLoggerConfig) return cachedLoggerConfig;
 
-  const env = parseEnv(loggerEnvSchema);
+  const env = parseEnv(loggerEnvSchema, source);
   const isProd = isProdRuntimeEnvironment(env);
-  cachedLoggerConfig = {
+  const config: LoggerConfig = {
     level: env.LOGGER_LEVEL ?? (isProd ? 'error' : 'info'),
     pretty: env.LOGGER_PRETTY ?? !isProd,
   };
-  return cachedLoggerConfig;
+  if (!source) cachedLoggerConfig = config;
+  return config;
 }

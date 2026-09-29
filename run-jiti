@@ -1,0 +1,13 @@
+import { createJiti } from 'jiti';
+import { resolve } from 'node:path';
+
+const script = process.argv.splice(2, 1)[0];
+if (!script) throw new Error('Usage: node run-jiti <script> [arguments]');
+
+const root = import.meta.dirname;
+const jiti = createJiti(import.meta.url, {
+  alias: { '@': resolve(root, 'src'), '@tests': resolve(root, 'tests') },
+  jsx: true,
+});
+process.argv[1] = resolve(script);
+await jiti.import(process.argv[1]);

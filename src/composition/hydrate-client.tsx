@@ -3,11 +3,10 @@ import { hydrateStart } from '@tanstack/start-client-core/client';
 import { startTransition, StrictMode } from 'react';
 import { hydrateRoot } from 'react-dom/client';
 
-import { reportHydrationFailure, reportRootFailure } from './hydration-failure';
+import { HydrationCommit } from './hydration-commit';
 import {
-  hasInitialHydrationCommitted,
+  handleClientHydrationFailure,
   isInitialHydrationDocumentActive,
-  shouldReportInitialHydrationFailure,
 } from './start-client-hydration';
 import { captureStartHydrationOwner } from './start-hydration-compat';
 
@@ -17,28 +16,27 @@ export const hydrateClient = async (document: Document) => {
   try {
     router = await hydrateStart();
   } catch (error) {
-    if (
-      (await shouldReportInitialHydrationFailure(document)) &&
-      owner.isCurrent()
-    )
-      reportHydrationFailure(document, error);
+    handleClientHydrationFailure(document, error, owner.isCurrent);
     return;
   }
-  if (!owner.isCurrent()) return;
+  if (!owner.isCurrent() || !isInitialHydrationDocumentActive(document)) return;
   owner.signal();
   startTransition(() => {
     hydrateRoot(
       document,
       <StrictMode>
-        <RouterProvider router={router} />
+        <HydrationCommit document={document} isCurrent={owner.isCurrent}>
+          <RouterProvider router={router} />
+        </HydrationCommit>
       </StrictMode>,
       {
         onUncaughtError: (error) => {
-          if (!isInitialHydrationDocumentActive(document) || !owner.isCurrent())
-            return;
-          if (hasInitialHydrationCommitted(document))
-            reportRootFailure(document, error, true);
-          else reportHydrationFailure(document, error);
+          handleClientHydrationFailure(
+            document,
+            error,
+            owner.isCurrent,
+            'root'
+          );
         },
       }
     );

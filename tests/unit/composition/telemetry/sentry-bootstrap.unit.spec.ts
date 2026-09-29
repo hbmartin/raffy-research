@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { sentryDataCollection } from '@/composition/telemetry/sentry-data-collection';
+
 const mocks = vi.hoisted(() => ({
   defaults: vi.fn(() => [
     { name: 'Http' },
@@ -47,6 +49,7 @@ describe('early Sentry server bootstrap', () => {
       ],
       dsn: 'https://public@sentry.example/1',
       environment: 'production',
+      dataCollection: sentryDataCollection,
       enableOpenTelemetrySetup: false,
       tracesSampleRate: null,
     });

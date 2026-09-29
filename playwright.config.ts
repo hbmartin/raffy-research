@@ -68,7 +68,7 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm e2e:webserver',
+    command: 'node scripts/serve-e2e-dev.mjs',
     url: process.env.VITE_BASE_URL,
     reuseExistingServer: false,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { sentryDataCollection } from '@/composition/telemetry/sentry-data-collection';
+
 const sentryMocks = vi.hoisted(() => ({
   browserTracingIntegration: vi.fn(() => 'browser-tracing'),
   init: vi.fn(),
@@ -60,7 +62,7 @@ describe('Sentry telemetry composition', () => {
       expect.objectContaining({
         beforeSend: expect.any(Function),
         integrations: [],
-        sendDefaultPii: false,
+        dataCollection: sentryDataCollection,
         tracesSampleRate: null,
         tunnel: '/api/telemetry/sentry-tunnel',
       })
