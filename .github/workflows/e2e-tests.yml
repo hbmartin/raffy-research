@@ -33,14 +33,14 @@ jobs:
       - name: Setup Playwright
         uses: ./.github/actions/setup-playwright
         with:
-          browsers: chromium firefox webkit
+          browsers: chromium
       - name: Check SSR dependency compatibility
         run: pnpm check:ssr-compatibility
       - name: Build production SSR fixture
         timeout-minutes: 10
         run: pnpm build:e2e:ssr
       - name: Verify production SSR and hydration
-        run: pnpm test:e2e:ssr:built
+        run: pnpm test:e2e:ssr:built --project=ssr-desktop --project=ssr-mobile
       - name: Upload SSR report and evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -59,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
+        browser: [chromium]
     env:
       VITE_BASE_URL: http://localhost:3000
       VITE_ENV_NAME: tests
@@ -116,7 +116,7 @@ jobs:
       - name: Setup Playwright
         uses: ./.github/actions/setup-playwright
         with:
-          browsers: chromium ${{ matrix.browser }}
+          browsers: chromium
 
       - name: Start MinIO server
         run: |

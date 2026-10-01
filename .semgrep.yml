@@ -335,7 +335,6 @@ rules:
         - src/platform/env/**
         - '*.config.ts'
         - '*.config.mjs'
-        - '*.cosmos.ts'
         - 'vite.*.ts'
         - vite.config.*
         - drizzle.config.*
@@ -876,7 +875,7 @@ rules:
         - '**/*.test.ts'
 
   - id: no-console-in-production-source
-    message: Use frontendLogger or the backend logger; console.* is allowed only in tests, fixtures, scripts, and localhost/debug diagnostics.
+    message: Use frontendLogger or the backend logger; console.* is allowed only in tests, scripts, and localhost/debug diagnostics.
     languages: [typescript]
     severity: ERROR
     pattern-regex: '\bconsole\.(?:assert|clear|count|countReset|debug|dir|dirxml|error|group|groupCollapsed|groupEnd|info|log|table|time|timeEnd|timeLog|trace|warn)\s*\('
@@ -885,7 +884,6 @@ rules:
         - src/**/*.ts
         - src/**/*.tsx
       exclude:
-        - '**/*.fixture.tsx'
         - '**/*.unit.spec.ts'
         - '**/*.unit.test.ts'
         - '**/*.browser.spec.tsx'

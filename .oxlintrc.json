@@ -145,7 +145,6 @@
     {
       "files": [
         "src/routes/**/*.*",
-        "**/*.fixture.*",
         "**/*.unit.spec.*",
         "**/*.unit.test.*",
         "**/*.browser.spec.*",
