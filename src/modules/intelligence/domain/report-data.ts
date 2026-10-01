@@ -1,3 +1,4 @@
+import { flatMap, pipe } from 'remeda';
 import { z } from 'zod';
 
 import { isSafeHttpUrl, normalizeHttpUrl } from './url';
@@ -300,13 +301,64 @@ export type Contradiction = z.infer<typeof zContradiction>;
 export type GeneratedReportData = z.infer<typeof zGeneratedReportData>;
 export type ReportData = z.infer<typeof zReportData>;
 
+export type ReportValidationDiagnostic = { path: string; code: string };
+
+const diagnosticFields = new Set(
+  pipe(
+    [
+      zReportData,
+      zExecutiveSummary,
+      zEvidenceItem,
+      zInterestingItem,
+      zContradiction,
+      zTopicCluster,
+      zTopicCluster.shape.labels,
+      zCompetitorWatchItem,
+      zSuggestedCompetitor,
+      zMarketQuestion,
+      zPossibleLead,
+      zSocialProductFeedback,
+      zSourceLibraryItem,
+    ],
+    flatMap((schema) => Object.keys(schema.shape))
+  )
+);
+
+function validationDiagnostics(
+  issues: ReadonlyArray<{ path: readonly PropertyKey[]; code: string }>
+): ReportValidationDiagnostic[] {
+  return issues.slice(0, 20).map((issue) => ({
+    path:
+      issue.path
+        .slice(0, 12)
+        .map((part) =>
+          typeof part === 'number' && Number.isSafeInteger(part) && part >= 0
+            ? String(part)
+            : typeof part === 'string' && diagnosticFields.has(part)
+              ? part
+              : '<unknown>'
+        )
+        .join('.')
+        .slice(0, 128) || '<root>',
+    code: issue.code,
+  }));
+}
+
 export type GeneratedReportDataValidation =
   | { type: 'generated_report_data_valid'; data: GeneratedReportData }
-  | { type: 'generated_report_data_invalid'; issues: string[] };
+  | {
+      type: 'generated_report_data_invalid';
+      issues: string[];
+      diagnostics: ReportValidationDiagnostic[];
+    };
 
 export type ReportDataValidation =
   | { type: 'report_data_valid'; data: ReportData }
-  | { type: 'report_data_invalid'; issues: string[] };
+  | {
+      type: 'report_data_invalid';
+      issues: string[];
+      diagnostics: ReportValidationDiagnostic[];
+    };
 
 const formatZodIssues = (
   issues: ReadonlyArray<{ path: readonly PropertyKey[]; message: string }>
@@ -334,6 +386,9 @@ export function validateGeneratedReportData(
   }
   return {
     type: 'generated_report_data_invalid',
+    diagnostics: result.success
+      ? []
+      : validationDiagnostics(result.error.issues),
     issues: mergeIssues(
       result.success ? [] : formatZodIssues(result.error.issues),
       forbiddenIssues
@@ -350,6 +405,9 @@ export function validateReportData(input: unknown): ReportDataValidation {
   }
   return {
     type: 'report_data_invalid',
+    diagnostics: result.success
+      ? []
+      : validationDiagnostics(result.error.issues),
     issues: mergeIssues(
       result.success ? [] : formatZodIssues(result.error.issues),
       forbiddenIssues
@@ -397,7 +455,11 @@ export function parseGeneratedReportJson(
 ): GeneratedReportDataValidation {
   const parsed = parseJsonText(text);
   if (parsed.type === 'json_invalid') {
-    return { type: 'generated_report_data_invalid', issues: parsed.issues };
+    return {
+      type: 'generated_report_data_invalid',
+      issues: parsed.issues,
+      diagnostics: [{ path: '<root>', code: 'invalid_json' }],
+    };
   }
   return validateGeneratedReportData(parsed.value);
 }
@@ -439,7 +501,11 @@ export function collectCitedSourceIds(reportData: unknown): string[] {
 export function parseReportJson(text: string): ReportDataValidation {
   const parsed = parseJsonText(text);
   if (parsed.type === 'json_invalid') {
-    return { type: 'report_data_invalid', issues: parsed.issues };
+    return {
+      type: 'report_data_invalid',
+      issues: parsed.issues,
+      diagnostics: [{ path: '<root>', code: 'invalid_json' }],
+    };
   }
   return validateReportData(parsed.value);
 }

@@ -72,9 +72,7 @@ export function registerAiSdkTelemetry(): void {
           'openinference.span.kind': 'LLM',
           'llm.model_name': String(event.modelId ?? ''),
           'llm.provider': String(event.provider ?? ''),
-          'input.value': promptText(
-            event as unknown as Record<string, unknown>
-          ),
+          'input.value': promptText(event),
           'input.mime_type': 'text/plain',
         },
       });

@@ -1,4 +1,5 @@
 {
+  "exclude": ["node_modules", ".output", "test-results", "playwright-report"],
   "compilerOptions": {
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",

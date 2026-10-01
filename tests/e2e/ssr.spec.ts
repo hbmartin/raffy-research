@@ -595,8 +595,8 @@ for (const completion of ['no-content', 'download', 'document'] as const) {
             downloaded.resolve();
         });
       await destinationRequested.promise;
-      // Specifically exceed the old one-second cancellation heuristic.
-      await new Promise((resolve) => setTimeout(resolve, 1_200));
+      // Exceed the import settling delay while navigation remains pending.
+      await new Promise((resolve) => setTimeout(resolve, 3_200));
       expect(recoveryAlerts()).toBe(0);
       expect(reports).toHaveLength(0);
       releaseDestination.resolve();
@@ -745,4 +745,95 @@ test('keeps the original page interactive after a cancelled navigation when its 
   } finally {
     release.resolve();
   }
+});
+
+test('keeps recovery suppressed through Enter activation and a slow destination', async ({
+  page,
+}) => {
+  const chunkRequested = Promise.withResolvers<void>();
+  const releaseChunk = Promise.withResolvers<void>();
+  const destinationRequested = Promise.withResolvers<void>();
+  const releaseDestination = Promise.withResolvers<void>();
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+    chunkRequested.resolve();
+    await releaseChunk.promise;
+    await route.abort('failed').catch(() => undefined);
+  });
+  await page.route('**/keyboard-destination', async (route) => {
+    destinationRequested.resolve();
+    await releaseDestination.promise;
+    await route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body>Keyboard destination</body></html>',
+    });
+  });
+  try {
+    await page.goto('/login', { waitUntil: 'commit' });
+    await chunkRequested.promise;
+    const recoveryAlerts = await watchRecoveryAlerts(page);
+    await page.evaluate(() => {
+      const link = document.createElement('a');
+      link.id = 'keyboard-destination-link';
+      link.href = '/keyboard-destination';
+      link.textContent = 'Keyboard destination';
+      document.body.append(link);
+      link.focus();
+    });
+    releaseChunk.resolve();
+    await page.evaluate(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+    );
+    await page.keyboard.down('Enter');
+    await destinationRequested.promise;
+    await page.keyboard.up('Enter');
+    await new Promise((resolve) => setTimeout(resolve, 3_200));
+    expect(recoveryAlerts()).toBe(0);
+    expect(reports).toHaveLength(0);
+    releaseDestination.resolve();
+    await expect(
+      page.getByText('Keyboard destination', { exact: true })
+    ).toBeVisible();
+    expect(recoveryAlerts()).toBe(0);
+    expect(reports).toHaveLength(0);
+  } finally {
+    releaseChunk.resolve();
+    releaseDestination.resolve();
+  }
+});
+
+test('recovers an initially hidden document when visibility returns', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () =>
+        document.documentElement?.dataset.testVisibility === 'visible'
+          ? 'visible'
+          : 'hidden',
+    });
+  });
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, (route) =>
+    route.abort('failed')
+  );
+  await page.goto('/login', { waitUntil: 'load' });
+  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  expect(reports).toHaveLength(0);
+  await expect(page.locator('#hydration-failure')).toHaveCount(0);
+  await page.evaluate(() => {
+    document.documentElement.dataset.testVisibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('#hydration-failure')).toBeVisible();
+  await expect.poll(() => reports.length).toBeGreaterThan(0);
 });

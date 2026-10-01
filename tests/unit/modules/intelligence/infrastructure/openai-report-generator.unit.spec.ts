@@ -4,7 +4,10 @@ const mocks = vi.hoisted(() => ({
   generateText: vi.fn(),
 }));
 
-vi.mock('ai', () => ({ generateText: mocks.generateText }));
+vi.mock('ai', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('ai')>()),
+  generateText: mocks.generateText,
+}));
 vi.mock('@ai-sdk/openai', () => ({ createOpenAI: () => () => ({}) }));
 vi.mock('@/modules/intelligence/infrastructure/config/runtime', () => ({
   getOpenAiConfig: () => ({ apiKey: 'sk-secret-fake-123', model: 'gpt-4.1' }),
@@ -51,4 +54,50 @@ describe('OpenAI report diagnostics', () => {
       expect(error.cause).toBeUndefined();
     }
   );
+});
+
+it.each([401, 429])(
+  'extracts real AI SDK HTTP %i diagnostics',
+  async (statusCode) => {
+    const { APICallError, RetryError } = await import('ai');
+    const apiError = new APICallError({
+      message: 'raw sk-secret-fake-123',
+      url: 'https://example.com/private',
+      requestBodyValues: { prompt: 'private' },
+      statusCode,
+      responseHeaders: { 'x-request-id': 'req_real123' },
+      responseBody: 'sk-secret-fake-123',
+    });
+    const error =
+      statusCode === 429
+        ? new RetryError({
+            message: 'retry failed',
+            reason: 'maxRetriesExceeded',
+            errors: [apiError],
+          })
+        : apiError;
+    mocks.generateText.mockRejectedValueOnce(error);
+    const result = await createOpenAiReportGenerator().generate({
+      prompt: 'private',
+    });
+    if (result.isOk()) throw new Error('Expected failure');
+    expect(result.getError().details).toMatchObject({
+      upstreamStatus: statusCode,
+      requestId: 'req_real123',
+      errorType: 'AI_APICallError',
+    });
+    expect(JSON.stringify(result.getError())).not.toMatch(
+      /private|sk-secret-fake-123/
+    );
+  }
+);
+
+it('bounds error unwrapping and terminates cyclic causes', async () => {
+  const cyclic = new Error('raw secret');
+  cyclic.cause = cyclic;
+  mocks.generateText.mockRejectedValueOnce(cyclic);
+  const result = await createOpenAiReportGenerator().generate({
+    prompt: 'private',
+  });
+  expect(result.isError()).toBe(true);
 });

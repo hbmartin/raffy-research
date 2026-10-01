@@ -40,6 +40,7 @@ test('owns the real first React commit under Strict Mode and resumes recovery on
   );
   expect(mocks.recovery).not.toHaveBeenCalled();
   await page.getByRole('button', { name: 'Resume' }).click();
+  await expect.poll(() => mocks.recovery.mock.calls.length).toBe(1);
   expect(mocks.recovery).toHaveBeenCalledExactlyOnceWith(
     document,
     'client.root_uncaught'

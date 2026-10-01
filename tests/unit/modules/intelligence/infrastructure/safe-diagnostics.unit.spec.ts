@@ -105,3 +105,26 @@ describe('safe provider diagnostics', () => {
     });
   });
 });
+
+it.each(['token_revoked', 'token_expired'])(
+  'retains harmless provider code %s',
+  (code) => {
+    const details = safeFailureDiagnostics({
+      error: { code },
+      provider: 'slack',
+      stage: 'http',
+      durationMs: 1,
+    });
+    expect(details.errorCode).toBe(code);
+    expect(
+      safeAppErrorDetails(
+        new AppError({
+          code: 'PROVIDER_ERROR',
+          category: 'system',
+          status: 502,
+          details,
+        })
+      ).errorCode
+    ).toBe(code);
+  }
+);

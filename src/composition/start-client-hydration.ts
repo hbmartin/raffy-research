@@ -15,6 +15,10 @@ type PendingFailure = {
 };
 type Lifecycle = {
   tentativeDeparture: boolean;
+  hidden: boolean;
+  blurred: boolean;
+  departureVersion: number;
+  importSettlementUntil: number;
   departed: boolean;
   committed: boolean;
   reloadRequested: boolean;
@@ -22,8 +26,7 @@ type Lifecycle = {
 };
 const lifecycles = new WeakMap<Document, Lifecycle>();
 const coordinators = new WeakMap<Document, object>();
-// WebKit can withhold beforeunload until a slow document response commits.
-// Give that navigation time to reach pagehide before classifying an import error.
+// Settle active-document imports without treating elapsed time as navigation cancellation.
 const IMPORT_FAILURE_SETTLE_MS = 2_000;
 const ownsDocument = (document: Document) =>
   document.defaultView?.document === document;
@@ -39,17 +42,20 @@ const resumeRecovery = (document: Document, state: Lifecycle) => {
   if (
     !ownsDocument(document) ||
     state.departed ||
+    state.tentativeDeparture ||
     state.reloadRequested ||
     document.visibilityState === 'hidden'
   )
     return;
-  state.tentativeDeparture = false;
   for (const [error, failure] of state.failures) {
     if (!failure.isCurrent()) {
       state.failures.delete(error);
       continue;
     }
-    if (failure.status === 'pending') reportFailure(document, failure);
+    if (failure.status === 'pending') {
+      if (Date.now() < state.importSettlementUntil) continue;
+      reportFailure(document, failure);
+    }
     if (failure.status !== 'reported') continue;
     failure.status = 'scheduled';
     // Let a click finish before inserting a notice over its target.
@@ -76,6 +82,10 @@ const lifecycleFor = (document: Document): Lifecycle => {
   if (existing) return existing;
   const state: Lifecycle = {
     tentativeDeparture: false,
+    hidden: document.visibilityState === 'hidden',
+    blurred: false,
+    departureVersion: 0,
+    importSettlementUntil: 0,
     departed: false,
     committed: false,
     reloadRequested: false,
@@ -84,58 +94,104 @@ const lifecycleFor = (document: Document): Lifecycle => {
   lifecycles.set(document, state);
   const view = document.defaultView;
   const resume = () => resumeRecovery(document, state);
+  const returnToDocument = (settleImports = false) => {
+    if (
+      !ownsDocument(document) ||
+      state.reloadRequested ||
+      document.visibilityState === 'hidden'
+    )
+      return;
+    state.tentativeDeparture = false;
+    state.departed = false;
+    state.importSettlementUntil = settleImports
+      ? Date.now() + IMPORT_FAILURE_SETTLE_MS
+      : 0;
+    resume();
+    if (settleImports) setTimeout(resume, IMPORT_FAILURE_SETTLE_MS);
+  };
+  const markDeparture = () => {
+    state.tentativeDeparture = true;
+    state.departureVersion += 1;
+  };
   view?.addEventListener('beforeunload', () => {
-    if (ownsDocument(document)) {
-      state.tentativeDeparture = true;
-    }
+    if (ownsDocument(document)) markDeparture();
   });
   view?.addEventListener('pagehide', () => {
     if (!ownsDocument(document)) return;
+    markDeparture();
     state.departed = true;
-    state.tentativeDeparture = false;
-    // Keep uncertain imports until a trusted interaction proves this document
-    // survived the navigation (for example, because it became a download).
+    // Retain uncertain imports for a later interaction if this document survives.
   });
   view?.addEventListener('pageshow', (event) => {
-    if (!ownsDocument(document)) return;
-    if (event.persisted) {
-      state.departed = false;
-      if (!state.committed && !state.reloadRequested) {
-        state.reloadRequested = true;
-        view.location.reload();
-      }
-    }
-    if (event.persisted || state.tentativeDeparture) resume();
+    if (!ownsDocument(document) || !event.persisted) return;
+    state.departed = false;
+    state.tentativeDeparture = false;
+    if (!state.committed && !state.reloadRequested) {
+      state.reloadRequested = true;
+      view.location.reload();
+    } else resume();
+  });
+  view?.addEventListener('blur', () => {
+    state.blurred = true;
   });
   view?.addEventListener('focus', () => {
-    if (state.tentativeDeparture) resume();
+    const returning = state.blurred;
+    state.blurred = false;
+    if (returning) returnToDocument();
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      state.tentativeDeparture = true;
-    } else if (
-      document.visibilityState === 'visible' &&
-      state.tentativeDeparture
-    )
-      resume();
+    const wasHidden = state.hidden;
+    state.hidden = document.visibilityState === 'hidden';
+    if (wasHidden && !state.hidden) returnToDocument();
   });
   const resumeOnInteraction = (event: Event) => {
-    if (!event.isTrusted) return;
-    if (state.departed && ownsDocument(document)) state.departed = false;
-    // An input event can still occur while a slow navigation is in flight.
-    // Keep uncertain imports pending long enough for pagehide to settle it.
+    if (!event.isTrusted || !ownsDocument(document)) return;
+    // Activation keys can start navigation before their corresponding keyup.
+    const activationKey =
+      event.type === 'keydown' &&
+      ['Enter', ' ', 'Spacebar'].includes((event as KeyboardEvent).key);
+    const target = event.target;
+    const element =
+      target && 'nodeType' in target && target.nodeType === 1
+        ? (target as Element)
+        : null;
+    const activation = element?.closest('a[href], area[href], button, input');
     if (
-      [...state.failures.values()].some(
-        (failure) => failure.status === 'pending'
+      (event.type === 'click' || activationKey) &&
+      activation?.matches('a[href], area[href]')
+    ) {
+      // WebKit can delay beforeunload until the destination response arrives.
+      markDeparture();
+      return;
+    }
+    if (
+      (event.type === 'click' || activationKey) &&
+      activation?.matches('button, input') &&
+      (activation as HTMLButtonElement).type === 'submit' &&
+      activation.closest('form')
+    ) {
+      markDeparture();
+      return;
+    }
+    if (activationKey) {
+      if ((event as KeyboardEvent).key === 'Enter' && element?.closest('form'))
+        markDeparture();
+      return;
+    }
+    const departureVersion = state.departureVersion;
+    const coordinator = coordinators.get(document);
+    // Let the interaction and its default action finish before changing recovery.
+    setTimeout(() => {
+      if (
+        state.departureVersion !== departureVersion ||
+        coordinators.get(document) !== coordinator
       )
-    )
-      setTimeout(resume, IMPORT_FAILURE_SETTLE_MS);
-    else resume();
+        return;
+      returnToDocument(true);
+    }, 0);
   };
-  // Click includes assistive-technology activation. Delaying recovery until a
-  // later task lets the activating event finish before the overlay is inserted.
   view?.addEventListener('click', resumeOnInteraction, { capture: true });
-  view?.addEventListener('keyup', resumeOnInteraction, { capture: true });
+  view?.addEventListener('keydown', resumeOnInteraction, { capture: true });
   return state;
 };
 

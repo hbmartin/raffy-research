@@ -1,6 +1,7 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { match } from 'ts-pattern';
 
 import {
   PageLayout,
@@ -641,62 +642,66 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
               </p>
             ) : (
               <ol className="flex flex-col gap-2 text-sm">
-                {scheduledJobs.map(({ run, workspace: outcome }) => (
-                  <li key={run.id} className="min-w-0 rounded-md border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">
-                        {run.kind === 'daily_ingest'
-                          ? 'Daily ingestion'
-                          : 'Weekly reports'}{' '}
-                        ·{' '}
-                        <time
-                          dateTime={run.startedAt.toISOString()}
-                          suppressHydrationWarning
+                {scheduledJobs.map(({ run, workspace: outcome }) => {
+                  const status = outcome?.status ?? run.status;
+                  return (
+                    <li key={run.id} className="min-w-0 rounded-md border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium">
+                          {run.kind === 'daily_ingest'
+                            ? 'Daily ingestion'
+                            : 'Weekly reports'}{' '}
+                          ·{' '}
+                          <time
+                            dateTime={run.startedAt.toISOString()}
+                            suppressHydrationWarning
+                          >
+                            {run.startedAt.toLocaleString()}
+                          </time>
+                        </span>
+                        <Badge
+                          variant={match(status)
+                            .with('succeeded', () => 'positive' as const)
+                            .with('partial', () => 'warning' as const)
+                            .with('failed', () => 'negative' as const)
+                            .with(
+                              'started',
+                              'skipped',
+                              () => 'secondary' as const
+                            )
+                            .exhaustive()}
+                          size="sm"
                         >
-                          {run.startedAt.toLocaleString()}
-                        </time>
-                      </span>
-                      <Badge
-                        variant={
-                          run.status === 'succeeded'
-                            ? 'positive'
-                            : run.status === 'started'
-                              ? 'secondary'
-                              : run.status === 'partial'
-                                ? 'warning'
-                                : 'negative'
-                        }
-                        size="sm"
-                      >
-                        {outcome?.status ?? run.status}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-xs break-all text-muted-foreground">
-                      Run {run.id}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {outcome
-                        ? `${outcome.succeeded} succeeded · ${outcome.partial} partial · ${outcome.failed} failed · ${outcome.skipped} skipped · ${outcome.items} items`
-                        : `Failed before workspace processing · ${run.failureCode ?? 'unknown failure'}`}
-                    </p>
-                    {outcome?.failureCode ? (
-                      <p className="mt-1 text-xs text-destructive">
-                        {outcome.failureCode}
+                          {status}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs break-all text-muted-foreground">
+                        Run {run.id}
                       </p>
-                    ) : null}
-                    {outcome?.reportId ? (
-                      <Link
-                        to="/app/reports/$reportId"
-                        params={{
-                          reportId: toWeeklyReportId(outcome.reportId),
-                        }}
-                        className="mt-1 inline-block text-xs underline"
-                      >
-                        View report
-                      </Link>
-                    ) : null}
-                  </li>
-                ))}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {outcome
+                          ? `${outcome.succeeded} succeeded · ${outcome.partial} partial · ${outcome.failed} failed · ${outcome.skipped} skipped · ${outcome.items} items`
+                          : `Failed before workspace processing · ${run.failureCode ?? 'unknown failure'}`}
+                      </p>
+                      {outcome?.failureCode ? (
+                        <p className="mt-1 text-xs text-destructive">
+                          {outcome.failureCode}
+                        </p>
+                      ) : null}
+                      {outcome?.reportId ? (
+                        <Link
+                          to="/app/reports/$reportId"
+                          params={{
+                            reportId: toWeeklyReportId(outcome.reportId),
+                          }}
+                          className="mt-1 inline-block text-xs underline"
+                        >
+                          View report
+                        </Link>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </Section>

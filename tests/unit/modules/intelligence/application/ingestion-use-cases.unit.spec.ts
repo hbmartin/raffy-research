@@ -447,12 +447,21 @@ describe('ingestion use cases', () => {
     const result = await runWorkspaceIngest(deps, { workspaceId, now });
     if (result.isError()) throw result.getError();
     expect(result.get()).toMatchObject({
-      providersPartial: 1,
-      providersFailed: 0,
+      providersPartial: 0,
+      providersFailed: 1,
     });
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'intelligence.ingestion.persistence_failed',
+        details: expect.objectContaining({
+          stage: 'source_record',
+          errorCode: 'SOURCE_WRITE_FAILED',
+        }),
+      })
+    );
     expect(finishRun).toHaveBeenCalledWith(
       ingestionRun.id,
-      expect.objectContaining({ status: 'partial', itemsIngested: 0 })
+      expect.objectContaining({ status: 'failed', itemsIngested: 0 })
     );
   });
 
@@ -465,5 +474,57 @@ describe('ingestion use cases', () => {
       providersFailed: 0,
       requestsFailed: 0,
     });
+  });
+  it('retains partial persisted work and continues to the next provider', async () => {
+    const deps = makeDeps();
+    const configs =
+      await deps.workspaceRepository.listProviderConfigs(workspaceId);
+    if (configs.isError()) throw configs.getError();
+    deps.workspaceRepository.listProviderConfigs = vi.fn(async () =>
+      Result.Ok([...configs.get(), ...configs.get()])
+    );
+    deps.sourceRepository.createSourceRecord = vi
+      .fn()
+      .mockResolvedValueOnce(Result.Ok(sourceRecord))
+      .mockResolvedValueOnce(Result.Error(appError('SOURCE_WRITE_FAILED')));
+    const ingest = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Result.Ok({
+          sourceRecords: [sourceRecord, sourceRecord],
+          searchResults: [],
+          requestsSucceeded: 1,
+          requestsFailed: 0,
+        })
+      )
+      .mockResolvedValueOnce(
+        Result.Ok({
+          sourceRecords: [],
+          searchResults: [],
+          requestsSucceeded: 1,
+          requestsFailed: 0,
+        })
+      );
+    deps.registry.get = vi.fn(() => ({
+      name: 'awario' as const,
+      isConfigured: () => true,
+      runDailyIngest: ingest,
+    }));
+    const result = await runWorkspaceIngest(deps, { workspaceId, now });
+    if (result.isError()) throw result.getError();
+    expect(result.get()).toMatchObject({
+      providersPartial: 1,
+      providersRun: 1,
+      providersFailed: 0,
+      sourceRecords: 1,
+      requestsSucceeded: 2,
+      requestsFailed: 0,
+    });
+    expect(deps.ingestionRepository.finishRun).toHaveBeenNthCalledWith(
+      1,
+      ingestionRun.id,
+      expect.objectContaining({ status: 'partial', itemsIngested: 1 })
+    );
+    expect(ingest).toHaveBeenCalledTimes(2);
   });
 });

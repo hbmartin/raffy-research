@@ -15,6 +15,8 @@ test.describe('Manager scheduled jobs', () => {
     });
     const partialId = randomUUID();
     const globalId = randomUUID();
+    const succeededId = randomUUID();
+    const skippedId = randomUUID();
     await client.connect();
     try {
       const { rows } = await client.query<{ id: string }>(
@@ -48,6 +50,27 @@ test.describe('Manager scheduled jobs', () => {
         ]
       );
 
+      for (const [id, status] of [
+        [succeededId, 'succeeded'],
+        [skippedId, 'skipped'],
+      ] as const) {
+        await client.query(
+          'insert into "scheduledJobRun" ("id", "kind", "status", "startedAt", "finishedAt", "total", "succeeded", "failed") values ($1, $2, $3, $4, $4, 2, 1, 1)',
+          [id, 'weekly_reports', 'partial', '2026-06-04T15:00:00.000Z']
+        );
+        await client.query(
+          'insert into "scheduledJobWorkspaceRun" ("id", "jobRunId", "workspaceId", "status", "startedAt", "finishedAt", "succeeded", "skipped", "items") values ($1, $2, $3, $4, $5, $5, $6, $7, $6)',
+          [
+            randomUUID(),
+            id,
+            workspaceId,
+            status,
+            '2026-06-04T15:00:00.000Z',
+            Number(status === 'succeeded'),
+            Number(status === 'skipped'),
+          ]
+        );
+      }
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.to('/manager/workspaces');
       await page.getByRole('link', { name: /Aperture Dental Cloud/ }).click();
@@ -57,7 +80,24 @@ test.describe('Manager scheduled jobs', () => {
         page.getByText('Failed before workspace processing')
       ).toBeVisible();
       await expect(page.getByText('PROVIDER_REQUEST_FAILED')).toBeVisible();
+      await expect(
+        page
+          .locator('li')
+          .filter({ hasText: succeededId })
+          .getByText('succeeded', { exact: true })
+      ).toHaveAttribute('data-variant', 'positive');
+      await expect(
+        page
+          .locator('li')
+          .filter({ hasText: skippedId })
+          .getByText('skipped', { exact: true })
+      ).toHaveAttribute('data-variant', 'secondary');
       await heading.scrollIntoViewIfNeeded();
+      await heading
+        .locator('xpath=ancestor::*[@data-slot="card"][1]')
+        .screenshot({
+          path: 'test-results/task-verification/2026-10-01-job-recovery-fixes/jobs-badges.png',
+        });
       await page.screenshot({
         path: 'test-results/scheduled-jobs-desktop.png',
         fullPage: true,
@@ -77,8 +117,8 @@ test.describe('Manager scheduled jobs', () => {
       });
     } finally {
       await client.query(
-        'delete from "scheduledJobRun" where "id" in ($1, $2)',
-        [partialId, globalId]
+        'delete from "scheduledJobRun" where "id" in ($1, $2, $3, $4)',
+        [partialId, globalId, succeededId, skippedId]
       );
       await client.end();
     }
