@@ -105,16 +105,55 @@ export const signalUrl = (
   return `${base}/v1/${signal}`;
 };
 
-const createResource = (config: ReturnType<typeof getTelemetryConfig>) =>
+/**
+ * Which Phoenix project a span is filed under.
+ *
+ * Phoenix buckets traces by project and defaults everything to `default` when
+ * nothing says otherwise -- so a production request and a local eval run land
+ * in one undifferentiated pile, told apart only by timestamp.
+ *
+ * The name is derived rather than configured, so the split exists without
+ * anyone remembering to set it: the service plus the environment, or plus the
+ * caller's role when a process is not the application (the eval CLI's model
+ * calls are experiments, not traffic). PHOENIX_PROJECT_NAME overrides both,
+ * for deliberately pinning everything to one project.
+ */
+export const resolvePhoenixProjectName = (
+  config: ReturnType<typeof getTelemetryConfig>,
+  role?: string
+): string =>
+  config.phoenixProjectName ??
+  [config.serviceName, role ?? config.otelEnvironment]
+    .filter(Boolean)
+    .join('-');
+
+/** OpenInference's project attribute; Phoenix reads it off the resource. */
+const ATTR_OPENINFERENCE_PROJECT_NAME = 'openinference.project.name';
+
+const createResource = (
+  config: ReturnType<typeof getTelemetryConfig>,
+  role?: string
+) =>
   resourceFromAttributes({
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: config.otelEnvironment,
     [ATTR_SERVICE_NAME]: config.serviceName,
     ...(config.serviceVersion
       ? { [ATTR_SERVICE_VERSION]: config.serviceVersion }
       : {}),
+    ...(config.phoenixCollectorUrl
+      ? {
+          [ATTR_OPENINFERENCE_PROJECT_NAME]: resolvePhoenixProjectName(
+            config,
+            role
+          ),
+        }
+      : {}),
   });
 
-export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
+export const initOpenTelemetryServer = (options?: {
+  /** Names this process's Phoenix project when it is not the application. */
+  role?: string;
+}): TelemetryAdapter | undefined => {
   if (state !== 'new') return adapter;
 
   // Configuration errors are deliberately outside the SDK failure boundary.
@@ -148,7 +187,7 @@ export const initOpenTelemetryServer = (): TelemetryAdapter | undefined => {
       return undefined;
     }
 
-    const resource = createResource(config);
+    const resource = createResource(config, options?.role);
     tracerProvider = new NodeTracerProvider({
       resource,
       sampler: new ParentBasedSampler({

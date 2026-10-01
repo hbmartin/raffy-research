@@ -15,7 +15,10 @@ import {
 import { log } from './log';
 
 export function startCliTelemetry(): void {
-  const adapter = initOpenTelemetryServer();
+  // Eval runs are experiments, not application traffic. Filing them under
+  // their own Phoenix project keeps a comparison run from being read as
+  // production behaviour, and keeps either one legible on its own.
+  const adapter = initOpenTelemetryServer({ role: 'evals' });
   if (!adapter) {
     log('Telemetry is not configured; model calls will not be traced');
   }

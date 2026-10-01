@@ -35,6 +35,7 @@ const telemetryEnvSchema = baseEnvSchema.extend({
   TELEMETRY_LOG_MAX_EVENTS: z.coerce.number().int().positive().optional(),
   PHOENIX_COLLECTOR_URL: z.string().url().optional(),
   PHOENIX_API_KEY: z.string().optional(),
+  PHOENIX_PROJECT_NAME: z.string().min(1).optional(),
 });
 
 export type TelemetryConfig = {
@@ -60,6 +61,8 @@ export type TelemetryConfig = {
   logMaxEvents: number;
   phoenixCollectorUrl?: string;
   phoenixApiKey?: string;
+  /** Pins every span to one Phoenix project; otherwise the name is derived. */
+  phoenixProjectName?: string;
 };
 
 export type SentryServerConfig = Pick<
@@ -302,5 +305,6 @@ function buildTelemetryConfig(
     logMaxEvents: env.TELEMETRY_LOG_MAX_EVENTS ?? 50,
     phoenixCollectorUrl: env.PHOENIX_COLLECTOR_URL,
     phoenixApiKey: env.PHOENIX_API_KEY,
+    phoenixProjectName: env.PHOENIX_PROJECT_NAME,
   };
 }
