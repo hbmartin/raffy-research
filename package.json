@@ -152,7 +152,7 @@
     "@ai-sdk/openai": "^4.0.74",
     "@arizeai/phoenix-client": "^7.14.0",
     "@base-ui/react": "1.8.0",
-    "@bearstudio/ui-state": "1.1.0",
+    "@bearstudio/ui-state": "2.0.0",
     "@better-upload/client": "3.0.19",
     "@better-upload/server": "3.0.19",
     "@fontsource-variable/inter": "5.3.0",
