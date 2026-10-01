@@ -2,6 +2,7 @@ import { createPgliteTestDatabase } from '@tests/server/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  createIngestionRepository,
   createScheduledJobRepository,
   intelligenceDrizzleSchema,
 } from '@/modules/intelligence/testing';
@@ -103,5 +104,43 @@ describe('scheduled job history repository', () => {
       status: 'partial',
       items: 5,
     });
+  });
+  it('reports finalization of a missing run as a history failure', async () => {
+    const repository = createScheduledJobRepository({ db: database.db });
+    const result = await repository.finish({
+      id: 'missing',
+      status: 'failed',
+      finishedAt: later,
+      total: 0,
+      succeeded: 0,
+      partial: 0,
+      failed: 0,
+      skipped: 0,
+      items: 0,
+      failureCode: 'UNEXPECTED_ERROR',
+    });
+    expect(result.isError() && result.getError().code).toBe(
+      'SCHEDULED_JOB_FINISH_MISSING'
+    );
+  });
+
+  it('allows unlinked ingestion when no scheduled history parent exists', async () => {
+    const repository = createIngestionRepository({ db: database.db });
+    const linked = await repository.startRun({
+      workspaceId,
+      providerName: 'awario',
+      runType: 'daily',
+      status: 'started',
+      scheduledJobRunId: 'missing',
+    });
+    expect(linked.isError()).toBe(true);
+    const unlinked = await repository.startRun({
+      workspaceId,
+      providerName: 'awario',
+      runType: 'daily',
+      status: 'started',
+    });
+    if (unlinked.isError()) throw unlinked.getError();
+    expect(unlinked.get().scheduledJobRunId).toBeNull();
   });
 });

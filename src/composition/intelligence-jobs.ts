@@ -1,12 +1,18 @@
+import { Result } from '@swan-io/boxed';
 import { randomUUID } from 'node:crypto';
+import { match, P } from 'ts-pattern';
 
 import {
+  type DailyIngestRunSummary,
   generateWeeklyReport,
   handleProviderCallback,
   type IngestionDeps,
+  type JobHistoryStatus,
   runWorkspaceIngest,
+  type ScheduledJobKind,
   type ScheduledJobStatus,
   type WeeklyReportGenerationDeps,
+  type WeeklyReportsRunSummary,
   type WorkspaceJobStatus,
 } from '@/modules/intelligence';
 import {
@@ -19,6 +25,7 @@ import {
   getProviderWebhookSecret,
 } from '@/modules/intelligence/backend';
 import { toWorkspaceId } from '@/modules/kernel';
+import type { ApplicationResult } from '@/modules/kernel/application/result';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
 import { getIntelligenceRepositories } from './intelligence';
@@ -69,30 +76,39 @@ function logCompletion(event: string, details: Record<string, unknown>) {
   getKernel().logger.info({ event, details });
 }
 
-async function beginRun(
-  id: string,
-  kind: 'daily_ingest' | 'weekly_reports',
-  now: Date
+export type {
+  DailyIngestRunSummary,
+  WeeklyReportsRunSummary,
+} from '@/modules/intelligence';
+
+async function writeHistory(
+  details: Record<string, unknown>,
+  write: () => Promise<ApplicationResult<unknown>>
 ): Promise<boolean> {
-  const started =
-    await getIntelligenceRepositories().scheduledJobRepository.start({
+  try {
+    const result = await write();
+    if (result.isOk()) return true;
+    getKernel().logger.error({
+      event: 'intelligence.scheduled_job.history_failed',
+      details: { ...details, errorCode: result.getError().code },
+    });
+  } catch {
+    getKernel().logger.error({
+      event: 'intelligence.scheduled_job.history_failed',
+      details: { ...details, errorCode: 'UNEXPECTED_ERROR' },
+    });
+  }
+  return false;
+}
+
+async function beginRun(id: string, kind: ScheduledJobKind, now: Date) {
+  return writeHistory({ runId: id, kind, stage: 'start' }, () =>
+    getIntelligenceRepositories().scheduledJobRepository.start({
       id,
       kind,
       startedAt: now,
-    });
-  if (started.isError()) {
-    getKernel().logger.error({
-      event: 'intelligence.scheduled_job.history_failed',
-      details: {
-        runId: id,
-        kind,
-        stage: 'start',
-        errorCode: started.getError().code,
-      },
-    });
-    return false;
-  }
-  return true;
+    })
+  );
 }
 
 async function finishRun(input: {
@@ -105,24 +121,13 @@ async function finishRun(input: {
   skipped: number;
   items: number;
   failureCode: string | null;
-}): Promise<boolean> {
-  const result =
-    await getIntelligenceRepositories().scheduledJobRepository.finish({
+}) {
+  return writeHistory({ runId: input.id, stage: 'finish' }, () =>
+    getIntelligenceRepositories().scheduledJobRepository.finish({
       ...input,
       finishedAt: new Date(),
-    });
-  if (result.isError()) {
-    getKernel().logger.error({
-      event: 'intelligence.scheduled_job.history_failed',
-      details: {
-        runId: input.id,
-        stage: 'finish',
-        errorCode: result.getError().code,
-      },
-    });
-    return false;
-  }
-  return true;
+    })
+  );
 }
 
 type WorkspaceStep = {
@@ -136,105 +141,90 @@ type WorkspaceStep = {
   failureCode: string | null;
   reportId: string | null;
 };
+type RecordedWorkspaceStep = {
+  step: WorkspaceStep;
+  historyStatus: JobHistoryStatus;
+};
+
+const failedStep = (failureCode: string): WorkspaceStep => ({
+  status: 'failed',
+  succeeded: 0,
+  partial: 0,
+  failed: 1,
+  skipped: 0,
+  items: 0,
+  failureCode,
+  reportId: null,
+});
+const skippedStep = (): WorkspaceStep => ({
+  status: 'skipped',
+  succeeded: 0,
+  partial: 0,
+  failed: 0,
+  skipped: 1,
+  items: 0,
+  failureCode: null,
+  reportId: null,
+});
+
+function logReportFailure(
+  event: string,
+  runId: string,
+  failureCode: string,
+  workspaceId?: string
+) {
+  getKernel().logger.error({
+    event,
+    exception: new AppError({
+      code: 'WEEKLY_REPORT_FAILED',
+      category: 'system',
+      status: 502,
+      message: 'Scheduled weekly report failed',
+    }),
+    details: { runId, ...(workspaceId ? { workspaceId } : {}), failureCode },
+    sentryTags: { job: 'weekly_reports', failureCode },
+  });
+}
 
 async function recordWorkspace(
-  runId: string,
+  runId: string | null,
   workspaceId: string,
   startedAt: Date,
   step: WorkspaceStep
-): Promise<boolean> {
+): Promise<RecordedWorkspaceStep> {
   const recorded =
-    await getIntelligenceRepositories().scheduledJobRepository.upsertWorkspace({
-      jobRunId: runId,
-      workspaceId: toWorkspaceId(workspaceId),
-      startedAt,
-      finishedAt: new Date(),
-      ...step,
-    });
-  if (recorded.isError()) {
-    getKernel().logger.error({
-      event: 'intelligence.scheduled_job.history_failed',
-      details: {
-        runId,
-        workspaceId,
-        stage: 'workspace',
-        errorCode: recorded.getError().code,
-      },
-    });
-    return false;
-  }
-  return true;
+    runId !== null &&
+    (await writeHistory({ runId, workspaceId, stage: 'workspace' }, () =>
+      getIntelligenceRepositories().scheduledJobRepository.upsertWorkspace({
+        jobRunId: runId,
+        workspaceId: toWorkspaceId(workspaceId),
+        startedAt,
+        finishedAt: new Date(),
+        ...step,
+      })
+    ));
+  return { step, historyStatus: recorded ? 'recorded' : 'failed' };
 }
 
 async function generateOneWorkspaceReport(
   workspaceId: string,
   runId: string,
+  historyRunId: string | null,
   nowMs: number | null
-): Promise<WorkspaceStep> {
+): Promise<RecordedWorkspaceStep> {
   'use step';
   const startedAt = new Date();
-  let result: Awaited<ReturnType<typeof generateWeeklyReport>>;
+  let step: WorkspaceStep;
   try {
-    result = await generateWeeklyReport(buildGenerationDeps(), {
+    const result = await generateWeeklyReport(buildGenerationDeps(), {
       workspaceId: toWorkspaceId(workspaceId),
       now: nowMs === null ? undefined : new Date(nowMs),
     });
-  } catch {
-    const step: WorkspaceStep = {
-      status: 'failed',
-      succeeded: 0,
-      partial: 0,
-      failed: 1,
-      skipped: 0,
-      items: 0,
-      failureCode: 'UNEXPECTED_ERROR',
-      reportId: null,
-    };
-    getKernel().logger.error({
-      event: 'intelligence.report.failed',
-      exception: new AppError({
-        code: 'WEEKLY_REPORT_FAILED',
-        category: 'system',
-        status: 502,
-        message: 'Scheduled weekly report failed',
-      }),
-      details: { runId, workspaceId, failureCode: 'UNEXPECTED_ERROR' },
-      sentryTags: { job: 'weekly_reports', failureCode: 'UNEXPECTED_ERROR' },
-    });
-    await recordWorkspace(runId, workspaceId, startedAt, step);
-    return step;
-  }
-  let step: WorkspaceStep;
-  if (result.isError()) {
-    step = {
-      status: 'failed',
-      succeeded: 0,
-      partial: 0,
-      failed: 1,
-      skipped: 0,
-      items: 0,
-      failureCode: result.getError().code,
-      reportId: null,
-    };
-    getKernel().logger.error({
-      event: 'intelligence.report.failed',
-      exception: new AppError({
-        code: 'WEEKLY_REPORT_FAILED',
-        category: 'system',
-        status: 502,
-        message: 'Scheduled weekly report failed',
-      }),
-      details: { runId, workspaceId, failureCode: step.failureCode },
-      sentryTags: {
-        job: 'weekly_reports',
-        failureCode: step.failureCode ?? 'REPORT_FAILED',
-      },
-    });
-  } else {
-    const value = result.get();
-    step =
-      value.type === 'report_published'
-        ? {
+    step = match(result)
+      .with(Result.P.Error(P.select()), (error) => failedStep(error.code))
+      .with(Result.P.Ok(P.select()), (value) =>
+        match(value)
+          .with({ type: 'report_published' }, ({ report }): WorkspaceStep => ({
             status: 'succeeded',
             succeeded: 1,
             partial: 0,
@@ -242,50 +232,27 @@ async function generateOneWorkspaceReport(
             skipped: 0,
             items: 1,
             failureCode: null,
-            reportId: value.report.id,
-          }
-        : value.type === 'report_failed'
-          ? {
-              status: 'failed',
-              succeeded: 0,
-              partial: 0,
-              failed: 1,
-              skipped: 0,
-              items: 0,
-              failureCode: 'REPORT_FAILED',
-              reportId: null,
-            }
-          : {
-              status: 'skipped',
-              succeeded: 0,
-              partial: 0,
-              failed: 0,
-              skipped: 1,
-              items: 0,
-              failureCode: null,
-              reportId: null,
-            };
+            reportId: report.id,
+          }))
+          .with({ type: 'report_failed' }, ({ failureCode }) =>
+            failedStep(failureCode)
+          )
+          .with({ type: 'workspace_not_found' }, () => skippedStep())
+          .exhaustive()
+      )
+      .exhaustive();
+  } catch {
+    step = failedStep('UNEXPECTED_ERROR');
   }
-  if (!(await recordWorkspace(runId, workspaceId, startedAt, step))) {
-    return {
-      ...step,
-      status: 'failed',
-      succeeded: 0,
-      failed: 1,
-      failureCode: 'HISTORY_WRITE_FAILED',
-    };
-  }
-  return step;
+  if (step.status === 'failed')
+    logReportFailure(
+      'intelligence.report.failed',
+      runId,
+      step.failureCode ?? 'REPORT_FAILED',
+      workspaceId
+    );
+  return recordWorkspace(historyRunId, workspaceId, startedAt, step);
 }
-
-export type WeeklyReportsRunSummary = {
-  runId: string;
-  status: ScheduledJobStatus;
-  total: number;
-  generated: number;
-  failed: number;
-  skipped: number;
-};
 
 /** Generate the weekly report for every workspace (Monday cron entrypoint). */
 export async function runWeeklyReports(input?: {
@@ -299,84 +266,68 @@ export async function runWeeklyReports(input?: {
     'weekly_reports',
     new Date(input?.nowMs ?? Date.now())
   );
-  const workspaces =
-    await getIntelligenceRepositories().workspaceRepository.list();
-  if (workspaces.isError()) {
-    const failureCode = workspaces.getError().code;
-    getKernel().logger.error({
-      event: 'intelligence.weekly_reports.workspace_list_failed',
-      exception: new AppError({
-        code: 'WEEKLY_REPORT_FAILED',
-        category: 'system',
-        status: 502,
-        message: 'Scheduled weekly report failed',
-      }),
-      details: { runId, failureCode },
-      sentryTags: { job: 'weekly_reports', failureCode },
-    });
-    if (started)
-      await finishRun({
-        id: runId,
-        status: 'failed',
-        total: 0,
-        succeeded: 0,
-        partial: 0,
-        failed: 1,
-        skipped: 0,
-        items: 0,
-        failureCode,
-      });
-    const summary = {
+  const summary: WeeklyReportsRunSummary = {
+    runId,
+    status: 'succeeded',
+    historyStatus: started ? 'recorded' : 'failed',
+    total: 0,
+    generated: 0,
+    failed: 0,
+    skipped: 0,
+  };
+  let failureCode: string | null = null;
+  try {
+    const workspaces =
+      await getIntelligenceRepositories().workspaceRepository.list();
+    if (workspaces.isError()) {
+      failureCode = workspaces.getError().code;
+      summary.status = 'failed';
+      logReportFailure(
+        'intelligence.weekly_reports.workspace_list_failed',
+        runId,
+        failureCode
+      );
+    } else {
+      summary.total = workspaces.get().length;
+      for (const workspace of workspaces.get()) {
+        const { step, historyStatus } = await generateOneWorkspaceReport(
+          workspace.id,
+          runId,
+          started ? runId : null,
+          input?.nowMs ?? null
+        );
+        summary.generated += step.succeeded;
+        summary.failed += step.failed;
+        summary.skipped += step.skipped;
+        if (historyStatus === 'failed') summary.historyStatus = 'failed';
+      }
+      summary.status = runStatus(summary.generated, 0, summary.failed);
+      failureCode = summary.failed > 0 ? 'WORKSPACE_REPORT_FAILED' : null;
+    }
+  } catch {
+    summary.status = 'failed';
+    failureCode = 'UNEXPECTED_ERROR';
+    logReportFailure(
+      'intelligence.weekly_reports.unexpected_failure',
       runId,
-      status: 'failed' as const,
-      total: 0,
-      generated: 0,
-      failed: 1,
-      skipped: 0,
-    };
-    logCompletion('intelligence.weekly_reports.completed', summary);
-    return summary;
-  }
-  let generated = 0;
-  let failed = 0;
-  let skipped = 0;
-  const list = workspaces.get();
-  for (const workspace of list) {
-    const step = await generateOneWorkspaceReport(
-      workspace.id,
-      runId,
-      input?.nowMs ?? null
+      failureCode
     );
-    generated += step.succeeded;
-    failed += step.failed;
-    skipped += step.skipped;
   }
-  let status = runStatus(generated, 0, failed);
   if (
-    !started ||
+    started &&
     !(await finishRun({
       id: runId,
-      status,
-      total: list.length,
-      succeeded: generated,
+      status: summary.status,
+      total: summary.total,
+      succeeded: summary.generated,
       partial: 0,
-      failed,
-      skipped,
-      items: generated,
-      failureCode: failed > 0 ? 'WORKSPACE_REPORT_FAILED' : null,
+      failed: summary.failed,
+      skipped: summary.skipped,
+      items: summary.generated,
+      failureCode,
     }))
-  ) {
-    status = 'failed';
-    failed += 1;
-  }
-  const summary = {
-    runId,
-    status,
-    total: list.length,
-    generated,
-    failed,
-    skipped,
-  };
+  )
+    summary.historyStatus = 'failed';
   logCompletion('intelligence.weekly_reports.completed', summary);
   return summary;
 }
@@ -384,113 +335,55 @@ export async function runWeeklyReports(input?: {
 async function ingestOneWorkspace(
   workspaceId: string,
   runId: string,
+  historyRunId: string | null,
   nowMs: number | null
-): Promise<WorkspaceStep> {
+): Promise<RecordedWorkspaceStep> {
   'use step';
   const startedAt = new Date();
-  let result: Awaited<ReturnType<typeof runWorkspaceIngest>>;
+  let step: WorkspaceStep;
   try {
-    result = await runWorkspaceIngest(buildIngestionDeps(), {
+    const result = await runWorkspaceIngest(buildIngestionDeps(), {
       workspaceId: toWorkspaceId(workspaceId),
-      scheduledJobRunId: runId,
+      ...(historyRunId !== null ? { scheduledJobRunId: historyRunId } : {}),
       now: nowMs === null ? undefined : new Date(nowMs),
     });
+    step = match(result)
+      .with(Result.P.Error(P.select()), (error) => failedStep(error.code))
+      .with(Result.P.Ok(P.select()), (value) =>
+        match(value)
+          .with({ type: 'workspace_not_found' }, () => skippedStep())
+          .with({ type: 'workspace_ingested' }, (outcome): WorkspaceStep => ({
+            status: runStatus(
+              outcome.providersRun,
+              outcome.providersPartial,
+              outcome.providersFailed
+            ),
+            succeeded: outcome.providersRun,
+            partial: outcome.providersPartial,
+            failed: outcome.providersFailed,
+            skipped: outcome.providersSkipped,
+            items: outcome.sourceRecords + outcome.searchResults,
+            requestsFailed: outcome.requestsFailed,
+            failureCode:
+              outcome.requestsFailed > 0
+                ? 'PROVIDER_REQUEST_FAILED'
+                : outcome.providersFailed + outcome.providersPartial > 0
+                  ? 'PROVIDER_INGEST_FAILED'
+                  : null,
+            reportId: null,
+          }))
+          .exhaustive()
+      )
+      .exhaustive();
   } catch {
-    const step: WorkspaceStep = {
-      status: 'failed',
-      succeeded: 0,
-      partial: 0,
-      failed: 1,
-      skipped: 0,
-      items: 0,
-      requestsFailed: 0,
-      failureCode: 'UNEXPECTED_ERROR',
-      reportId: null,
-    };
+    step = failedStep('UNEXPECTED_ERROR');
     getKernel().logger.error({
       event: 'intelligence.daily_ingest.workspace_failed',
       details: { runId, workspaceId, failureCode: 'UNEXPECTED_ERROR' },
     });
-    await recordWorkspace(runId, workspaceId, startedAt, step);
-    return step;
   }
-  let step: WorkspaceStep;
-  if (result.isError()) {
-    step = {
-      status: 'failed',
-      succeeded: 0,
-      partial: 0,
-      failed: 1,
-      skipped: 0,
-      items: 0,
-      requestsFailed: 0,
-      failureCode: result.getError().code,
-      reportId: null,
-    };
-  } else {
-    const value = result.get();
-    if (value.type === 'workspace_not_found') {
-      step = {
-        status: 'skipped',
-        succeeded: 0,
-        partial: 0,
-        failed: 0,
-        skipped: 1,
-        items: 0,
-        requestsFailed: 0,
-        failureCode: null,
-        reportId: null,
-      };
-    } else {
-      const status = runStatus(
-        value.providersRun,
-        value.providersPartial,
-        value.providersFailed
-      );
-      step = {
-        status,
-        succeeded: value.providersRun,
-        partial: value.providersPartial,
-        failed: value.providersFailed,
-        skipped: value.providersSkipped,
-        items: value.sourceRecords + value.searchResults,
-        requestsFailed: value.requestsFailed,
-        failureCode:
-          value.requestsFailed > 0
-            ? 'PROVIDER_REQUEST_FAILED'
-            : value.providersFailed + value.providersPartial > 0
-              ? 'PROVIDER_INGEST_FAILED'
-              : null,
-        reportId: null,
-      };
-    }
-  }
-  if (!(await recordWorkspace(runId, workspaceId, startedAt, step))) {
-    return {
-      ...step,
-      status: 'failed',
-      succeeded: 0,
-      partial: 0,
-      failed: step.failed + 1,
-      failureCode: 'HISTORY_WRITE_FAILED',
-    };
-  }
-  return step;
+  return recordWorkspace(historyRunId, workspaceId, startedAt, step);
 }
-
-export type DailyIngestRunSummary = {
-  runId: string;
-  status: ScheduledJobStatus;
-  workspaces: number;
-  ingested: number;
-  failed: number;
-  partial: number;
-  providersSucceeded: number;
-  providersPartial: number;
-  providersFailed: number;
-  providersSkipped: number;
-  requestsFailed: number;
-};
 
 /** Daily ingestion entrypoint. */
 export async function runDailyIngest(input?: {
@@ -504,101 +397,81 @@ export async function runDailyIngest(input?: {
     'daily_ingest',
     new Date(input?.nowMs ?? Date.now())
   );
-  const workspaces =
-    await getIntelligenceRepositories().workspaceRepository.list();
-  if (workspaces.isError()) {
-    const failureCode = workspaces.getError().code;
-    getKernel().logger.error({
-      event: 'intelligence.daily_ingest.workspace_list_failed',
-      details: { runId, failureCode },
-    });
-    if (started)
-      await finishRun({
-        id: runId,
-        status: 'failed',
-        total: 0,
-        succeeded: 0,
-        partial: 0,
-        failed: 1,
-        skipped: 0,
-        items: 0,
-        failureCode,
-      });
-    const summary = {
-      runId,
-      status: 'failed' as const,
-      workspaces: 0,
-      ingested: 0,
-      failed: 1,
-      partial: 0,
-      providersSucceeded: 0,
-      providersPartial: 0,
-      providersFailed: 0,
-      providersSkipped: 0,
-      requestsFailed: 0,
-    };
-    logCompletion('intelligence.daily_ingest.completed', summary);
-    return summary;
-  }
-  const list = workspaces.get();
-  let ingested = 0;
-  let failed = 0;
-  let partial = 0;
+  const summary: DailyIngestRunSummary = {
+    runId,
+    status: 'succeeded',
+    historyStatus: started ? 'recorded' : 'failed',
+    workspaces: 0,
+    ingested: 0,
+    failed: 0,
+    partial: 0,
+    providersSucceeded: 0,
+    providersPartial: 0,
+    providersFailed: 0,
+    providersSkipped: 0,
+    requestsFailed: 0,
+  };
   let succeeded = 0;
   let skipped = 0;
-  let providersSucceeded = 0;
-  let providersPartial = 0;
-  let providersFailed = 0;
-  let providersSkipped = 0;
-  let requestsFailed = 0;
-  for (const workspace of list) {
-    const step = await ingestOneWorkspace(
-      workspace.id,
-      runId,
-      input?.nowMs ?? null
-    );
-    ingested += step.items;
-    failed += Number(step.status === 'failed');
-    partial += Number(step.status === 'partial');
-    succeeded += Number(step.status === 'succeeded');
-    skipped += Number(step.status === 'skipped');
-    providersSucceeded += step.succeeded;
-    providersPartial += step.partial;
-    providersFailed += step.failed;
-    providersSkipped += step.skipped;
-    requestsFailed += step.requestsFailed ?? 0;
+  let failureCode: string | null = null;
+  try {
+    const workspaces =
+      await getIntelligenceRepositories().workspaceRepository.list();
+    if (workspaces.isError()) {
+      failureCode = workspaces.getError().code;
+      summary.status = 'failed';
+      getKernel().logger.error({
+        event: 'intelligence.daily_ingest.workspace_list_failed',
+        details: { runId, failureCode },
+      });
+    } else {
+      summary.workspaces = workspaces.get().length;
+      for (const workspace of workspaces.get()) {
+        const { step, historyStatus } = await ingestOneWorkspace(
+          workspace.id,
+          runId,
+          started ? runId : null,
+          input?.nowMs ?? null
+        );
+        summary.ingested += step.items;
+        summary.failed += Number(step.status === 'failed');
+        summary.partial += Number(step.status === 'partial');
+        succeeded += Number(step.status === 'succeeded');
+        skipped += Number(step.status === 'skipped');
+        summary.providersSucceeded += step.succeeded;
+        summary.providersPartial += step.partial;
+        summary.providersFailed += step.failed;
+        summary.providersSkipped += step.skipped;
+        summary.requestsFailed += step.requestsFailed ?? 0;
+        if (historyStatus === 'failed') summary.historyStatus = 'failed';
+      }
+      summary.status = runStatus(succeeded, summary.partial, summary.failed);
+      failureCode =
+        summary.failed + summary.partial > 0 ? 'WORKSPACE_INGEST_FAILED' : null;
+    }
+  } catch {
+    summary.status = 'failed';
+    failureCode = 'UNEXPECTED_ERROR';
+    getKernel().logger.error({
+      event: 'intelligence.daily_ingest.unexpected_failure',
+      details: { runId, failureCode },
+    });
   }
-  let status = runStatus(succeeded, partial, failed);
   if (
-    !started ||
+    started &&
     !(await finishRun({
       id: runId,
-      status,
-      total: list.length,
+      status: summary.status,
+      total: summary.workspaces,
       succeeded,
-      partial,
-      failed,
+      partial: summary.partial,
+      failed: summary.failed,
       skipped,
-      items: ingested,
-      failureCode: failed + partial > 0 ? 'WORKSPACE_INGEST_FAILED' : null,
+      items: summary.ingested,
+      failureCode,
     }))
-  ) {
-    status = 'failed';
-    failed += 1;
-  }
-  const summary = {
-    runId,
-    status,
-    workspaces: list.length,
-    ingested,
-    failed,
-    partial,
-    providersSucceeded,
-    providersPartial,
-    providersFailed,
-    providersSkipped,
-    requestsFailed,
-  };
+  )
+    summary.historyStatus = 'failed';
   logCompletion('intelligence.daily_ingest.completed', summary);
   return summary;
 }

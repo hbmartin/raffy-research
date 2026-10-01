@@ -3,6 +3,32 @@ import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 export type ScheduledJobStatus = 'started' | 'succeeded' | 'partial' | 'failed';
 export type WorkspaceJobStatus = 'succeeded' | 'partial' | 'failed' | 'skipped';
 export type ScheduledJobKind = 'daily_ingest' | 'weekly_reports';
+export type JobHistoryStatus = 'recorded' | 'failed';
+
+export type WeeklyReportsRunSummary = {
+  runId: string;
+  status: ScheduledJobStatus;
+  historyStatus: JobHistoryStatus;
+  total: number;
+  generated: number;
+  failed: number;
+  skipped: number;
+};
+
+export type DailyIngestRunSummary = {
+  runId: string;
+  status: ScheduledJobStatus;
+  historyStatus: JobHistoryStatus;
+  workspaces: number;
+  ingested: number;
+  failed: number;
+  partial: number;
+  providersSucceeded: number;
+  providersPartial: number;
+  providersFailed: number;
+  providersSkipped: number;
+  requestsFailed: number;
+};
 
 export type JobCounts = {
   total: number;

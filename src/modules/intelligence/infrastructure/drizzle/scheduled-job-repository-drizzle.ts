@@ -3,7 +3,10 @@ import { and, desc, eq, or, sql } from 'drizzle-orm';
 
 import type { DbLike } from '@/modules/kernel/infrastructure/db/types';
 
-import { mapIntelligenceDbError } from './map-db-error';
+import {
+  intelligenceInvariantError,
+  mapIntelligenceDbError,
+} from './map-db-error';
 import { scheduledJobRun, scheduledJobWorkspaceRun } from './schema';
 import type { ScheduledJobRepository } from '../../application/ports/scheduled-job-repository';
 import type { WorkspaceJobHistory } from '../../domain/scheduled-job';
@@ -32,7 +35,7 @@ export class ScheduledJobRepositoryDrizzle implements ScheduledJobRepository {
 
   async finish(input: Parameters<ScheduledJobRepository['finish']>[0]) {
     try {
-      await this.db
+      const [updated] = await this.db
         .update(scheduledJobRun)
         .set({
           status: input.status,
@@ -45,7 +48,16 @@ export class ScheduledJobRepositoryDrizzle implements ScheduledJobRepository {
           items: input.items,
           failureCode: input.failureCode,
         })
-        .where(eq(scheduledJobRun.id, input.id));
+        .where(eq(scheduledJobRun.id, input.id))
+        .returning({ id: scheduledJobRun.id });
+      if (!updated) {
+        return Result.Error(
+          intelligenceInvariantError(
+            'SCHEDULED_JOB_FINISH_MISSING',
+            'Scheduled job vanished before finalization'
+          )
+        );
+      }
       return Result.Ok({ type: 'run_finished' } as const);
     } catch (error) {
       return Result.Error(

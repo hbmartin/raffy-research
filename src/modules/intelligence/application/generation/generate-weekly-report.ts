@@ -48,7 +48,7 @@ export type GenerateWeeklyReportInput = {
 
 export type GenerateWeeklyReportOutcome =
   | { type: 'report_published'; report: WeeklyReport }
-  | { type: 'report_failed'; reason: string }
+  | { type: 'report_failed'; reason: string; failureCode: string }
   | { type: 'workspace_not_found' };
 
 export async function generateWeeklyReport(
@@ -191,6 +191,7 @@ export async function generateWeeklyReport(
       period,
       reason: 'Report schema validation failed',
       failureCode: 'REPORT_SCHEMA_INVALID',
+      diagnostics: { validationDiagnostics: validation.diagnostics },
     });
   }
 
@@ -231,6 +232,7 @@ export async function generateWeeklyReport(
       reservedReportId: reportId,
       reason: 'Report schema validation failed',
       failureCode: 'REPORT_SCHEMA_INVALID',
+      diagnostics: { validationDiagnostics: reportDataValidation.diagnostics },
     });
   }
   const reportData = reportDataValidation.data;
@@ -249,12 +251,14 @@ export async function generateWeeklyReport(
     return Result.Ok({
       type: 'report_failed',
       reason: 'report row vanished before freezing',
+      failureCode: 'REPORT_ROW_MISSING',
     });
   }
   if (frozenOutcome.type === 'report_published_protected') {
     return Result.Ok({
       type: 'report_failed',
       reason: 'report row was already published before freezing',
+      failureCode: 'REPORT_PUBLISHED_PROTECTED',
     });
   }
 
@@ -303,21 +307,11 @@ async function recordFailure(
 ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> {
   const now = deps.clock.now();
   deps.logger.error({
-    event: 'intelligence.report.failed',
-    exception: new AppError({
-      code: 'WEEKLY_REPORT_FAILED',
-      category: 'system',
-      status: 502,
-      message: 'Scheduled weekly report failed',
-    }),
+    event: 'intelligence.report.generation_failed',
     details: {
       workspaceId: input.workspace.id,
       failureCode: input.failureCode ?? 'REPORT_FAILED',
       ...input.diagnostics,
-    },
-    sentryTags: {
-      job: 'weekly_reports',
-      failureCode: input.failureCode ?? 'REPORT_FAILED',
     },
   });
 
@@ -326,7 +320,8 @@ async function recordFailure(
       input.reservedReportId,
       { status: 'failed', failureReason: input.reason, generatedAt: now }
     );
-    if (replaced.isError()) return Result.Error(replaced.getError());
+    if (replaced.isError())
+      return failureRecordError(deps, input, replaced.getError());
     const replaceOutcome = replaced.get();
     if (replaceOutcome.type !== 'report_found') {
       deps.logger.warn({
@@ -341,7 +336,7 @@ async function recordFailure(
   } else {
     const reusableFailedReport = await findReusableFailedReport(deps, input);
     if (reusableFailedReport.isError()) {
-      return Result.Error(reusableFailedReport.getError());
+      return failureRecordError(deps, input, reusableFailedReport.getError());
     }
 
     const existing = reusableFailedReport.get();
@@ -351,11 +346,16 @@ async function recordFailure(
         failureReason: input.reason,
         generatedAt: now,
       });
-      if (replaced.isError()) return Result.Error(replaced.getError());
+      if (replaced.isError())
+        return failureRecordError(deps, input, replaced.getError());
       const replaceOutcome = replaced.get();
       if (replaceOutcome.type === 'report_found') {
         await sendFailureAlert(deps, input);
-        return Result.Ok({ type: 'report_failed', reason: input.reason });
+        return Result.Ok({
+          type: 'report_failed',
+          reason: input.reason,
+          failureCode: input.failureCode ?? 'REPORT_FAILED',
+        });
       }
     }
 
@@ -368,12 +368,17 @@ async function recordFailure(
       failureReason: input.reason,
       generatedAt: now,
     });
-    if (created.isError()) return Result.Error(created.getError());
+    if (created.isError())
+      return failureRecordError(deps, input, created.getError());
   }
 
   await sendFailureAlert(deps, input);
 
-  return Result.Ok({ type: 'report_failed', reason: input.reason });
+  return Result.Ok({
+    type: 'report_failed',
+    reason: input.reason,
+    failureCode: input.failureCode ?? 'REPORT_FAILED',
+  });
 }
 
 async function findReusableFailedReport(
@@ -425,4 +430,20 @@ async function sendFailureAlert(
       },
     });
   }
+}
+
+function failureRecordError(
+  deps: WeeklyReportGenerationDeps,
+  input: { workspace: { id: WorkspaceId }; failureCode?: string },
+  error: AppError
+): ApplicationResult<GenerateWeeklyReportOutcome> {
+  deps.logger.error({
+    event: 'intelligence.report.failure_record_failed',
+    details: {
+      workspaceId: input.workspace.id,
+      failureCode: input.failureCode ?? 'REPORT_FAILED',
+      errorCode: error.code,
+    },
+  });
+  return Result.Error(error);
 }

@@ -7,29 +7,10 @@ import { type WorkspaceId, zWorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
 import type { HandleProviderCallbackOutcome } from '../../application/use-cases/ingestion/handle-provider-callback';
-
-type WeeklyReportsRunSummary = {
-  runId: string;
-  status: 'succeeded' | 'partial' | 'failed' | 'started';
-  total: number;
-  generated: number;
-  failed: number;
-  skipped: number;
-};
-
-type DailyIngestRunSummary = {
-  runId: string;
-  status: 'succeeded' | 'partial' | 'failed' | 'started';
-  workspaces: number;
-  ingested: number;
-  failed: number;
-  partial: number;
-  providersSucceeded: number;
-  providersPartial: number;
-  providersFailed: number;
-  providersSkipped: number;
-  requestsFailed: number;
-};
+import type {
+  DailyIngestRunSummary,
+  WeeklyReportsRunSummary,
+} from '../../domain/scheduled-job';
 
 type JobRequestHandlerDeps = {
   getCronSecret: () => string | null;
@@ -140,9 +121,10 @@ export function createIntelligenceJobRequestHandlers(
         const summary = {
           runId,
           status: 'failed' as const,
+          historyStatus: 'failed' as const,
           total: 0,
           generated: 0,
-          failed: 1,
+          failed: 0,
           skipped: 0,
         };
         deps.getLogger().error({
@@ -179,9 +161,10 @@ export function createIntelligenceJobRequestHandlers(
         const summary = {
           runId,
           status: 'failed' as const,
+          historyStatus: 'failed' as const,
           workspaces: 0,
           ingested: 0,
-          failed: 1,
+          failed: 0,
           partial: 0,
           providersSucceeded: 0,
           providersPartial: 0,

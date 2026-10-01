@@ -17,6 +17,8 @@ function providerOutcomeStatus(input: {
 }): 'succeeded' | 'partial' | 'failed' {
   if (!input.persistenceFailed && input.requestsFailed === 0)
     return 'succeeded';
+  if (input.persistenceFailed)
+    return input.itemsIngested > 0 ? 'partial' : 'failed';
   return input.itemsIngested > 0 || input.requestsSucceeded > 0
     ? 'partial'
     : 'failed';
@@ -153,6 +155,16 @@ export async function runWorkspaceIngest(
     for (const record of sourceRecords) {
       const created = await deps.sourceRepository.createSourceRecord(record);
       if (created.isError()) {
+        deps.logger.error({
+          event: 'intelligence.ingestion.persistence_failed',
+          details: {
+            workspaceId: workspace.id,
+            provider: config.providerName,
+            runId,
+            stage: 'source_record',
+            errorCode: created.getError().code,
+          },
+        });
         persistenceFailed = true;
         break;
       }
@@ -163,6 +175,16 @@ export async function runWorkspaceIngest(
       const created =
         await deps.sourceRepository.createSearchResult(searchResult);
       if (created.isError()) {
+        deps.logger.error({
+          event: 'intelligence.ingestion.persistence_failed',
+          details: {
+            workspaceId: workspace.id,
+            provider: config.providerName,
+            runId,
+            stage: 'search_result',
+            errorCode: created.getError().code,
+          },
+        });
         persistenceFailed = true;
         break;
       }

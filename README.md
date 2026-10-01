@@ -745,14 +745,16 @@ isolated `start-hydration-compat` shim check ownership before signaling
 completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
 A composition boundary records the first React commit, including Strict Mode.
-`beforeunload` and a hidden document mark only tentative departure: hydration
-continues immediately. Actual root errors are recorded once (using beacon
-delivery while leaving). Bootstrap import failures wait for a later trusted
-pointer or keyboard interaction on the current, visible document before they
-produce telemetry or a recovery notice. Focus and visibility alone do not flush
-them. A tentative departure discards those failures on `pagehide` or return; a
-cancelled navigation can therefore require a manual reload. A committed cache
-restore stays interactive; an uncommitted restore reloads once.
+`beforeunload` and navigation activation mark tentative departure; hydration
+continues immediately. Actual hydration and root errors are recorded once using
+fetch with keepalive, including while leaving. Active-document bootstrap import
+failures settle for two seconds before producing telemetry and a recovery notice.
+Timers never clear departure state. Visibility is tracked separately, including
+pages initially opened in background tabs; returning to a tab or a later trusted
+non-navigation interaction can resume recovery. Incidental focus and navigation
+activation keys do not resume it. `pagehide` retains uncertain failures for recovery
+if the original document survives. A committed cache restore stays interactive;
+an uncommitted restore reloads once.
 
 Sentry `11.0.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects

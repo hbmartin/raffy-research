@@ -272,7 +272,9 @@ it.each([false, true])(
       : mocks.reportHydrationFailure;
     expect(report).toHaveBeenCalledExactlyOnceWith(document, failure, false);
     expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+    view.dispatchEvent(new Event('blur'));
     view.dispatchEvent(new Event('focus'));
+    view.dispatchEvent(new Event('blur'));
     view.dispatchEvent(new Event('focus'));
     expect(report).toHaveBeenCalledOnce();
     await nextTask();

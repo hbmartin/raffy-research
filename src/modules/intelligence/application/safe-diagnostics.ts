@@ -19,6 +19,12 @@ const safeToken = (value: unknown, max = 80): string | undefined =>
     ? value
     : undefined;
 
+// These provider codes describe credential state; they are not credential values.
+const safeErrorCode = (value: unknown): string | undefined =>
+  value === 'token_revoked' || value === 'token_expired'
+    ? value
+    : safeToken(value);
+
 const safeStatus = (value: unknown): number | undefined =>
   typeof value === 'number' &&
   Number.isInteger(value) &&
@@ -52,7 +58,7 @@ export function safeFailureDiagnostics(input: {
     stage: safeToken(input.stage) ?? 'unknown',
     provider: safeToken(input.provider) ?? 'unknown',
     ...(safeToken(input.model) ? { model: safeToken(input.model) } : {}),
-    ...(safeToken(raw.code) ? { errorCode: safeToken(raw.code) } : {}),
+    ...(safeErrorCode(raw.code) ? { errorCode: safeErrorCode(raw.code) } : {}),
     ...(safeToken(raw.name) || safeToken(raw.type)
       ? { errorType: safeToken(raw.name) ?? safeToken(raw.type) }
       : {}),
@@ -77,7 +83,7 @@ export function safeAppErrorDetails(error: AppError): Record<string, unknown> {
       ['stage', safeToken(details.stage)],
       ['provider', safeToken(details.provider)],
       ['model', safeToken(details.model)],
-      ['errorCode', safeToken(details.errorCode)],
+      ['errorCode', safeErrorCode(details.errorCode)],
       ['errorType', safeToken(details.errorType)],
       ['upstreamStatus', safeStatus(details.upstreamStatus)],
       ['requestId', safeToken(details.requestId)],

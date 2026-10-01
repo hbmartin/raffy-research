@@ -247,3 +247,22 @@ describe('report data validation', () => {
     expect(result.type).toBe('generated_report_data_valid');
   });
 });
+
+it('keeps bounded safe field diagnostics independently of repair messages', () => {
+  const result = validateReportData({
+    ...validReport,
+    topic_clusters: Array.from({ length: 30 }, () => ({
+      ...validReport.topic_clusters[0],
+      title: 42,
+    })),
+  });
+  if (result.type !== 'report_data_invalid')
+    throw new Error('Expected invalid report');
+  expect(result.diagnostics).toHaveLength(20);
+  expect(result.diagnostics[0]).toEqual({
+    path: 'topic_clusters.0.title',
+    code: 'invalid_type',
+  });
+  expect(JSON.stringify(result.diagnostics)).not.toContain('42');
+  expect(result.issues.length).toBeGreaterThan(20);
+});
