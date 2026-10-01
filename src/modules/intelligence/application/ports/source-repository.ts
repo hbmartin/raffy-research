@@ -30,6 +30,8 @@ export interface SourceRepository {
   listLatestSummariesForSources(input: {
     workspaceId: WorkspaceId;
     sourceRecordIds: SourceRecordId[];
+    /** Restrict to one model, so a newer run by another model is not picked. */
+    modelName?: string;
   }): Promise<ApplicationResult<SourceSummary[]>>;
   createSourceRecord(
     input: SourceRecordWriteInput

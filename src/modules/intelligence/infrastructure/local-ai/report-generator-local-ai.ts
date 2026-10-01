@@ -15,6 +15,7 @@ export function createLocalAiReportGenerator(input: {
   rawOutputDir: string;
   runId: string;
   ollamaBaseUrl?: string;
+  ollamaNumCtx?: number;
   abortSignal?: AbortSignal;
   action?: string;
   onEvent?: (event: LocalAiNdjsonEvent) => void | Promise<void>;
@@ -35,6 +36,7 @@ export function createLocalAiReportGenerator(input: {
           runId: input.runId,
           rawOutputDir: input.rawOutputDir,
           ollamaBaseUrl: input.ollamaBaseUrl,
+          ollamaNumCtx: input.ollamaNumCtx,
           abortSignal: input.abortSignal,
           onEvent: input.onEvent,
         });

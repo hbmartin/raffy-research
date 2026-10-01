@@ -5,6 +5,7 @@ export type {
 export { LOCAL_AI_PROVIDERS } from './domain/local-ai';
 export {
   getCronSecret,
+  getPhoenixConfig,
   getProviderCredential,
   getProviderWebhookSecret,
 } from './infrastructure/config/runtime';

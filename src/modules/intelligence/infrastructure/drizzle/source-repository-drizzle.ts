@@ -224,6 +224,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   async listLatestSummariesForSources(input: {
     workspaceId: WorkspaceId;
     sourceRecordIds: SourceRecordId[];
+    modelName?: string;
   }) {
     try {
       if (input.sourceRecordIds.length === 0) return Result.Ok([]);
@@ -233,7 +234,10 @@ export class SourceRepositoryDrizzle implements SourceRepository {
         .where(
           and(
             eq(sourceSummaryTable.workspaceId, input.workspaceId),
-            inArray(sourceSummaryTable.sourceRecordId, input.sourceRecordIds)
+            inArray(sourceSummaryTable.sourceRecordId, input.sourceRecordIds),
+            ...(input.modelName
+              ? [eq(sourceSummaryTable.modelName, input.modelName)]
+              : [])
           )
         )
         .orderBy(

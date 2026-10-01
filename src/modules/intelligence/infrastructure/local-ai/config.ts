@@ -17,6 +17,7 @@ const localAiEnvSchema = baseEnvSchema.extend({
     .trim()
     .url()
     .default('http://localhost:11434/api'),
+  OLLAMA_NUM_CTX: z.coerce.number().int().positive().optional(),
 });
 
 export function getLocalAiConfig(): LocalAiConfig {
@@ -27,5 +28,6 @@ export function getLocalAiConfig(): LocalAiConfig {
     rawOutputDir: env.LOCAL_AI_RAW_OUTPUT_DIR,
     timeoutMs: env.LOCAL_AI_TIMEOUT_MS,
     ollamaBaseUrl: env.OLLAMA_BASE_URL,
+    ollamaNumCtx: env.OLLAMA_NUM_CTX,
   };
 }

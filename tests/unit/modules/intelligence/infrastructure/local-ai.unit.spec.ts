@@ -242,4 +242,68 @@ describe('local AI text generation', () => {
       baseURL: 'http://localhost:11434/api',
     });
   });
+
+  it('sends num_ctx to ollama when a context window is configured', async () => {
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'ollama',
+      model: 'qwen3:14b',
+      prompt: 'Return JSON',
+      action: 'generate_report',
+      label: 'weekly-report',
+      runId: 'run-ollama-ctx',
+      rawOutputDir,
+      ollamaNumCtx: 40960,
+    });
+
+    expect(mocks.streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { ollama: { options: { num_ctx: 40960 } } },
+      })
+    );
+  });
+
+  it('omits provider options when no context window is configured', async () => {
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'ollama',
+      model: 'qwen3:14b',
+      prompt: 'Return JSON',
+      action: 'generate_report',
+      label: 'weekly-report',
+      runId: 'run-ollama-no-ctx',
+      rawOutputDir,
+    });
+
+    expect(mocks.streamText).toHaveBeenCalledWith(
+      expect.not.objectContaining({ providerOptions: expect.anything() })
+    );
+  });
+
+  it('ignores num_ctx for non-ollama providers', async () => {
+    mocks.streamText.mockReturnValue({ stream: streamFixture() });
+    const { generateLocalText } =
+      await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
+
+    await generateLocalText({
+      provider: 'codex-cli',
+      model: 'gpt-5-codex',
+      prompt: 'Return JSON',
+      action: 'generate_report',
+      label: 'weekly-report',
+      runId: 'run-codex-ctx',
+      rawOutputDir,
+      ollamaNumCtx: 40960,
+    });
+
+    expect(mocks.streamText).toHaveBeenCalledWith(
+      expect.not.objectContaining({ providerOptions: expect.anything() })
+    );
+  });
 });

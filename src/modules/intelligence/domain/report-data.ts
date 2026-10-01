@@ -402,6 +402,39 @@ export function parseGeneratedReportJson(
   return validateGeneratedReportData(parsed.value);
 }
 
+/**
+ * Every source id a report leans on.
+ *
+ * Two structures carry citations and they do not always agree: evidence items
+ * reference `source_ids`, while `source_library` is the report's own
+ * bibliography. Models routinely fill in one more faithfully than the other, so
+ * anything that needs "the sources this report used" has to take the union.
+ */
+export function collectCitedSourceIds(reportData: unknown): string[] {
+  const ids = new Set<string>();
+
+  const walk = (value: unknown) => {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.source_ids)) {
+      for (const id of record.source_ids) {
+        if (typeof id === 'string' && id) ids.add(id);
+      }
+    }
+    if (typeof record.source_id === 'string' && record.source_id) {
+      ids.add(record.source_id);
+    }
+    Object.values(record).forEach(walk);
+  };
+
+  walk(reportData);
+  return [...ids];
+}
+
 /** Parse and validate raw stored report JSON. Never throws. */
 export function parseReportJson(text: string): ReportDataValidation {
   const parsed = parseJsonText(text);

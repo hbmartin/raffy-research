@@ -61,6 +61,7 @@ function buildGenerationDeps(
       rawOutputDir: input.rawOutputDir,
       runId: input.runId,
       ollamaBaseUrl: input.ollamaBaseUrl,
+      ollamaNumCtx: input.ollamaNumCtx,
       action: input.action,
       abortSignal: input.abortSignal,
       onEvent: input.emit,

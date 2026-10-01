@@ -1,0 +1,84 @@
+{
+  "workspace": {
+    "id": "x27hidcxs7envs8nsjsv1r7j",
+    "name": "Aperture Dental Cloud",
+    "companyName": "Aperture Dental Cloud",
+    "companyDescription": "Pre-seed vertical SaaS providing patient-intake and recall automation for independent dental clinics.",
+    "subcategory": "Dental practice management software",
+    "timezone": "America/Los_Angeles",
+    "website": "https://aperturedental.example",
+    "positioning": "The fastest way for solo dentists to fill empty chairs.",
+    "icp": "Independent dental practices with 1-3 chairs and no front-office software.",
+    "marketAssumptions": "Buyers care most about speed of setup and price, not deep analytics.",
+    "gtmFocus": "Founder-led outbound on LinkedIn plus dental subreddits.",
+    "createdAt": "2026-06-17T03:50:04.653Z",
+    "updatedAt": "2026-06-17T03:50:04.653Z"
+  },
+  "keywords": [
+    {
+      "id": "xxf37cle18fzmux66od2wur5",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "keywordString": "dental no-show reduction",
+      "active": true,
+      "createdAt": "2026-06-17T03:50:04.656Z",
+      "updatedAt": "2026-06-17T03:50:04.656Z"
+    },
+    {
+      "id": "h94jyzvagjm646sz0drak6b6",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "keywordString": "dental practice software",
+      "active": true,
+      "createdAt": "2026-06-17T03:50:04.656Z",
+      "updatedAt": "2026-06-17T03:50:04.656Z"
+    },
+    {
+      "id": "qygsn4e0ftg2xiuhkokxrwtu",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "keywordString": "patient recall automation",
+      "active": true,
+      "createdAt": "2026-06-17T03:50:04.656Z",
+      "updatedAt": "2026-06-17T03:50:04.656Z"
+    }
+  ],
+  "competitors": [
+    {
+      "id": "yuhsy2k3ckysai72o10i8p0o",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "name": "ClinicFlow",
+      "domain": "clinicflow.example",
+      "state": "accepted",
+      "createdAt": "2026-06-17T03:50:04.660Z",
+      "updatedAt": "2026-06-17T03:50:04.660Z"
+    },
+    {
+      "id": "iba4jefb7vqea6clygx02btc",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "name": "RecallRabbit",
+      "domain": "recallrabbit.example",
+      "state": "suggested",
+      "createdAt": "2026-06-17T03:50:04.660Z",
+      "updatedAt": "2026-06-17T03:50:04.660Z"
+    },
+    {
+      "id": "yvj59f4izzghp7d1rlik9utm",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "name": "ToothPilot",
+      "domain": "toothpilot.example",
+      "state": "accepted",
+      "createdAt": "2026-06-17T03:50:04.660Z",
+      "updatedAt": "2026-06-17T03:50:04.660Z"
+    }
+  ],
+  "socialAccounts": [
+    {
+      "id": "m4zy3b8s47fhpuel3de4kjhq",
+      "workspaceId": "x27hidcxs7envs8nsjsv1r7j",
+      "platform": "linkedin",
+      "username": "aperture-dental",
+      "profileUrl": "https://www.linkedin.com/company/aperture-dental",
+      "active": true,
+      "createdAt": "2026-06-17T03:50:04.662Z",
+      "updatedAt": "2026-06-17T03:50:04.662Z"
+    }
+  ]
+}

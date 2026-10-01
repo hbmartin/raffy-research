@@ -1,0 +1,822 @@
+[
+  {
+    "id": "em47byp9mui5eyoy2l0338we",
+    "sourceRecordId": "a7h74t3i7t1gs4y7nif6rojd",
+    "summaryText": "AI medical scheduling uses conversational agents to reduce no-show rates by up to 40% through natural language interactions, capturing patient intent and enabling seamless rescheduling. This approach improves operational efficiency by reducing front-desk time by 60-80%, though compliance with regulations like BAA and encryption is essential.",
+    "evidenceCandidateText": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:02:54.865Z"
+  },
+  {
+    "id": "impqbhekwd4vqr8vzp0r9zmw",
+    "sourceRecordId": "ajrj9mmr6l3yndh1azlcqm1u",
+    "summaryText": "Dedicated dental analytics platforms help practices identify revenue gaps 40% faster than manual PMS reports. These platforms provide live KPI dashboards for metrics like case acceptance, no-shows, and unscheduled treatment value. Standalone tools cost $250–$600/month, while built-in analytics can start near $29/month. Denzif Pro includes analytics at PKR 7,999 (~$29/month). Key KPIs to track include production vs. monthly goal, collection rate, case acceptance rate, and no-show rate.",
+    "evidenceCandidateText": "Dedicated analytics helps practices find revenue gaps 40% faster than manual PMS reports (ADA Health Policy Institute— cited in industry analyses).",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:02:15.762Z"
+  },
+  {
+    "id": "c86kbgw6zr9xr0hpplf79mvs",
+    "sourceRecordId": "amz1i98zdqcz3u3zfw3l2thq",
+    "summaryText": "Automaziot AI provides automated appointment scheduling solutions that allow customers to book, reschedule, and cancel appointments via WhatsApp or online forms, with real-time calendar sync and automated reminders. The service aims to reduce no-shows and save time by eliminating phone calls and manual scheduling.",
+    "evidenceCandidateText": "Automatic appointment scheduling lets customers book, change, and cancel appointments on their own via WhatsApp or an online form, with automatic Google/Outlook calendar sync and WhatsApp reminders.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:46:49.192Z"
+  },
+  {
+    "id": "gae92ebba2r7ht5j6693ooty",
+    "sourceRecordId": "aokgrn3j1wvadqrg1pp6v9cm",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers a range of topics including implant positioning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:26:54.115Z"
+  },
+  {
+    "id": "zxocdz2adeubsiuiyd8z4mrq",
+    "sourceRecordId": "awe3ji3v8gwodlul4sjorbyy",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals, based on changes in meeting frequency, rescheduling, duration, attendance quality, and agenda content.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:30:37.313Z"
+  },
+  {
+    "id": "amv97giwsn6il13ceywxoqgn",
+    "sourceRecordId": "bdqnbzy33poyqsjkej8yampj",
+    "summaryText": "Keragon and Retell AI have integrated their platforms to streamline healthcare workflows through automation, enabling features like AI-driven client intake, appointment scheduling, and personalized voice interactions. This integration allows healthcare providers to reduce administrative burdens, improve efficiency, and maintain compliance while offering multilingual support and advanced configurations such as insurance verification and EHR synchronization.",
+    "evidenceCandidateText": "With Keragon’s powerful healthcare automation platform and Retell AI’s sophisticated voice agents — ideal for an AI call center, it’s now easier than ever to streamline healthcare administration, without compromising the quality of care.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:45:26.067Z"
+  },
+  {
+    "id": "rag27816pyycf0bdwsnhjhf9",
+    "sourceRecordId": "cosfwfj0qfdw5e8vjo5thc71",
+    "summaryText": "Positive Check has launched an AI-powered patient engagement platform that automates structured check-ins, reduces administrative burden on care teams, and improves patient outreach through HIPAA-compliant virtual assistant interactions.",
+    "evidenceCandidateText": "Positive Check helps automate structured outreach, surface meaningful updates earlier, and route patients to the right people when follow-up is needed.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:59.353Z"
+  },
+  {
+    "id": "tatsn6ww9bu252ll61gh61yu",
+    "sourceRecordId": "cpnx99xk7yi3v1b7id98z7nd",
+    "summaryText": "Bupa Dental at Westfield Penrith is open with operating hours from 8:30am to 5:00pm on weekdays, 8:30am to 8:00pm on Thursdays, and 8:30am to 1:00pm on Saturdays. The clinic provides a range of dental services, including wisdom teeth removal, fillings, gum disease treatment, and teeth whitening, and accepts all health funds. It is located on Level 1, near Blooms the Chemist.",
+    "evidenceCandidateText": "Smile. Bupa Dental Penrith is now open. We welcome all patients and accept all health funds. Book an appointment today. Your oral health affects your overall wellbeing and physical wellness, which is why we want to help people in Penrith look after their smiles.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:27:08.451Z"
+  },
+  {
+    "id": "a5si9bwbo98kw4kihiqgv5zj",
+    "sourceRecordId": "dr1unln5htkh0ka7ti4lx0v2",
+    "summaryText": "领健信息技术有限公司（LinkedCare）是一家专注于口腔行业的企业，提供一站式系统整体解决方案，包括面向诊所的SAAS系统‘牙掌柜’、品牌推广‘微诊所’，面向医生的‘e看牙’APP，以及面向患者的微信服务号‘e看牙助手’。领健已与200余家诊所合作，覆盖多个地区，并获得千万级人民币天使融资。",
+    "evidenceCandidateText": "领健注册于2015年初，除了上海总部，在北京也成立了办事处。目前已经合作了包括北京瑞城口腔医院、上海浦华口腔 等在内的200余家诊所，它们主要分布在华东、华北、东北、西北和中部地区，每家诊所平均有12名医生、收集了4500个病历数（就诊过的患者数量）。",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:49:07.538Z"
+  },
+  {
+    "id": "e6dfel99k1d4v6ekepgblvbl",
+    "sourceRecordId": "duo38qaglnyxgjojrlj9lgyg",
+    "summaryText": "AI medical scheduling uses conversational agents to book, confirm, and reschedule appointments through natural language, reducing no-show rates by 30-40% and cutting front-desk workload by 60-80%. The approach captures patient intent more effectively than static forms or phone trees, which contribute to high no-show rates and lost revenue for healthcare providers.",
+    "evidenceCandidateText": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:46:21.757Z"
+  },
+  {
+    "id": "mci8hczw4gcihjufab98zdkf",
+    "sourceRecordId": "e7xo9qb14zvjg1rvd82saumb",
+    "summaryText": "Optimizing clinic scheduling involves using accurate encounter data, structured templates, and automated communication to improve patient access and provider productivity. Key metrics include TNAA and utilisation rate, with targets of TNAA under 10 days and utilisation above 90%. Tools like automated scheduling software, EHR integration, AI triage, and multi-channel reminders are essential, along with staff training and consistent protocols.",
+    "evidenceCandidateText": "Effective clinic scheduling combines accurate encounter data, structured templates, and automated communication to maximize patient access and provider productivity.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:02:28.123Z"
+  },
+  {
+    "id": "kcuiyh5eg18s6tq4insh6rcx",
+    "sourceRecordId": "eucmj4858yhw49d8i6bbubk6",
+    "summaryText": "Agentic AI in healthcare is transforming patient engagement by enabling autonomous systems to complete tasks without step-by-step human direction, improving efficiency in front office operations and reducing staffing pressures.",
+    "evidenceCandidateText": "Agentic AI, software that can reason through a goal and take action without step by step human direction, is moving healthcare from passive automation toward systems that actually complete tasks on their own.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:03:19.924Z"
+  },
+  {
+    "id": "nkcp4cjyzrtxc57p7uljis1q",
+    "sourceRecordId": "fevr3qn3s4icu5izxxgdh25v",
+    "summaryText": "The source promotes HealthTec Software, Inc.'s IMS as a comprehensive medical billing and EHR solution tailored for home-based businesses, highlighting features like mobile access, AR management, and customization options.",
+    "evidenceCandidateText": "A Complete, Intelligent, Electronic Health Record for Managing Your Team’s Workflow and Patient Care",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:45:56.489Z"
+  },
+  {
+    "id": "y0mdmeaqx8zn0lyhz7ulxvr2",
+    "sourceRecordId": "g0z45np5bpntmxke3v2rj9ru",
+    "summaryText": "A virtual front desk service, such as ScribeEMR's VMOS, can reduce patient no-shows and increase practice revenue by providing proactive confirmation, scheduling follow-up, and patient outreach. Evidence suggests that this can lead to a 10–20% reduction in no-shows and a 20–30% revenue lift.",
+    "evidenceCandidateText": "$200+ Lost per specialist no-show; $260K+ 5 missed visits/day × $200 × 260 clinic days = $260,000; 10–20% No-show reduction tied to proactive confirmation and scheduling outreach, based on ScribeEMR VMOS benchmarks.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:38.138Z"
+  },
+  {
+    "id": "f53gqqvo6sow7ym3zwwslhl8",
+    "sourceRecordId": "g78diy2ahcf411i6e4fok04e",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, to be held in Gdańsk from 25-27 June 2026. The course covers planning for single-tooth implants, full-arch reconstructions, and surgical guide design, with hands-on training and individual workstations provided.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:31:41.569Z"
+  },
+  {
+    "id": "da0aq4ebtdaui3x2b4cxf240",
+    "sourceRecordId": "gx0dnnzfyargw2l78iry44gd",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place from 25-27 June 2026 in Gdańsk, led by Dr. Krzysztof Chmielewski and Dr. Maja Chmielewska. The course covers various types of surgical guides and includes hands-on training with the coDiagnostiX® software.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:31:03.819Z"
+  },
+  {
+    "id": "qfzxvl7jbpwg09i15c9c9tfd",
+    "sourceRecordId": "gzgq31qgpnve0klyk9wm5rwz",
+    "summaryText": "A virtual front desk service can help reduce patient no-shows and increase practice revenue by providing appointment reminders, scheduling follow-up, patient outreach, and front-desk workflows. The service claims to reduce no-shows by 10–20% and increase revenue by 20–30% through structured patient outreach and preventive care reminders.",
+    "evidenceCandidateText": "$200+ Lost per specialist no-show; $260K+ 5 missed visits/day × $200 × 260 clinic days = $260,000; 10–20% No-show reduction tied to proactive confirmation and scheduling outreach, based on ScribeEMR VMOS benchmarks.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:47:14.120Z"
+  },
+  {
+    "id": "iwzg8ynjpryxp0rh7qh6yl65",
+    "sourceRecordId": "hhuihdf6zebwkw7av0qeu94q",
+    "summaryText": "The article discusses how real-time SMS wait time updates can reduce patient walkouts and improve patient experience in urgent care settings. It highlights the inefficiencies of current communication methods like email, phone calls, and patient portals, and emphasizes the benefits of AI-powered SMS solutions for healthcare organizations.",
+    "evidenceCandidateText": "Real-time wait time communication via SMS lets patients make informed decisions and reduces walkout rates significantly.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:03:30.041Z"
+  },
+  {
+    "id": "ldintod0ykq20cfjuws6hm4z",
+    "sourceRecordId": "huq1h1dmr29i02bm5u17gbrc",
+    "summaryText": "The article discusses the challenges of outdated communication methods in urgent care settings and highlights the benefits of using AI-powered SMS for real-time wait time updates, reducing patient walkouts, and improving overall patient experience.",
+    "evidenceCandidateText": "Real-time wait time communication via SMS lets patients make informed decisions and reduces walkout rates significantly.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:24.698Z"
+  },
+  {
+    "id": "aleaunsw7m1cfc1k0ijth2uu",
+    "sourceRecordId": "hxbaj05nzttab5ezfa8fankw",
+    "summaryText": "The article discusses the varying regulatory approaches to dental membership and discount plans across U.S. states, highlighting the distinction between Direct Primary Care (DPC) and Discount Medical Plan Organization (DMPO) models. It emphasizes that state regulations are not uniform, and some states have specific exemptions for practices offering discounts directly to their patients. Plan Forward positions itself as a platform that accommodates these nuances in compliance across different states.",
+    "evidenceCandidateText": "Each state is different & has different requirements. Many of our vendor colleagues will have you believe that state compliance is black & white, and that everything fits neatly into one regulatory regime. It need not.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:48:38.129Z"
+  },
+  {
+    "id": "aw6w2qu3vy9zuf2iel3sl233",
+    "sourceRecordId": "if4jupqyprc01ecnqzeaoph2",
+    "summaryText": "Henry Schein’s Dentrix Ascend is a cloud-based practice management platform that is reshaping digital dental workflows by offering a modern, browser-based interface, integrated clinical tools, and business analytics features. It eliminates the need for on-site servers and provides features like automated reminders and digital check-ins.",
+    "evidenceCandidateText": "Dentrix Ascend is Henry Schein’s cloud-based practice management platform that runs entirely in a browser, so practices can skip on-site servers and local backups in favor of data hosted in secure data centers with automatic updates and nightly backups.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:48:11.914Z"
+  },
+  {
+    "id": "gf2ke8a62aa31q9nbbjxypl0",
+    "sourceRecordId": "igydgs1bjvf64cldcvjo1a4b",
+    "summaryText": "GoMo Health and Dentistry.One have partnered to integrate AI-powered oral health screening into GoMo's digital engagement platform, aiming to connect oral health with whole-person care, starting with Medicaid members with diabetes.",
+    "evidenceCandidateText": "Starting with Medicaid members living with diabetes, the partnership embeds AI-powered oral health screening into the GoMo Health digital engagement platform, with plans to expand to maternal health and beyond.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:04:57.069Z"
+  },
+  {
+    "id": "cmnn6r4chnrqapubfu2e0qqp",
+    "sourceRecordId": "ii5f9lji6z611gjxt78e0do3",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days earlier than NPS scores or CRM health signals. Key indicators include declining meeting frequency, increased rescheduling, shorter meeting durations, lower attendance quality, and shifts in meeting agendas.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:29:45.380Z"
+  },
+  {
+    "id": "xu5vu4ifz7gv71avei9aq6tl",
+    "sourceRecordId": "ijsv7gxc0h1prpa7ibuth5i6",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals. Key signals include declining meeting frequency, increased rescheduling, shortening meeting duration, lower attendance quality, and shifts in meeting agendas.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:31:28.144Z"
+  },
+  {
+    "id": "mu1t6cavmw8i28c02jc1idgs",
+    "sourceRecordId": "isw1y0bkdyrk5f9skdkox4gv",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026, led by Dr. Krzysztof Chmielewski and Dr. Maja Chmielewska. The course includes hands-on training in implant positioning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:28:45.648Z"
+  },
+  {
+    "id": "puw0atn6nqcl2xrdxi5deqvo",
+    "sourceRecordId": "jjqdodfel3nsi0ukfue9ch92",
+    "summaryText": "Five9's Epic Dialer improves patient outreach through automation and integration with Epic, reducing call abandonment rates and increasing agent efficiency.",
+    "evidenceCandidateText": "Achieve an 83% reduction in call abandonment rates. Enable agents to handle calls up to 25% faster.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:23.128Z"
+  },
+  {
+    "id": "f0xsuoszl4ozbkrjmlio132c",
+    "sourceRecordId": "jv9mvynqtk7csts6vtio4fj1",
+    "summaryText": "Automaziot AI offers automated appointment scheduling systems that allow customers to book, reschedule, and cancel appointments independently via WhatsApp or online forms, with real-time calendar synchronization and automated reminders. The service aims to reduce no-shows and save time by eliminating the need for phone calls and manual scheduling.",
+    "evidenceCandidateText": "Automatic appointment scheduling lets customers book, change, and cancel appointments on their own via WhatsApp or an online form, with automatic Google/Outlook calendar sync and WhatsApp reminders.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:02:40.794Z"
+  },
+  {
+    "id": "kkk29l98ecil9wquttxi35np",
+    "sourceRecordId": "k1idseupvk3dg1kgos8nga92",
+    "summaryText": "Dedicated dental analytics platforms enable practices to identify revenue gaps 40% faster than manual PMS reports by providing live KPI dashboards. These platforms offer features like continuous data sync, derived KPIs, and action triggers. Costs range from $29/month for cloud PMS-built-in tools to $250–$600/month for standalone platforms. Key KPIs to track weekly include production vs. monthly goal, collection rate, case acceptance rate, and no-show rate.",
+    "evidenceCandidateText": "Dedicated analytics helps practices find revenue gaps 40% faster than manual PMS reports (ADA Health Policy Institute— cited in industry analyses).",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:47:58.273Z"
+  },
+  {
+    "id": "ngmzg7q0vdvm4a04bbw2kvmq",
+    "sourceRecordId": "k5ysp7105us1kt3p6xlwzxhm",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals. Key signals include declining meeting frequency, increased rescheduling, shorter meeting durations, lower attendance quality, and changes in meeting agendas.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:27:42.368Z"
+  },
+  {
+    "id": "o5shqv3i2uk7sz2eme6baciv",
+    "sourceRecordId": "klr8l0jn2r269gckxm2ixjjq",
+    "summaryText": "Five9 provides HIPAA-compliant healthcare software that integrates with Epic and other EHR systems to streamline contact center workflows and improve patient experiences. The platform uses AI agents to automate tasks, reduce manual work, and enhance patient engagement and loyalty.",
+    "evidenceCandidateText": "Five9 provides HIPAA-compliant healthcare software that integrates with Epic and other EHR systems to streamline contact center workflows and improve patient experiences.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:45:36.777Z"
+  },
+  {
+    "id": "dfslsiufysy79x828a7h5tfd",
+    "sourceRecordId": "kxklr6k9j8nbvk9kywd1o11p",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers a range of topics including implant positioning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:28:08.369Z"
+  },
+  {
+    "id": "fi6pav6bwhmjb52xdfi0altr",
+    "sourceRecordId": "l4dwgk86iqmalha86jefdwbe",
+    "summaryText": "Smile Brands is deploying Pearl's FDA-cleared Radiographic AI platform across its dental offices to improve diagnostic consistency, communication, and treatment decision-making at scale. The focus is on operationalising standardisation across a distributed network, with Pearl's AI serving as a second-reader tool to reduce ambiguity in radiograph interpretation.",
+    "evidenceCandidateText": "The commercial deployment places Pearl’s FDA-cleared dental radiograph analysis technology inside a large U.S. dental support organisation, where the main test is no longer whether AI can detect image findings, but whether it can improve consistency, chairside communication and treatment decision support at scale.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:05.936Z"
+  },
+  {
+    "id": "e95gay1pfrarn7mvn61pbp57",
+    "sourceRecordId": "l54uph9ugwddy6g5zrje3erf",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals. Key indicators include declining meeting frequency, increased rescheduling, shorter meeting durations, lower attendance quality, and changes in meeting agenda content.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:29:09.268Z"
+  },
+  {
+    "id": "a5pheixqobxakk43h2xdsu2m",
+    "sourceRecordId": "lmxbpjrs3wen0vs24kfiita7",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:30:14.375Z"
+  },
+  {
+    "id": "t0zohf0ltes6rng1pa4jzxcf",
+    "sourceRecordId": "mjiudacfwjeifrfsxo8hgbcq",
+    "summaryText": "A virtual front desk service, such as ScribeEMR’s VMOS, can reduce patient no-shows and increase practice revenue by providing proactive appointment reminders, scheduling follow-up, patient outreach, and administrative support. Evidence suggests that no-show rates can be reduced by 10–20%, and revenue can increase by 20–30% through structured patient engagement and efficient workflow management.",
+    "evidenceCandidateText": "$260K+ 5 missed visits/day × $200 × 260 clinic days = $260,000",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:03.961Z"
+  },
+  {
+    "id": "j69ve0334u4p06ovlh1udnlt",
+    "sourceRecordId": "napm8m6m0jle72dykv7txbbq",
+    "summaryText": "Dedicated dental analytics platforms help practices identify revenue gaps 40% faster than manual PMS reports. These platforms provide live KPI dashboards for metrics such as case acceptance, no-shows, and unscheduled treatment value. Standalone tools cost $250–$600/month, while some cloud PMS systems include analytics for as low as $29/month. Key KPIs include production vs. monthly goal, collection rate, case acceptance rate, hygiene reappointment rate, no-show rate, and unscheduled accepted treatment.",
+    "evidenceCandidateText": "Dedicated analytics helps practices find revenue gaps 40% faster than manual PMS reports (ADA Health Policy Institute— cited in industry analyses).",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:46:37.507Z"
+  },
+  {
+    "id": "rfijh5lpxvlwhdtdm19hkfah",
+    "sourceRecordId": "nc30m09bx6qdk5eto8iuibj8",
+    "summaryText": "Automaziot AI offers an automated appointment scheduling system that allows customers to book, reschedule, and cancel appointments via WhatsApp or online forms, with real-time calendar syncing and automated reminders. The system aims to reduce no-shows and eliminate the need for manual scheduling.",
+    "evidenceCandidateText": "Automatic appointment scheduling lets customers book, change, and cancel appointments on their own via WhatsApp or an online form, with automatic Google/Outlook calendar sync and WhatsApp reminders.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:59.350Z"
+  },
+  {
+    "id": "h4c2gyzr0q2o8arpx6jd074l",
+    "sourceRecordId": "nfhiv9vp24r940k5a3zqxbgb",
+    "summaryText": "An event titled 'coDiagnostiX® – Digital Planning and Guided Surgery Workflow' is scheduled for 25–27 June 2026 in Gdańsk, offering a 3-day intensive course on implant planning and surgical guide design using the coDiagnostiX® system. The course will be led by Dr. Krzysztof Chmielewski and Dr. Maja Chmielewska, with a maximum of 12 participants. The fee is 3,000€ or 12,600 PLN, and software licenses will be provided during the course.",
+    "evidenceCandidateText": "Event date 2026-06-25\n\nSign up for an event\n\ncoDiagnostiX® – Digital Planning and Guided Surgery Workflow 3-Day\n\nIntensive Course on Implant Planning and Surgical Guide Design",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:30:02.037Z"
+  },
+  {
+    "id": "w4ngk0hspxri46ie0sp6ys0k",
+    "sourceRecordId": "ntd9nhjcjswgnymhnn8r8bgd",
+    "summaryText": "Automaziot AI offers automated appointment scheduling solutions that allow customers to book, reschedule, and cancel appointments via WhatsApp or online forms, with real-time calendar synchronization and automated reminders. The service aims to reduce no-shows and save time by eliminating the need for manual scheduling.",
+    "evidenceCandidateText": "Automatic appointment scheduling lets customers book, change, and cancel appointments on their own via WhatsApp or an online form, with automatic Google/Outlook calendar sync and WhatsApp reminders.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:15.402Z"
+  },
+  {
+    "id": "nfjvllp6g7z7zzfoavi2u6bx",
+    "sourceRecordId": "nv2wlceh5m5ohw909ug6ktqi",
+    "summaryText": "Dedicated dental analytics platforms help practices identify revenue gaps 40% faster than manual PMS reports. These platforms provide live dashboards for KPIs such as case acceptance, no-show rates, and unscheduled treatment value. Standalone tools like Dental Intelligence and Jarvis cost $250–$600/month, while built-in analytics in cloud PMS systems can start near $29/month. Denzif Pro includes analytics as part of its subscription at PKR 7,999 (~$29/month).",
+    "evidenceCandidateText": "Dedicated analytics helps practices find revenue gaps 40% faster than manual PMS reports (ADA Health Policy Institute— cited in industry analyses).",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:04:05.415Z"
+  },
+  {
+    "id": "pj0giqkjjg5kviou08nr5fqo",
+    "sourceRecordId": "o2e6tkgfmentdag56h7dbxjp",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. It covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:30:27.427Z"
+  },
+  {
+    "id": "undgau115mwoh7wjbsj5d9yf",
+    "sourceRecordId": "ohw8uyu8f8xnhsun6kzewycz",
+    "summaryText": "Patient no-shows in healthcare create significant operational and financial challenges, contributing to capacity issues and longer waiting lists. While technology like reminders and telehealth has been adopted to reduce no-shows, factors such as life disruptions and access barriers remain challenges. The impact of no-shows is often overlooked compared to staffing or budget issues, but it has a compounding effect on healthcare systems.",
+    "evidenceCandidateText": "When a specialist’s time goes unused, capacity disappears. When capacity disappears, waiting lists grow. When waiting lists grow, healthcare systems come under even more pressure.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:47:36.436Z"
+  },
+  {
+    "id": "e43u9a5n4thrr9ysrkc9ywki",
+    "sourceRecordId": "ottp5bok32k6ttspwt2rfcfe",
+    "summaryText": "The article discusses the challenges of outdated communication methods in urgent care settings, emphasizing the benefits of real-time SMS updates for reducing patient walkouts and improving experience. It highlights the inefficiencies of current workflows and the need for AI-powered SMS solutions to enhance communication and compliance.",
+    "evidenceCandidateText": "Real-time wait time communication via SMS lets patients make informed decisions and reduces walkout rates significantly.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:47:24.257Z"
+  },
+  {
+    "id": "sq8oyrgaqpqeqil2a7rmeelz",
+    "sourceRecordId": "ovmuvm70d6sepawm8myhza3m",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers various aspects of implant planning and surgical guide design, with a maximum of 12 participants.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:28:59.002Z"
+  },
+  {
+    "id": "xic3fh5nxww1sukum7c7sgi5",
+    "sourceRecordId": "oz9ti3e2rcqiaaam5j4nrerp",
+    "summaryText": "口腔医疗高度定制化，「EZ口腔云」旨在通过数字化解决方案提升诊所与义齿工厂之间的协作效率。",
+    "evidenceCandidateText": "实现口腔义齿产品的精准加工~“牙科是医疗产业中商业化程度最高的行业，但也是一个高度定制化的行业”，知北信息联合创始人杨眉告诉36氪。鉴于牙齿本身的功能属性，口腔诊疗中的三大类目：美学修复、种植牙、隐形矫治牙所需耗材都需要进行高精度定制，包括尺寸和色彩等。",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:43:52.925Z"
+  },
+  {
+    "id": "ve3njkms6tsaq5mfu3lz6k08",
+    "sourceRecordId": "pfanc8zxh4ohuox1sce1num2",
+    "summaryText": "Five9 provides HIPAA-compliant healthcare software that integrates with Epic and other EHR systems to streamline contact center workflows, improve patient engagement, and automate tasks using AI agents. The platform supports multi-channel communication and emphasizes trust and governance through HIPAA compliance.",
+    "evidenceCandidateText": "HIPAA-compliant software for healthcare with direct Epic integration that streamlines contact center workflows, reduces friction between voice and EHR systems, and creates more connected patient experiences—without adding complexity for IT teams.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:51:10.862Z"
+  },
+  {
+    "id": "lm57rby64d97eoecb3oa32w1",
+    "sourceRecordId": "q0olabmdfu8fnwrbp3ax6yll",
+    "summaryText": "A seminar is being held in Tokyo on June 21, 2026, introducing the SiLL-Ha oral environment measurement system for preventive dentistry. The system allows quick saliva testing to assess risks of cavities, periodontal disease, and bad breath, and includes a service called 'SillHa Connect' for comparing results over time to motivate regular check-ups.",
+    "evidenceCandidateText": "本説明会では、唾液検査システム「SiLL-Ha」の使用方法も交え、わずか5分間でむし歯・歯周病・口臭のリスクが簡単にその場でわかる唾液検査を導入方法をお伝えいたします。",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:51:51.895Z"
+  },
+  {
+    "id": "pvuoqcdyih8wlwl5i1mys1c8",
+    "sourceRecordId": "q9iqca0b00nmuq43wik797o2",
+    "summaryText": "AI medical scheduling uses conversational agents to reduce no-show rates by up to 40% through natural language interactions, capturing patient intent and enabling seamless rescheduling. This approach also reduces front-desk workload by 60-80%, though compliance with regulations like BAA and encryption is required.",
+    "evidenceCandidateText": "The payoff is measured in no-shows: missed appointments cost the U.S. healthcare system an estimated $150 billion a year, and conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:45:13.246Z"
+  },
+  {
+    "id": "ebnbfx8pbfr1nw7poh598y37",
+    "sourceRecordId": "r61i46ezjlm17x6f0gyyb32w",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, scheduled for June 25-27, 2026, in Gdańsk. The course covers various surgical guide designs and implant planning techniques.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:28:30.912Z"
+  },
+  {
+    "id": "ak0mswvj4kpwulqrkmwc37ks",
+    "sourceRecordId": "ro1c9uqb3350m5ikuqbdq64o",
+    "summaryText": "Henry Schein's Dentrix Ascend is a cloud-based practice management platform that is reshaping digital dental workflows by offering a modern, browser-based interface with features such as appointment management, clinical tools, and business metrics. It eliminates the need for on-site servers and provides automatic updates and backups.",
+    "evidenceCandidateText": "Dentrix Ascend is Henry Schein’s cloud-based practice management platform that runs entirely in a browser, so practices can skip on-site servers and local backups in favor of data hosted in secure data centers with automatic updates and nightly backups.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:04:18.845Z"
+  },
+  {
+    "id": "gg7dbgwxrsr13v719k6zmih9",
+    "sourceRecordId": "rptbkg0sbnkme41vhdpw7ss9",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. It covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:27:21.427Z"
+  },
+  {
+    "id": "p2tf4lpk4oic40i7yvzltvy5",
+    "sourceRecordId": "rulqxx1fqcid82b4l4h9bquf",
+    "summaryText": "Five9 offers an SMS customer service platform that allows businesses to improve customer satisfaction through automated reminders, surveys, and omnichannel support. The platform helps reduce no-show rates and increases appointment confirmations. However, US carriers now require registration for 10DLC SMS numbers to avoid traffic blocking and fines.",
+    "evidenceCandidateText": "All US Carriers now require registration for 10DLC SMS numbers. Unregistered Brands that use 10DLC SMS numbers may have SMS traffic blocked and non-compliance fines imposed.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:17.455Z"
+  },
+  {
+    "id": "hlp2h0kdmdwahc6rl3t9pp0r",
+    "sourceRecordId": "s12ho6kfxdphxhm1l59vvco8",
+    "summaryText": "领健信息技术有限公司（LinkedCare）为口腔行业提供一站式系统整体解决方案，包括面向诊所的SAAS系统‘牙掌柜’、品牌推广‘微诊所’，面向医生的‘e看牙’APP，以及面向患者的微信服务号‘e看牙助手’。领健已与200余家诊所合作，覆盖多个地区，并获得天使轮融资。",
+    "evidenceCandidateText": "领健注册于2015年初，除了上海总部，在北京也成立了办事处。目前已经合作了包括北京瑞城口腔医院、上海浦华口腔 等在内的200余家诊所，它们主要分布在华东、华北、东北、西北和中部地区，每家诊所平均有12名医生、收集了4500个病历数（就诊过的患者数量）。",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:43:36.352Z"
+  },
+  {
+    "id": "ie152g07bj6xzcrg3rd97wdw",
+    "sourceRecordId": "s72jbg4w9c94mcr6r3jbpfd6",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system is scheduled for June 25-27, 2026, in Gdańsk. The course covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:31:54.127Z"
+  },
+  {
+    "id": "b9cszoo8oxi2h1v772to3qdp",
+    "sourceRecordId": "ss6w6hx57xe9e9vui8prdvyw",
+    "summaryText": "EZ口腔云通过数字化影像采集、设计及加工一体化解决方案，提升口腔医疗产业链效率，实现诊所与义齿工厂的无缝对接。",
+    "evidenceCandidateText": "EZ口腔云产品体系——集口腔数字化影像采集、设计及加工为一体的智能硬件（展示入口）+SaaS平台，将影像数据和智能分析应用于医患治疗项目接诊管理、医技患病例设计分析、义齿订单加工管理及3D打印供应链上。",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:49:35.421Z"
+  },
+  {
+    "id": "hy4cfypaofpjtz08s0idopkn",
+    "sourceRecordId": "sywncoat3xx5ejtrxspmcym5",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, scheduled for June 25–27, 2026, in Gdańsk. The course covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories, with a maximum of 12 participants.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:31:17.829Z"
+  },
+  {
+    "id": "nuzsjfhs0t7ybwt9qe5ffnua",
+    "sourceRecordId": "tk9x06e3rqfvae4kzwe7gs3l",
+    "summaryText": "Virtual front desk services, such as those provided by ScribeEMR, can reduce patient no-shows and increase practice revenue by improving scheduling, patient outreach, and administrative support. Evidence suggests that proactive confirmation and outreach can reduce no-show rates by 10–20% and increase revenue by 20–30%.",
+    "evidenceCandidateText": "$260K+ 5 missed visits/day × $200 × 260 clinic days = $260,000",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:03:43.192Z"
+  },
+  {
+    "id": "m9n25s9i74aje64kueulzwr4",
+    "sourceRecordId": "ujzhadq9m7tiad8u0edt78dv",
+    "summaryText": "Henry Schein’s Dentrix Ascend is a cloud-based practice management software designed for dental practices, offering features such as scheduling, charting, imaging integration, treatment planning, and billing. It aims to reduce the complexity of older systems by providing real-time data access and standardized workflows.",
+    "evidenceCandidateText": "Dentrix Ascend is Henry Schein’s cloud-native practice management platform that runs in a web browser instead of a local server, aimed at solo dentists and multi-site groups alike.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:48:24.639Z"
+  },
+  {
+    "id": "td5lq40n6i9ofwzb5d53z4x4",
+    "sourceRecordId": "up846tvg5y9s5xf6dmcsgfkk",
+    "summaryText": "Five9's Epic Dialer enhances patient outreach through automation and integration with Epic, reducing patient journey time, call abandonment rates, and increasing agent efficiency.",
+    "evidenceCandidateText": "Reduce patient journey time by nearly three minutes. Achieve an 83% reduction in call abandonment rates. Enable agents to handle calls up to 25% faster.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:49:51.088Z"
+  },
+  {
+    "id": "vom45hjefqt547tegyc6jd1a",
+    "sourceRecordId": "ux45dsdfmz08a46xlljrgcuo",
+    "summaryText": "Positive Check has launched an AI-powered patient engagement platform that automates structured outreach, supports live transfers, and helps healthcare organizations reduce administrative burden on care teams.",
+    "evidenceCandidateText": "Positive Check helps automate structured outreach, surface meaningful updates earlier, and route patients to the right people when follow-up is needed.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:45:46.247Z"
+  },
+  {
+    "id": "kfucb6oegto4d0d8n128nl09",
+    "sourceRecordId": "uztq1pntzte4jqmmfe6ce1yg",
+    "summaryText": "Five9's Epic Dialer enhances patient outreach through automation, AI, and integration with Epic, reducing call abandonment rates and improving agent efficiency.",
+    "evidenceCandidateText": "Achieve an 83% reduction in call abandonment rates. Enable agents to handle calls up to 25% faster.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:03:49.953Z"
+  },
+  {
+    "id": "eolg9omztlvd880z9kk1dme5",
+    "sourceRecordId": "v02xdc8xdqfcxo8m1z17m2jh",
+    "summaryText": "Effective clinic scheduling combines accurate encounter data, structured templates, and automated communication to maximize patient access and provider productivity. Key metrics like TNAA and utilisation rate, along with wave scheduling and buffer rules, are essential for optimization.",
+    "evidenceCandidateText": "Effective clinic scheduling combines accurate encounter data, structured templates, and automated communication to maximize patient access and provider productivity.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:46:06.744Z"
+  },
+  {
+    "id": "i6b3iu5d5gzd1dx2aicgi00h",
+    "sourceRecordId": "v8wcxzu950fudxm0gmk2o35w",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, scheduled for June 25-27, 2026, in Gdańsk. The course covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:32:07.368Z"
+  },
+  {
+    "id": "u9uvt0pygikv8ozih3uqq40k",
+    "sourceRecordId": "vcn86dsajg2u3u2c9iws7lqs",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, to be held in Gdańsk from 25-27 June 2026. The course includes hands-on training, theory, and practical sessions on surgical guide design for various clinical cases.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:29:35.115Z"
+  },
+  {
+    "id": "kjxdltubcawx3updduti7upg",
+    "sourceRecordId": "vffoddq4oav1pite5xf1mn2s",
+    "summaryText": "Henry Schein’s Dentrix Ascend is a cloud-based practice management software designed for dental practices, offering features like real-time data access, integrated scheduling, and streamlined workflows. It aims to reduce the need for local servers and simplify IT management for dental offices.",
+    "evidenceCandidateText": "Dentrix Ascend is Henry Schein’s cloud-native practice management platform that runs in a web browser instead of a local server, aimed at solo dentists and multi-site groups alike.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:04:31.051Z"
+  },
+  {
+    "id": "pv9enolzin1ftd58uei3jol6",
+    "sourceRecordId": "w0v1rfl8d1r2mja705aj26hr",
+    "summaryText": "Smile Brands is deploying Pearl's FDA-cleared dental radiograph AI platform across its dental offices to improve diagnostic consistency and clinical communication. The deployment focuses on operationalizing AI as a standardized second-reader tool, while balancing clinician autonomy and workflow integration.",
+    "evidenceCandidateText": "The commercial deployment places Pearl’s FDA-cleared dental radiograph analysis technology inside a large U.S. dental support organisation, where the main test is no longer whether AI can detect image findings, but whether it can improve consistency, chairside communication and treatment decision support at scale.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:49:19.769Z"
+  },
+  {
+    "id": "mxtkou7z45e1i4i9jdtusxso",
+    "sourceRecordId": "w5sfk1qbyfkjyak7femproo0",
+    "summaryText": "AI medical scheduling uses conversational agents to reduce no-show rates by 30-40% through natural language interaction, capturing patient intent and enabling rescheduling within the same conversation. It also reduces front-desk workload by 60-80% but requires compliance measures like BAA and encryption.",
+    "evidenceCandidateText": "conversational scheduling routinely cuts no-show rates by 30-40% by capturing intent up front and rescheduling patients inside the reminder itself.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:36.804Z"
+  },
+  {
+    "id": "y0dfphgsf8yi1idg4x8a1nsr",
+    "sourceRecordId": "w5v0qgn1b9jxhzf3xxehz25d",
+    "summaryText": "TurnUp, an AI platform that predicts and resolves healthcare no-shows, raised €2M in a seed round led by Newion. The platform prevents no-shows by using AI to predict cancellations and automatically fill slots, serving over 250 practices and preventing over 500,000 no-shows.",
+    "evidenceCandidateText": "TurnUp raised €2M in a seed round led by Newion. The Ghent startup will use the capital to accelerate its commercial activities, strengthen its technical team and push further into the UK.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:03:09.383Z"
+  },
+  {
+    "id": "xvmxz4i6fowuaq3jhzaqu6bp",
+    "sourceRecordId": "wlx858j53igxwbgy8az3j5cl",
+    "summaryText": "GoMo Health and Dentistry.One have partnered to integrate AI-powered oral health screening into GoMo's digital platform, aiming to connect oral health with overall care, starting with Medicaid members with diabetes and expanding to maternal health and other chronic conditions.",
+    "evidenceCandidateText": "The partnership embeds AI-powered oral health screening into the GoMo Health digital engagement platform, with plans to expand to maternal health and beyond.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:48:49.112Z"
+  },
+  {
+    "id": "xqfimj1uekipspmrzn89lu89",
+    "sourceRecordId": "wmm4ltse9gdmqm7nt5bi21to",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals, offering early insights into declining customer engagement through changes in meeting frequency, rescheduling, duration, attendance quality, and agenda content.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:28:18.504Z"
+  },
+  {
+    "id": "jj9hpq0leaognbu7j15kmp99",
+    "sourceRecordId": "wtgo2vflf61ufvodjkvnuiu1",
+    "summaryText": "Calendar meeting patterns can predict customer churn 30-60 days before NPS scores or CRM health signals, based on changes in meeting frequency, rescheduling, duration, attendance quality, and agenda content.",
+    "evidenceCandidateText": "Calendar meeting patterns predict churn 30-60 days earlier than NPS surveys and customer health scores.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:51:30.902Z"
+  },
+  {
+    "id": "mxvh1vvoe3qspud1g47vm30i",
+    "sourceRecordId": "x6ibzuy5lq8qb9oudxrcw3bd",
+    "summaryText": "Agentic AI is transforming healthcare by enabling autonomous systems to complete tasks without step-by-step human direction, improving patient engagement and operational efficiency.",
+    "evidenceCandidateText": "Agentic AI, software that can reason through a goal and take action without step by step human direction, is moving healthcare from passive automation toward systems that actually complete tasks on their own.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:46:59.343Z"
+  },
+  {
+    "id": "kcqtynwavxjft818uwyf14lr",
+    "sourceRecordId": "xtv8p28oynzp97mp2i69qhxk",
+    "summaryText": "Plan Forward explains that dental membership and discount plans are not one-size-fits-all and are subject to nuanced regulatory regimes across different states. Some states treat these plans as insurance, requiring compliance with insurance laws, while others treat them as contractual relationships governed by contract law. Plan Forward's platform accommodates the varying regulatory requirements across states, allowing dental practices to manage compliance within both Direct Primary Care (DPC) and Discount Medical Plan Organization (DMPO) regimes.",
+    "evidenceCandidateText": "Plan Forward’s approach is unique – we’ve built a platform that allows for all the nuance. If you’re a group with practices in DPC & DMPO states, we manage compliance within both regulatory regimes, on a single platform.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-20T00:04:45.520Z"
+  },
+  {
+    "id": "rxtwnzyfsj52lix8cchyovnq",
+    "sourceRecordId": "xwze5xsm2m11tdg2fu52isld",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers various aspects of implant planning, surgical guide design, and digital communication with dental laboratories.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:30:49.767Z"
+  },
+  {
+    "id": "zkajp7mxzzwdv6fezpbmas7p",
+    "sourceRecordId": "xxe842lm4gtdemh2dh3he25x",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, taking place in Gdańsk from 25-27 June 2026. The course covers various aspects of implant planning, surgical guide design, and digital communication with the dental laboratory.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:29:21.794Z"
+  },
+  {
+    "id": "bvo4hq3903lsm70l7xm2n83p",
+    "sourceRecordId": "ycxnro6obdojkp7t7rlvxq9h",
+    "summaryText": "A 3-day intensive course on digital implant planning and guided surgery using the coDiagnostiX® system, scheduled for June 25-27, 2026, in Gdańsk. The course covers various types of surgical guides and is limited to 12 participants.",
+    "evidenceCandidateText": "This 3-day intensive course is designed to provide comprehensive, hands-on training in computer guided implant planning using the coDiagnostiX® system – from single-tooth cases in the esthetic zone to complex full-arch reconstructions.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:27:54.612Z"
+  },
+  {
+    "id": "n1tqy2jj2nmqpjl9y4wrqjc6",
+    "sourceRecordId": "yt1j36e8jjwt3t69qh29t2k3",
+    "summaryText": "Five9's Epic Dialer improves patient outreach through automation, integration with Epic, and AI-powered outbound capabilities, leading to faster call handling, reduced abandonment rates, and better care coordination.",
+    "evidenceCandidateText": "Reduce patient journey time by nearly three minutes. Achieve an 83% reduction in call abandonment rates. Enable agents to handle calls up to 25% faster.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:47:43.347Z"
+  },
+  {
+    "id": "icr0qhklu63gsdt3lhp2wp4q",
+    "sourceRecordId": "z0pevuvy22kpr3f47ubyilyw",
+    "summaryText": "Keragon and Retell AI have integrated their platforms to streamline healthcare workflows through automation, enabling features like AI-driven appointment scheduling, client intake, and multilingual support. This integration allows healthcare providers to reduce administrative burdens, improve efficiency, and maintain personalized patient interactions without requiring technical expertise.",
+    "evidenceCandidateText": "With Keragon’s powerful healthcare automation platform and Retell AI’s sophisticated voice agents — ideal for an AI call center, it’s now easier than ever to streamline healthcare administration, without compromising the quality of care.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:50:48.769Z"
+  },
+  {
+    "id": "cgat7h349mt1w99a647fvomd",
+    "sourceRecordId": "zbh2ovohzrfliu6oci1mjuhc",
+    "summaryText": "The article discusses the importance of real-time SMS communication in urgent care settings to reduce patient walkouts and improve the patient experience. It highlights the inefficiencies of traditional communication methods and the benefits of adopting AI-powered SMS solutions.",
+    "evidenceCandidateText": "Real-time wait time communication via SMS lets patients make informed decisions and reduces walkout rates significantly.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:44:47.837Z"
+  },
+  {
+    "id": "vbprrjrml84js85chu8n3z28",
+    "sourceRecordId": "zjeg5dua2vxvh0qkbpae2oig",
+    "summaryText": "Five9 offers an SMS customer service platform that allows businesses to send appointment reminders, surveys, and manage customer interactions via text. It highlights benefits such as improved customer satisfaction, reduced no-show rates, and integration with CRM systems.",
+    "evidenceCandidateText": "With Five9's SMS call center and contact center reminders, your customers are much more likely to keep their appointments.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:49:44.666Z"
+  },
+  {
+    "id": "vq5q7pkw75qngt3nhg4eudj9",
+    "sourceRecordId": "zsmdi71aj4ud3y32wgrowqf6",
+    "summaryText": "Intelligent automation has transformed patient support, but human engagement, particularly by licensed nurses, remains essential for addressing complex patient needs. This webinar discusses how biopharmaceutical manufacturers are integrating AI with clinical judgment to improve patient outcomes.",
+    "evidenceCandidateText": "These multidimensional needs are not fully addressed through digital workflows alone. For appropriate products and patient populations, licensed nurses bring the critical thinking and clinical judgment required to assess these factors in real time, tailor support to the individual patient, and deliver high-quality, personalized interventions that support successful therapy initiation and sustained adherence.",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-18T06:27:31.893Z"
+  },
+  {
+    "id": "xfjwe330ehz9cueb3s9v3pjh",
+    "sourceRecordId": "zudf382zs3qtetmxvpkd8nmr",
+    "summaryText": "The source promotes HealthTec Software, Inc.'s IMS as a comprehensive medical billing and EHR solution tailored for home-based businesses, emphasizing its customizable features, mobile accessibility, and AR management tools.",
+    "evidenceCandidateText": "A Complete, Intelligent, Electronic Health Record for Managing Your Team’s Workflow and Patient Care",
+    "modelName": "qwen3:14b",
+    "modelProvider": "ollama",
+    "promptVersion": "local-source-summary-v1",
+    "createdAt": "2026-06-19T23:51:20.801Z"
+  }
+]
