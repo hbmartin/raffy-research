@@ -780,9 +780,11 @@ email to issue owners. Verify that the project's ownership rules route to an
 active operator before enabling it.
 
 Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
-`pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages
-separately: the build has a ten-minute budget; database initialization and server
-readiness have two minutes. Both use the same generated fixture manifest under
+`pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. GitHub CI runs those stages
+separately and selects only desktop and mobile Chromium with
+`pnpm test:e2e:ssr:built --project=ssr-desktop --project=ssr-mobile`. The build has
+a ten-minute budget; database initialization and server readiness have two minutes.
+Both use the same generated fixture manifest under
 `.ssr-fixture/`, an explicit environment, and an empty Vite env
 directory. Nitro's separate dotenv loader is disabled for this fixture too.
 Developer `.env` files and application credentials are not inherited.
@@ -799,15 +801,19 @@ qualifies when Vite resolves production semantics), runtime `NODE_ENV=production
 loopback host and built base URL, valid auth, and no validation bypass. A dev server
 or development build cannot enable it.
 
-Desktop/mobile Chromium, Firefox, and mobile WebKit checks consume complete
-login and authenticated SSR responses within ten seconds, exercise sign-in,
+The complete local suite covers desktop/mobile Chromium, Firefox, and mobile
+WebKit. These checks consume complete login and authenticated SSR responses within
+ten seconds, exercise sign-in,
 compare head metadata and nonces, and check browser proxy authentication and
 CSP/hydration errors. A server-only case verifies invalid headers stop startup
 before readiness. Integration tests cover immediate and delayed query streams,
 cleanup, error propagation, cancellation, and backpressure. Chromium/Firefox
 screenshots and failure traces are saved under `test-results/ssr/` for all
 three browser engines. This gate is independent of
-the Docker-backed E2E matrix. Dependency PRs must pass it before merging.
+the Docker-backed E2E matrix, which also runs only Chromium in GitHub CI. Local
+`pnpm test:e2e` retains Chromium, Firefox, and WebKit projects. Dependency PRs must
+pass the CI SSR gate before merging; use the complete local suite when validating
+browser compatibility.
 
 Sentry's project OTLP integration accepts traces and logs at `/v1/traces` and
 `/v1/logs`. The app reads authentication from the standard

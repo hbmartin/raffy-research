@@ -10,7 +10,6 @@ paths-ignore:
   - .output/**
   - .github/codeql/start-ui-web-queries/test/**
   - coverage/**
-  - cosmos-export/**
   - dist/**
   - node_modules/**
   - playwright-report/**

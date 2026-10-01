@@ -18,7 +18,6 @@
 .vinxi
 /dist
 /build
-/cosmos-export
 
 # misc
 .DS_Store

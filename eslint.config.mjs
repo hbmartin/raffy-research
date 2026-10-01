@@ -12,7 +12,6 @@ const e2eFiles = ['tests/e2e/**/*.ts'];
 const nonProductionFiles = [
   '**/*.{spec,test}.{ts,tsx}',
   '**/__tests__/**/*.{ts,tsx}',
-  '**/*.fixture.tsx',
   'tests/**/*.{ts,tsx}',
 ];
 

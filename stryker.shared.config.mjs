@@ -26,7 +26,6 @@ export function createScopedStrykerConfig({
       '/coverage',
       '/playwright-report',
       '/test-results',
-      '/cosmos-export',
       '/.output',
       '/dist',
       '/build',
