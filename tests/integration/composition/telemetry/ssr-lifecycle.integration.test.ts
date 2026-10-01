@@ -111,8 +111,11 @@ describe('query SSR response lifecycle', () => {
     const cleanup = vi.fn();
     const renderFinished = vi.fn();
     const serverSsr = {
-      reserveStreamFastPath: () => true,
-      onInjectedHtml: () => () => undefined,
+      hydrationScripts: {
+        reserveFastPath: () => true,
+        startSerializationTimeout: vi.fn(),
+      },
+      onCleanup: vi.fn(),
       setRenderFinished: renderFinished,
       cleanup,
     };
