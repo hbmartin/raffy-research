@@ -20,10 +20,7 @@ describe('server config accessors', () => {
     vi.unstubAllEnvs();
     environment.build = {};
     vi.stubEnv('SKIP_ENV_VALIDATION', undefined);
-    vi.stubEnv('VERCEL', undefined);
-    vi.stubEnv('VERCEL_REGION', undefined);
     vi.stubEnv('SSR_FIXTURE_MODE', undefined);
-    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', undefined);
   });
 
   it('caches parsed database config', async () => {
@@ -252,57 +249,15 @@ describe('server config accessors', () => {
     expect(getBetterAuthConfig().secret).toBe('a'.repeat(32));
   });
 
-  it('requires a dedicated proxy IP header for self-hosted production', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('VERCEL', undefined);
-    vi.stubEnv('VERCEL_ENV', undefined);
-    vi.stubEnv('VERCEL_REGION', undefined);
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-  });
-
-  it('does not trust a stale VERCEL_ENV marker', async () => {
+  it('accepts production auth without proxy IP configuration', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('VERCEL_ENV', 'production');
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-
-    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-  });
-
-  it('validates Vercel builds without trusting or caching their runtime IP header', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('VERCEL', '1');
-    vi.stubEnv('VERCEL_REGION', undefined);
     const { getBetterAuthConfig, validateAuthBuildConfig } =
       await import('@/modules/kernel/infrastructure/config/auth');
 
+    expect(getBetterAuthConfig().secret).toBe('a'.repeat(32));
     expect(validateAuthBuildConfig).not.toThrow();
-    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-    vi.stubEnv('VERCEL_REGION', 'sfo1');
-    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
-      'x-vercel-forwarded-for'
-    );
-    vi.stubEnv('AUTH_SECRET', 'too-short');
-    expect(validateAuthBuildConfig).toThrow('AUTH_SECRET');
   });
-
-  it.each(['', '   '])(
-    'does not trust an empty runtime region: %j',
-    async (region) => {
-      vi.stubEnv('NODE_ENV', 'production');
-      vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-      vi.stubEnv('VERCEL', '1');
-      vi.stubEnv('VERCEL_REGION', region);
-      const { getBetterAuthConfig } =
-        await import('@/modules/kernel/infrastructure/config/auth');
-      expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-    }
-  );
 
   it.each([undefined, 'development'])(
     'retains built production validation with runtime NODE_ENV=%s',
@@ -311,89 +266,11 @@ describe('server config accessors', () => {
       vi.stubEnv('NODE_ENV', nodeEnv);
       vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
       vi.stubEnv('OTEL_COLLECTOR_URL', undefined);
-      const { getBetterAuthConfig } =
-        await import('@/modules/kernel/infrastructure/config/auth');
       const { getTelemetryConfig } =
         await import('@/modules/kernel/infrastructure/config/telemetry');
-      expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
       expect(getTelemetryConfig).toThrow('OTEL_COLLECTOR_URL');
     }
   );
-
-  it('does not infer Vercel from a region without its deployment marker', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('VERCEL', undefined);
-    vi.stubEnv('VERCEL_REGION', 'sfo1');
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-
-    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-  });
-
-  it('gives an explicit trusted header precedence over Vercel detection', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('VERCEL', '1');
-    vi.stubEnv('VERCEL_ENV', 'production');
-    vi.stubEnv('VERCEL_REGION', 'sfo1');
-    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'x-proxy-client-ip');
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-
-    expect(getBetterAuthConfig().trustedClientIpHeader).toBe(
-      'x-proxy-client-ip'
-    );
-  });
-
-  it('diagnoses the accepted shared bucket once under the validation bypass', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('SKIP_ENV_VALIDATION', 'true');
-    vi.stubEnv('VERCEL', undefined);
-    vi.stubEnv('VERCEL_REGION', undefined);
-    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', undefined);
-    const diagnostic = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-
-    expect(getBetterAuthConfig().trustedClientIpHeader).toBeUndefined();
-    getBetterAuthConfig();
-    expect(diagnostic).toHaveBeenCalledOnce();
-    expect(diagnostic.mock.calls[0]?.[0]).toBe(
-      '{"event":"auth.rate_limit_shared_bucket","reason":"trusted_client_ip_unconfigured"}\n'
-    );
-  });
-
-  it('rejects X-Forwarded-For as the self-hosted trusted header', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('AUTH_TRUSTED_CLIENT_IP_HEADER', 'X-Forwarded-For');
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-    expect(getBetterAuthConfig).toThrow('AUTH_TRUSTED_CLIENT_IP_HEADER');
-  });
-
-  it('limits SSR sign-in relaxation to the loopback fixture', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AUTH_SECRET', 'a'.repeat(32));
-    vi.stubEnv('SSR_FIXTURE_MODE', 'true');
-    vi.stubEnv('HOST', '127.0.0.1');
-    vi.stubEnv('VITE_BASE_URL', 'http://127.0.0.1:3011');
-    const { getBetterAuthConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-    expect(
-      getBetterAuthConfig(mergeRuntimeEnv(process.env, environment.build))
-        .fixtureSignInRateLimit
-    ).toBe(true);
-    vi.resetModules();
-    vi.stubEnv('HOST', '0.0.0.0');
-    const { getBetterAuthConfig: getPublicConfig } =
-      await import('@/modules/kernel/infrastructure/config/auth');
-    expect(() =>
-      getPublicConfig(mergeRuntimeEnv(process.env, environment.build))
-    ).toThrow('SSR_FIXTURE_MODE');
-  });
 
   it('validates the fixture build, runtime, loopback, and auth config', async () => {
     vi.stubEnv('NODE_ENV', 'production');

@@ -12,6 +12,7 @@ export {
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';
 export { createReportRepository } from './infrastructure/drizzle/report-repository-drizzle';
 export { createRubricScoreRepository } from './infrastructure/drizzle/rubric-score-repository-drizzle';
+export { createScheduledJobRepository } from './infrastructure/drizzle/scheduled-job-repository-drizzle';
 export { createSourceRepository } from './infrastructure/drizzle/source-repository-drizzle';
 export { createWorkspaceRepository } from './infrastructure/drizzle/workspace-repository-drizzle';
 export { getLocalAiConfig } from './infrastructure/local-ai/config';

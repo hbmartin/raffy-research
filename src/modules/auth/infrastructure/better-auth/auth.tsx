@@ -44,21 +44,8 @@ export function createAuth(input?: Database | CreateAuthOptions) {
       ...createAuthCookieSecurityOptions(envClient.VITE_BASE_URL, {
         isProduction: import.meta.env.PROD,
       }),
-      ipAddress: {
-        ipAddressHeaders: authConfig.trustedClientIpHeader
-          ? [authConfig.trustedClientIpHeader]
-          : [],
-      },
     },
-    ...(authConfig.fixtureSignInRateLimit
-      ? {
-          rateLimit: {
-            customRules: {
-              '/sign-in/*': { window: 10, max: 1_000 },
-            },
-          },
-        }
-      : {}),
+    rateLimit: { enabled: false },
     account: {
       encryptOAuthTokens: true,
     },

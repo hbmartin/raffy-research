@@ -23,6 +23,7 @@ export type IntelligenceQueryFacade = ServerFunctionFacade<
     | 'intelligenceListReports'
     | 'intelligenceListWorkspaces'
     | 'intelligenceListProviderCallbacks'
+    | 'intelligenceListScheduledJobs'
     | 'intelligenceScoreReport'
     | 'intelligenceGetReportScore'
     | 'intelligenceLabelSource'
@@ -101,6 +102,17 @@ export const createIntelligenceQueries = <
         facade.intelligenceListProviderCallbacks({
           data: { workspaceId, limit },
         }),
+    }),
+  scheduledJobs: (workspaceId: WorkspaceId) =>
+    queryOptions({
+      queryKey: [
+        'intelligence',
+        intelligenceQueryVersion,
+        'scheduledJobs',
+        workspaceId,
+      ],
+      queryFn: () =>
+        facade.intelligenceListScheduledJobs({ data: { workspaceId } }),
     }),
   reportScore: (workspaceId: WorkspaceId, reportId: WeeklyReportId) =>
     queryOptions({

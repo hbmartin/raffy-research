@@ -6,13 +6,17 @@ import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
 import { getOpenAiConfig } from '../config/runtime';
 import type { ReportGeneratorPort } from '../../application/ports/report-generator';
+import { safeFailureDiagnostics } from '../../application/safe-diagnostics';
 
 /** OpenAI-backed report generator using the AI SDK. */
 export function createOpenAiReportGenerator(): ReportGeneratorPort {
   return {
-    async generate({ prompt }) {
+    async generate({ prompt, stage = 'initial' }) {
+      const startedAt = Date.now();
+      let model: string | undefined;
       try {
         const config = getOpenAiConfig();
+        model = config.model;
         const openai = createOpenAI({ apiKey: config.apiKey });
         const { text } = await generateText({
           model: openai(config.model),
@@ -32,7 +36,13 @@ export function createOpenAiReportGenerator(): ReportGeneratorPort {
             category: 'system',
             status: 502,
             message: 'OpenAI report generation failed',
-            cause: error,
+            details: safeFailureDiagnostics({
+              error,
+              stage,
+              provider: 'openai',
+              model,
+              durationMs: Date.now() - startedAt,
+            }),
           })
         );
       }

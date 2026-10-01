@@ -5,6 +5,7 @@ import type {
   ProviderAdapter,
   ProviderDailyContext,
 } from '../../application/ports/provider-adapter';
+import { safeAppErrorDetails } from '../../application/safe-diagnostics';
 import type { SourceRecordWriteInput } from '../../domain/source';
 
 const competitorDomains = (ctx: ProviderDailyContext): string[] =>
@@ -25,6 +26,8 @@ export const ahrefsAdapter: ProviderAdapter = {
     if (!ctx.credential)
       return Result.Ok({ sourceRecords: [], searchResults: [] });
     const sourceRecords: SourceRecordWriteInput[] = [];
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
     const date = ctx.now.toISOString().slice(0, 10);
 
     for (const domain of competitorDomains(ctx)) {
@@ -34,12 +37,14 @@ export const ahrefsAdapter: ProviderAdapter = {
         { headers: { Authorization: `Bearer ${ctx.credential}` } }
       );
       if (response.isError()) {
+        requestsFailed += 1;
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
-          details: { provider: 'ahrefs', domain },
+          details: safeAppErrorDetails(response.getError()),
         });
         continue;
       }
+      requestsSucceeded += 1;
       sourceRecords.push({
         workspaceId: ctx.workspace.id,
         providerName: 'ahrefs',
@@ -54,7 +59,12 @@ export const ahrefsAdapter: ProviderAdapter = {
         metadata: { domain, date },
       });
     }
-    return Result.Ok({ sourceRecords, searchResults: [] });
+    return Result.Ok({
+      sourceRecords,
+      searchResults: [],
+      requestsSucceeded,
+      requestsFailed,
+    });
   },
 };
 
@@ -69,6 +79,8 @@ export const semrushAdapter: ProviderAdapter = {
     if (!ctx.credential)
       return Result.Ok({ sourceRecords: [], searchResults: [] });
     const sourceRecords: SourceRecordWriteInput[] = [];
+    let requestsSucceeded = 0;
+    let requestsFailed = 0;
 
     for (const domain of competitorDomains(ctx)) {
       // SEMrush SEO API requires credentials as the `key` query parameter.
@@ -78,24 +90,27 @@ export const semrushAdapter: ProviderAdapter = {
         `https://api.semrush.com/?type=domain_ranks&key=${encodeURIComponent(ctx.credential)}&domain=${encodeURIComponent(domain)}&database=us`
       );
       if (response.isError()) {
+        requestsFailed += 1;
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
-          details: { provider: 'semrush', domain },
+          details: safeAppErrorDetails(response.getError()),
         });
         continue;
       }
       const text = response.get();
       if (text.trimStart().startsWith('ERROR:')) {
+        requestsFailed += 1;
         ctx.logger.warn({
           event: 'intelligence.ingest.provider_error',
           details: {
             provider: 'semrush',
-            domain,
-            error: 'SEMrush returned an error response',
+            stage: 'response',
+            errorCode: 'PROVIDER_RESPONSE_ERROR',
           },
         });
         continue;
       }
+      requestsSucceeded += 1;
       sourceRecords.push({
         workspaceId: ctx.workspace.id,
         providerName: 'semrush',
@@ -110,6 +125,11 @@ export const semrushAdapter: ProviderAdapter = {
         metadata: { domain },
       });
     }
-    return Result.Ok({ sourceRecords, searchResults: [] });
+    return Result.Ok({
+      sourceRecords,
+      searchResults: [],
+      requestsSucceeded,
+      requestsFailed,
+    });
   },
 };

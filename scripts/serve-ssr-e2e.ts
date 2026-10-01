@@ -36,7 +36,7 @@ const collector = createServer((request, response) => {
   );
   response.end();
 });
-const supervisor = createFixtureSupervisor();
+const supervisor = createFixtureSupervisor({ childrenShareSignalGroup: true });
 await supervisor.run(
   async () => {
     await database.waitReady;

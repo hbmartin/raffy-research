@@ -3,6 +3,8 @@ import { Result } from '@swan-io/boxed';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
+import { safeFailureDiagnostics } from '../../application/safe-diagnostics';
+
 const DEFAULT_PROVIDER_TIMEOUT_MS = 15_000;
 
 function withDefaultTimeout(init?: RequestInit): RequestInit | undefined {
@@ -16,6 +18,7 @@ export async function fetchJson(
   url: string,
   init?: RequestInit
 ): Promise<Result<JsonValue, AppError>> {
+  const startedAt = Date.now();
   try {
     const response = await fetch(url, withDefaultTimeout(init));
     if (!response.ok) {
@@ -24,7 +27,15 @@ export async function fetchJson(
           code: 'PROVIDER_HTTP_ERROR',
           category: 'system',
           status: 502,
-          message: `${provider} request failed with status ${response.status}`,
+          message: `${provider} request failed`,
+          details: safeFailureDiagnostics({
+            error: null,
+            stage: 'http',
+            provider,
+            upstreamStatus: response.status,
+            requestId: response.headers.get('x-request-id'),
+            durationMs: Date.now() - startedAt,
+          }),
         })
       );
     }
@@ -37,7 +48,12 @@ export async function fetchJson(
         category: 'system',
         status: 502,
         message: `${provider} request failed`,
-        cause: error,
+        details: safeFailureDiagnostics({
+          error,
+          stage: 'http',
+          provider,
+          durationMs: Date.now() - startedAt,
+        }),
       })
     );
   }
@@ -49,6 +65,7 @@ export async function fetchText(
   url: string,
   init?: RequestInit
 ): Promise<Result<string, AppError>> {
+  const startedAt = Date.now();
   try {
     const response = await fetch(url, withDefaultTimeout(init));
     if (!response.ok) {
@@ -57,7 +74,15 @@ export async function fetchText(
           code: 'PROVIDER_HTTP_ERROR',
           category: 'system',
           status: 502,
-          message: `${provider} request failed with status ${response.status}`,
+          message: `${provider} request failed`,
+          details: safeFailureDiagnostics({
+            error: null,
+            stage: 'http',
+            provider,
+            upstreamStatus: response.status,
+            requestId: response.headers.get('x-request-id'),
+            durationMs: Date.now() - startedAt,
+          }),
         })
       );
     }
@@ -69,7 +94,12 @@ export async function fetchText(
         category: 'system',
         status: 502,
         message: `${provider} request failed`,
-        cause: error,
+        details: safeFailureDiagnostics({
+          error,
+          stage: 'http',
+          provider,
+          durationMs: Date.now() - startedAt,
+        }),
       })
     );
   }

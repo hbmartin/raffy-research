@@ -123,7 +123,12 @@ describe('provider adapters', () => {
     expect(value.sourceRecords).toEqual([]);
     expect(logger.warn).toHaveBeenCalledWith({
       event: 'intelligence.ingest.provider_error',
-      details: { provider: 'slack', error: 'invalid_auth' },
+      details: {
+        provider: 'slack',
+        stage: 'response',
+        errorCode: 'invalid_auth',
+        durationMs: 0,
+      },
     });
   });
 
@@ -152,8 +157,8 @@ describe('provider adapters', () => {
       event: 'intelligence.ingest.provider_error',
       details: {
         provider: 'semrush',
-        domain: 'competitor.example',
-        error: 'SEMrush returned an error response',
+        stage: 'response',
+        errorCode: 'PROVIDER_RESPONSE_ERROR',
       },
     });
     expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain(

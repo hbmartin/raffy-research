@@ -745,26 +745,39 @@ isolated `start-hydration-compat` shim check ownership before signaling
 completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
 A composition boundary records the first React commit, including Strict Mode.
-`beforeunload` is only a tentative departure: hydration continues immediately.
-Actual root errors are recorded once (using beacon delivery while leaving), but
-recovery notices wait for trusted pointer/keyboard input, focus, visibility, or
-`pageshow`. Import failures are retained while departure is tentative and discarded
-if `pagehide` confirms it. There is no timeout: cancelled navigation can leave the
-notice deferred until the next resumption signal. A committed cache restore stays
-interactive; an uncommitted restore reloads once.
+`beforeunload` and a hidden document mark only tentative departure: hydration
+continues immediately. Actual root errors are recorded once (using beacon
+delivery while leaving). Bootstrap import failures wait for a later trusted
+pointer or keyboard interaction on the current, visible document before they
+produce telemetry or a recovery notice. Focus and visibility alone do not flush
+them. A tentative departure discards those failures on `pagehide` or return; a
+cancelled navigation can therefore require a manual reload. A committed cache
+restore stays interactive; an uncommitted restore reloads once.
 
 Sentry `11.0.0` reports errors only. The server entry observes stream failures
 and preserves SDK serverless flushing without the fetch wrapper that injects
 trace metadata into HTML. HEAD responses cancel their unused bodies and finish
 telemetry before returning headers. OpenTelemetry remains the sole owner of tracing.
 Browser and server share an explicit privacy policy disabling automatic identity,
-cookies, HTTP headers/bodies, URL queries, model inputs/outputs, database query data,
-GraphQL and queue payloads, and frame variables. The final event filter allows only
-request method and a URL without credentials, query, or fragment, plus opaque user
+cookies, HTTP bodies, URL queries, model inputs/outputs, database query data,
+GraphQL and queue payloads, and frame variables. The `User-Agent` request header
+is collected for browser and OS attribution and forwarded through the Sentry tunnel;
+other HTTP headers are dropped. The final event filter allows request method,
+`User-Agent`, and a URL without credentials, query, or fragment, plus opaque user
 ID and role/segment. Event IDs, fingerprints, stacks, and trace correlation survive.
+Sentry's default browser breadcrumbs remain enabled and may include full URLs and
+console details; they are outside that request-field filter.
 The Sentry Vite plugin runs only with a browser DSN and upload credentials;
 middleware auto-instrumentation and plugin telemetry are disabled. Runtime
 Sentry error capture and local SSR tests work without upload credentials.
+Weekly report failures emit a synthetic, sanitized Sentry exception tagged
+`job=weekly_reports` and a safe failure code. `SENTRY_ALERT_AUTH_TOKEN` is an
+optional server-side credential reserved for creating the weekly-report issue
+alert later; it is separate from the source-map upload token and is not needed
+by the app at runtime. Configure the issue alert for the
+`job=weekly_reports` tag, first-seen/regression/reappearance triggers, and
+email to issue owners. Verify that the project's ownership rules route to an
+active operator before enabling it.
 
 Run `pnpm test:e2e:ssr` for the complete production regression gate. It runs
 `pnpm build:e2e:ssr`, then `pnpm test:e2e:ssr:built`. CI runs those stages
@@ -877,26 +890,13 @@ pnpm start    # node .output/server/index.mjs
 
 Before deploying: use Node 24+, set production values for `DATABASE_URL`, `AUTH_SECRET`, `VITE_BASE_URL` (HTTPS), `CRON_SECRET`, `PROVIDER_WEBHOOK_SECRET`, provider credentials, and any `VITE_*` values; run versioned migrations (`pnpm db:migrate`) — never `db:push` — against production. The app deploys as a standard Nitro Node server (Vercel is the current production target; Cloudflare Workers, Railway, and Render also work — see their TanStack Start guides).
 
-Vercel auth rate limits use its overwritten `x-vercel-forwarded-for` header
-only when `VERCEL=1` and a nonempty `VERCEL_REGION` are present at runtime.
-An explicit `AUTH_TRUSTED_CLIENT_IP_HEADER` always takes precedence. Build preflight
-uses a separate internal validation phase that accepts `VERCEL=1` before a region
-exists; it neither enables runtime trust nor fills runtime configuration caches.
-There is no operator-facing build-phase environment variable.
-
 `pnpm build` applies `NODE_ENV=production` to all preparation and bundle steps;
 `pnpm start` applies it to the server. Vite owns `DEV`, `PROD`, and `VITE_*` in the
 artifact; runtime values own private configuration. Shared environment predicates
 prefer build flags and fall back to `NODE_ENV` in unbundled CLI tools. Directly
 launching a production artifact with absent or conflicting `NODE_ENV` therefore
 retains production validation and keeps the local-AI endpoint disabled.
-Self-hosted production requires `AUTH_TRUSTED_CLIENT_IP_HEADER` set to a dedicated
-header that the reverse proxy overwrites on every request; block direct access
-to the Nitro origin. `X-Forwarded-For` is not accepted as that trusted header.
-Setting `SKIP_ENV_VALIDATION=true` bypasses this startup requirement, but leaves
-Better Auth using one shared sign-in rate-limit bucket. A few abusive sign-in
-attempts can then temporarily lock out every user; production operators accept
-that risk when enabling the bypass.
+Better Auth request rate limiting is disabled in this app.
 
 Environment hint banner for non-production deploys:
 

@@ -41,6 +41,7 @@ type CallbackRow = typeof providerCallbackEventTable.$inferSelect;
 const toIngestionRun = (row: RunRow): IngestionRun => ({
   id: toIngestionRunId(row.id),
   workspaceId: row.workspaceId ? toWorkspaceId(row.workspaceId) : null,
+  scheduledJobRunId: row.scheduledJobRunId,
   providerName: row.providerName,
   runType: row.runType,
   status: row.status,
@@ -75,6 +76,7 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
         .insert(ingestionRunTable)
         .values({
           workspaceId: input.workspaceId ?? null,
+          scheduledJobRunId: input.scheduledJobRunId ?? null,
           providerName: input.providerName,
           runType: input.runType,
           status: input.status,

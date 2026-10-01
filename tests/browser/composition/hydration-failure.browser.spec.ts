@@ -67,7 +67,7 @@ test('reports a stale root error without adding a recovery notice', () => {
   expect(loggerMocks.error).toHaveBeenCalledWith('client.root_uncaught', {
     error: 'stale root failed',
   });
-  expect(loggerMocks.flush).toHaveBeenCalledWith({ preferBeacon: true });
+  expect(loggerMocks.flush).toHaveBeenCalledWith({ preferBeacon: false });
   expect(document.getElementById('hydration-failure')).toBeNull();
 });
 

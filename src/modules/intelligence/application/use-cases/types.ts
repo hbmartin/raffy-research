@@ -8,6 +8,7 @@ import type {
 import type { IngestionRepository } from '../ports/ingestion-repository';
 import type { ReportRepository } from '../ports/report-repository';
 import type { RubricScoreRepository } from '../ports/rubric-score-repository';
+import type { ScheduledJobRepository } from '../ports/scheduled-job-repository';
 import type { SourceRepository } from '../ports/source-repository';
 import type { WorkspaceRepository } from '../ports/workspace-repository';
 
@@ -17,6 +18,7 @@ export type IntelligenceUseCaseDeps = {
   reportRepository: ReportRepository;
   rubricScoreRepository: RubricScoreRepository;
   ingestionRepository: IngestionRepository;
+  scheduledJobRepository: ScheduledJobRepository;
   permissionChecker: PermissionChecker;
   idGenerator: IdGenerator;
   clock: Clock;

@@ -3,7 +3,7 @@ import type { JsonObject } from '@/modules/kernel/domain/json';
 
 /** Produces raw model text for a prompt. Implemented by an LLM infrastructure adapter. */
 export interface ReportGeneratorPort {
-  generate(input: { prompt: string }): Promise<
+  generate(input: { prompt: string; stage?: 'initial' | 'repair' }): Promise<
     ApplicationResult<{
       text: string;
       modelName: string;

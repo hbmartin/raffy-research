@@ -20,6 +20,9 @@ export const Route = createFileRoute('/manager/workspaces/$id/')({
       context.queryClient.ensureQueryData(
         intelligenceQueries.providerCallbacks(workspaceId)
       ),
+      context.queryClient.ensureQueryData(
+        intelligenceQueries.scheduledJobs(workspaceId)
+      ),
     ]);
   }),
   component: RouteComponent,

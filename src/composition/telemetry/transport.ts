@@ -218,7 +218,10 @@ const sentryEnvelopeEndpoint = (dsn: string) => {
   return `${parsed.origin}/api/${projectId}/envelope/`;
 };
 
-const forwardSentryEnvelope = async (body: ArrayBuffer) => {
+const forwardSentryEnvelope = async (
+  body: ArrayBuffer,
+  userAgent: string | null
+) => {
   const config = getTelemetryConfig();
   const endpoint = config.browserDsn
     ? sentryEnvelopeEndpoint(config.browserDsn)
@@ -237,7 +240,10 @@ const forwardSentryEnvelope = async (body: ArrayBuffer) => {
   try {
     sentryResponse = await fetch(endpoint, {
       body,
-      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      headers: {
+        'Content-Type': 'application/x-sentry-envelope',
+        ...(userAgent ? { 'User-Agent': userAgent } : {}),
+      },
       method: 'POST',
     });
   } catch {
@@ -250,7 +256,11 @@ const forwardSentryEnvelope = async (body: ArrayBuffer) => {
     });
     return new Response(null, { status: 502 });
   }
-  const status = sentryResponse.ok ? 202 : 502;
+  const status = sentryResponse.ok
+    ? 202
+    : sentryResponse.status === 429
+      ? 429
+      : 502;
   if (!sentryResponse.ok)
     recordProxyFailure('sentry_tunnel', undefined, sentryResponse.status);
 
@@ -261,7 +271,14 @@ const forwardSentryEnvelope = async (body: ArrayBuffer) => {
     summary: { forwarded: true, sentryStatus: sentryResponse.status },
   });
 
-  return new Response(null, { status });
+  const responseHeaders = new Headers();
+  if (status === 429) {
+    for (const header of ['Retry-After', 'X-Sentry-Rate-Limits']) {
+      const value = sentryResponse.headers.get(header);
+      if (value) responseHeaders.set(header, value);
+    }
+  }
+  return new Response(null, { status, headers: responseHeaders });
 };
 
 export const handleOtlpProxyRequest = async (
@@ -289,7 +306,9 @@ export const handleSentryTunnelRequest = async (request: Request) => {
   const body = await readBoundedBody(request);
   if (!body.ok) return withTelemetryVary(body.response);
 
-  return withTelemetryVary(await forwardSentryEnvelope(body.body));
+  return withTelemetryVary(
+    await forwardSentryEnvelope(body.body, request.headers.get('user-agent'))
+  );
 };
 
 const isFrontendLogRecord = (value: unknown): value is FrontendLogRecord => {

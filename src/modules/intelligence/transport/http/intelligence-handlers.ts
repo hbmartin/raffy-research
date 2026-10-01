@@ -25,6 +25,7 @@ import type {
   ListReportSourcesOutcome,
   ListReportsOutcome,
 } from '../../application/use-cases/report-queries';
+import type { ListScheduledJobsOutcome } from '../../application/use-cases/scheduled-job-queries';
 import type { ScoreReportOutcome } from '../../application/use-cases/score-report';
 import type { ForbiddenOutcome } from '../../application/use-cases/types';
 import type {
@@ -44,6 +45,7 @@ import {
   RUBRIC_SCORE_MAX,
   RUBRIC_SCORE_MIN,
 } from '../../domain/rubric';
+import type { WorkspaceJobHistory } from '../../domain/scheduled-job';
 import type { SourceRecord } from '../../domain/source';
 import { SOURCE_RELEVANCE_LABELS } from '../../domain/source';
 import type { Workspace } from '../../domain/workspace';
@@ -153,6 +155,14 @@ const callbacksListedConfig = {
 } as const satisfies OutcomeHandlerConfig<
   ListProviderCallbacksOutcome,
   ProviderCallbackEvent[]
+>;
+
+const scheduledJobsListedConfig = {
+  forbidden: 'FORBIDDEN',
+  scheduled_jobs_listed: (outcome) => outcome.runs,
+} as const satisfies OutcomeHandlerConfig<
+  ListScheduledJobsOutcome,
+  WorkspaceJobHistory[]
 >;
 
 const workspacesListedConfig = {
@@ -331,6 +341,17 @@ export const createIntelligenceHandlers = ({
         limit: data.limit,
       }),
       callbacksListedConfig
+    ),
+  listScheduledJobs: (
+    ctx: ProtectedContext,
+    data: z.infer<ReturnType<typeof zWorkspaceConfigInput>>
+  ) =>
+    unwrapApplicationResult(
+      getUseCases(ctx).listScheduledJobs({
+        currentUserId: ctx.scope.userId,
+        workspaceId: data.workspaceId,
+      }),
+      scheduledJobsListedConfig
     ),
 });
 

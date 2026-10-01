@@ -15,7 +15,7 @@ const vite = resolve(
   dirname(require.resolve('vite/package.json')),
   'bin/vite.js'
 );
-const supervisor = createFixtureSupervisor();
+const supervisor = createFixtureSupervisor({ failOnSignal: true });
 const timer = setTimeout(() => {
   console.error('SSR production build exceeded ten minutes');
   process.exitCode = 1;
@@ -47,5 +47,6 @@ await supervisor.run(
   },
   async () => {
     clearTimeout(timer);
+    if (process.exitCode) await invalidateFixtureManifest();
   }
 );

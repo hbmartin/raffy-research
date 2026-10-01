@@ -36,7 +36,11 @@ export type SentryLike = {
 };
 
 type SentryEventLike = {
-  request?: { method?: string; url?: string };
+  request?: {
+    headers?: Record<string, string>;
+    method?: string;
+    url?: string;
+  };
   user?: { id?: string | number; segment?: string; role?: string };
   contexts?: Record<string, unknown>;
   extra?: Record<string, unknown>;
@@ -58,6 +62,14 @@ const safeRequestUrl = (value: string | undefined) => {
   }
 };
 
+const userAgentHeader = (headers: Record<string, string> | undefined) => {
+  if (!headers) return undefined;
+  const entry = Object.entries(headers).find(
+    ([name, value]) => name.toLowerCase() === 'user-agent' && value
+  );
+  return entry ? { 'User-Agent': entry[1] } : undefined;
+};
+
 const toStringTags = (tags: unknown): Record<string, string> | undefined => {
   if (!tags || typeof tags !== 'object' || Array.isArray(tags)) {
     return undefined;
@@ -66,6 +78,52 @@ const toStringTags = (tags: unknown): Record<string, string> | undefined => {
   return toTelemetryStringTags(tags as Record<string, unknown>, {
     allowEmpty: true,
   });
+};
+
+const SDK_CONTEXT_NAMES = {
+  runtime: new Set(['node', 'bun', 'deno', 'browser']),
+  os: new Set([
+    'Mac OS X',
+    'macOS',
+    'Linux',
+    'Fedora',
+    'Red Hat Linux',
+    'Centos',
+    'SUSE Linux',
+    'Ubuntu Linux',
+    'Arch Linux',
+    'Debian',
+    'Gentoo Linux',
+    'Alpine Linux',
+    'Windows',
+    'IBM AIX',
+    'FreeBSD',
+    'OpenBSD',
+    'SunOS',
+    'OpenHarmony',
+    'Android',
+  ]),
+};
+
+const withSdkContextNames = (
+  original: Record<string, unknown>,
+  sanitized: Record<string, unknown>
+) => {
+  for (const contextKey of ['runtime', 'os'] as const) {
+    const context = original[contextKey];
+    const safeContext = sanitized[contextKey];
+    if (
+      !context ||
+      typeof context !== 'object' ||
+      !safeContext ||
+      typeof safeContext !== 'object'
+    )
+      continue;
+    const name = (context as Record<string, unknown>).name;
+    if (typeof name === 'string' && SDK_CONTEXT_NAMES[contextKey].has(name))
+      (safeContext as Record<string, unknown>).name = name;
+  }
+  return sanitized;
 };
 
 export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
@@ -83,6 +141,7 @@ export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
       request: {
         method: event.request.method,
         url: safeRequestUrl(event.request.url),
+        headers: userAgentHeader(event.request.headers),
       },
     }),
     ...(event.user && {
@@ -92,7 +151,10 @@ export const sanitizeSentryEvent = <TEvent extends SentryEventLike>(
         role: event.user.role,
       },
     }),
-    contexts: sanitized.contexts as Record<string, unknown>,
+    contexts: withSdkContextNames(
+      event.contexts ?? {},
+      sanitized.contexts as Record<string, unknown>
+    ),
     extra: sanitized.extra as Record<string, unknown>,
     tags: toStringTags(sanitized.tags),
   };

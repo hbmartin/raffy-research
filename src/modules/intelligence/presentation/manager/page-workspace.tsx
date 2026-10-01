@@ -24,6 +24,7 @@ import {
 } from '@/modules/intelligence/domain/local-ai';
 import type { SourceRecord } from '@/modules/intelligence/domain/source';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
+import { toWeeklyReportId } from '@/modules/kernel/domain/ids';
 import { envClient } from '@/platform/env/client';
 
 import { intelligenceQueries } from '../wired-queries';
@@ -517,6 +518,9 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
   const { data: callbacks } = useSuspenseQuery(
     intelligenceQueries.providerCallbacks(props.workspaceId)
   );
+  const { data: scheduledJobs } = useSuspenseQuery(
+    intelligenceQueries.scheduledJobs(props.workspaceId)
+  );
 
   if (!config) {
     return (
@@ -628,6 +632,73 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
                 </li>
               ))}
             </ul>
+          </Section>
+
+          <Section title="Scheduled jobs">
+            {scheduledJobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No scheduled runs recorded yet.
+              </p>
+            ) : (
+              <ol className="flex flex-col gap-2 text-sm">
+                {scheduledJobs.map(({ run, workspace: outcome }) => (
+                  <li key={run.id} className="min-w-0 rounded-md border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">
+                        {run.kind === 'daily_ingest'
+                          ? 'Daily ingestion'
+                          : 'Weekly reports'}{' '}
+                        ·{' '}
+                        <time
+                          dateTime={run.startedAt.toISOString()}
+                          suppressHydrationWarning
+                        >
+                          {run.startedAt.toLocaleString()}
+                        </time>
+                      </span>
+                      <Badge
+                        variant={
+                          run.status === 'succeeded'
+                            ? 'positive'
+                            : run.status === 'started'
+                              ? 'secondary'
+                              : run.status === 'partial'
+                                ? 'warning'
+                                : 'negative'
+                        }
+                        size="sm"
+                      >
+                        {outcome?.status ?? run.status}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs break-all text-muted-foreground">
+                      Run {run.id}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {outcome
+                        ? `${outcome.succeeded} succeeded · ${outcome.partial} partial · ${outcome.failed} failed · ${outcome.skipped} skipped · ${outcome.items} items`
+                        : `Failed before workspace processing · ${run.failureCode ?? 'unknown failure'}`}
+                    </p>
+                    {outcome?.failureCode ? (
+                      <p className="mt-1 text-xs text-destructive">
+                        {outcome.failureCode}
+                      </p>
+                    ) : null}
+                    {outcome?.reportId ? (
+                      <Link
+                        to="/app/reports/$reportId"
+                        params={{
+                          reportId: toWeeklyReportId(outcome.reportId),
+                        }}
+                        className="mt-1 inline-block text-xs underline"
+                      >
+                        View report
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            )}
           </Section>
 
           {config.internalNoteConfigs.length > 0 ? (

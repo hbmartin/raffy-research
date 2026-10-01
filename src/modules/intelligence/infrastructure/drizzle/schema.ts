@@ -341,6 +341,64 @@ export const reportRubricScore = pgTable(
 );
 
 /** Records of scheduled/callback ingestion attempts for observability. */
+export const scheduledJobRun = pgTable(
+  'scheduledJobRun',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').$type<'daily_ingest' | 'weekly_reports'>().notNull(),
+    status: text('status')
+      .$type<'started' | 'succeeded' | 'partial' | 'failed'>()
+      .notNull(),
+    startedAt: timestamp('startedAt', { precision: 3, mode: 'date' }).notNull(),
+    finishedAt: timestamp('finishedAt', { precision: 3, mode: 'date' }),
+    total: integer('total').notNull().default(0),
+    succeeded: integer('succeeded').notNull().default(0),
+    partial: integer('partial').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    items: integer('items').notNull().default(0),
+    failureCode: text('failureCode'),
+  },
+  (table) => [index('scheduledJobRun_startedAt_idx').on(table.startedAt)]
+);
+
+export const scheduledJobWorkspaceRun = pgTable(
+  'scheduledJobWorkspaceRun',
+  {
+    id: idColumn(),
+    jobRunId: text('jobRunId')
+      .notNull()
+      .references(() => scheduledJobRun.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    status: text('status')
+      .$type<'succeeded' | 'partial' | 'failed' | 'skipped'>()
+      .notNull(),
+    startedAt: timestamp('startedAt', { precision: 3, mode: 'date' }).notNull(),
+    finishedAt: timestamp('finishedAt', {
+      precision: 3,
+      mode: 'date',
+    }).notNull(),
+    succeeded: integer('succeeded').notNull().default(0),
+    partial: integer('partial').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    items: integer('items').notNull().default(0),
+    failureCode: text('failureCode'),
+    reportId: text('reportId').references(() => weeklyReport.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [
+    uniqueIndex('scheduledJobWorkspaceRun_job_workspace_idx').on(
+      table.jobRunId,
+      table.workspaceId
+    ),
+    index('scheduledJobWorkspaceRun_workspace_idx').on(table.workspaceId),
+  ]
+);
+
 export const ingestionRun = pgTable(
   'ingestionRun',
   {
@@ -349,12 +407,16 @@ export const ingestionRun = pgTable(
     workspaceId: text('workspaceId').references(() => workspace.id, {
       onDelete: 'cascade',
     }),
+    scheduledJobRunId: text('scheduledJobRunId').references(
+      () => scheduledJobRun.id,
+      { onDelete: 'set null' }
+    ),
     providerName: text('providerName').notNull(),
     runType: text('runType')
       .$type<'daily' | 'callback' | 'manual' | 'weekly'>()
       .notNull(),
     status: text('status')
-      .$type<'started' | 'succeeded' | 'failed' | 'skipped'>()
+      .$type<'started' | 'succeeded' | 'partial' | 'failed' | 'skipped'>()
       .notNull(),
     startedAt: timestamp('startedAt', { precision: 3, mode: 'date' })
       .notNull()
@@ -364,7 +426,10 @@ export const ingestionRun = pgTable(
     failureReason: text('failureReason'),
     metadata: jsonb('metadata').$type<JsonMetadata | null>(),
   },
-  (table) => [index('ingestionRun_workspaceId_idx').on(table.workspaceId)]
+  (table) => [
+    index('ingestionRun_workspaceId_idx').on(table.workspaceId),
+    index('ingestionRun_scheduledJobRunId_idx').on(table.scheduledJobRunId),
+  ]
 );
 
 /** Raw provider callback payloads, stored first then normalized when possible. */

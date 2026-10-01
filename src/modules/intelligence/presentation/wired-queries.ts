@@ -12,6 +12,7 @@ import {
   intelligenceLabelSource,
   intelligenceListProviderCallbacks,
   intelligenceListReports,
+  intelligenceListScheduledJobs,
   intelligenceListWorkspaces,
   intelligenceScoreReport,
 } from '../server';
@@ -25,6 +26,7 @@ export const intelligenceQueries = createIntelligenceQueries({
   intelligenceListReports,
   intelligenceListWorkspaces,
   intelligenceListProviderCallbacks,
+  intelligenceListScheduledJobs,
   intelligenceScoreReport,
   intelligenceGetReportScore,
   intelligenceLabelSource,

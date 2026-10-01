@@ -4,7 +4,7 @@ import type { Options } from '@sentry/core';
 export const sentryDataCollection = {
   userInfo: false,
   cookies: false,
-  httpHeaders: false,
+  httpHeaders: { request: { allow: ['user-agent'] }, response: false },
   httpBodies: [],
   urlQueryParams: false,
   genAI: { inputs: false, outputs: false },

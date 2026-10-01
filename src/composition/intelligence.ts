@@ -4,6 +4,7 @@ import {
   type IntelligenceUseCases,
   type ReportRepository,
   type RubricScoreRepository,
+  type ScheduledJobRepository,
   type SourceRepository,
   type WorkspaceRepository,
 } from '@/modules/intelligence';
@@ -11,6 +12,7 @@ import {
   createIngestionRepository,
   createReportRepository,
   createRubricScoreRepository,
+  createScheduledJobRepository,
   createSourceRepository,
   createWorkspaceRepository,
 } from '@/modules/intelligence/backend';
@@ -25,6 +27,7 @@ export type IntelligenceRepositories = {
   reportRepository: ReportRepository;
   rubricScoreRepository: RubricScoreRepository;
   ingestionRepository: IngestionRepository;
+  scheduledJobRepository: ScheduledJobRepository;
 };
 
 export type IntelligenceOverrides = {
@@ -45,6 +48,8 @@ const buildRepositories = (
     overrides?.rubricScoreRepository ?? createRubricScoreRepository({ db }),
   ingestionRepository:
     overrides?.ingestionRepository ?? createIngestionRepository({ db }),
+  scheduledJobRepository:
+    overrides?.scheduledJobRepository ?? createScheduledJobRepository({ db }),
 });
 
 const buildIntelligenceUseCases = (
