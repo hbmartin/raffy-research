@@ -364,6 +364,73 @@ pnpm eval:phoenix summarize --workspace <id> --case fixtures/eval/acme-2026-06-1
 pnpm eval:phoenix evaluate  --workspace <id> --case fixtures/eval/acme-2026-06-15
 ```
 
+#### What the evaluators measure
+
+Every number in a Phoenix experiment comes from one of 18 evaluators. They
+fall into three families, and the distinction that matters most is not which
+command runs them but **what they are scored against**.
+
+All scores are normalised to `0`–`1`, higher is better, except where noted. A
+`null` score means "not applicable to this run" — the evaluators return `null`
+rather than `0` precisely so an absent measurement is never recorded as a
+failing one.
+
+**Scored against the reference report** (`compare`). These answer *did the
+generation reach the same conclusions as the report we published?* — agreement,
+**not correctness**. The reference is one accepted output, itself LLM-generated;
+a run can score 1.0 by reproducing its choices, including its mistakes, and a
+genuinely better report that picks different sources will score low. Read them
+as "how far from the house style", never as a quality grade.
+
+| Evaluator | Measures | `1.0` means |
+|---|---|---|
+| `source_overlap` | fraction of the reference's cited source ids the generation also cites | cited every source the reference did |
+| `cluster_count` | binary: same number of topic clusters | identical cluster count |
+| `competitor_overlap` | fraction of the reference's named competitors also named | named every one |
+| `lead_overlap` | fraction of the reference's `possible_leads` matched **by `person_or_company`**, not by the per-run id | found the same leads |
+
+**Scored on the generation alone** (`compare`). No reference involved, so these
+are absolute.
+
+| Evaluator | Measures | Notes |
+|---|---|---|
+| `valid_json` | did a schema-valid report come out | scored **after** the repair pass — what a reader receives |
+| `first_attempt_valid` | did the model hit the schema unaided | `null` (`unknown`) for runs recorded before the repair pass existed |
+| `source_utilization` | cited sources ÷ sources offered | counts only ids that were actually offered; invented ids are excluded and surfaced as `inventedCount` |
+| `evidence_density` | distinct evidence items per cluster | **not** a 0–1 score — it is a raw average, and higher is not automatically better |
+
+**Summary quality** (`summarize`). One example per source, scored against that
+source's own text.
+
+| Evaluator | Measures | `1.0` means |
+|---|---|---|
+| `valid_schema` | summary parsed into the required shape | valid |
+| `evidence_verbatim` | longest consecutive word run of the evidence excerpt found in the source, as a fraction | the excerpt is genuinely verbatim; paraphrase degrades smoothly |
+| `grounded_figures` | fraction of numbers in the summary that appear in the source | invented no figures |
+| `length_fit` | fits the 500-char budget the report prompt truncates to | within budget; penalised below 80 chars and above 500 |
+| `no_recommendation` | binary: contains no advice-giving language | clean — the product forbids recommendations |
+| `no_instruction_echo` | binary: did not echo instruction-like text from the source | clean — a sign the model treated untrusted source text as direction |
+
+`compression_ratio` is **diagnostic, not a grade**: summary length ÷ source
+length. There is no good value; `0.074` simply means the summary is 7.4% of the
+source. Sort by it to find summaries that collapsed to nothing or barely
+compressed at all.
+
+**LLM judges** (`--judge`, and `evaluate`). Each asks a model for an integer
+`1`–`5`, normalised to `0`–`1` as `(score - 1) / 4` — so a Phoenix cell reading
+`0.5` is a raw **3/5**, and `0.0` is a 1/5, not a missing value.
+
+| Evaluator | Asks | Sees |
+|---|---|---|
+| `judge_claim_support` | is every factual claim traceable to a source the report cites | only the cited sources, at 4000 chars each |
+| `judge_coverage` | did a signal worth reporting get left out | every source, at the generator's own budget |
+| `judge_noise` | is the report padded or repetitive | the report only, no sources |
+
+> **These three are currently unusable.** `qwen3:14b` fails `judge-check` —
+> it returns the same score for a good report and a deliberately broken one.
+> Until a judge passes that probe, treat every `judge_*` column as noise. The
+> deterministic evaluators above are unaffected.
+
 #### `compare` and the repair pass
 
 `compare` mirrors what production does: one generation, and on a schema
