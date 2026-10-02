@@ -1,6 +1,8 @@
 import { Result } from '@swan-io/boxed';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
+
 const mocks = vi.hoisted(() => ({
   createOpenAiReportGenerator: vi.fn(),
   createProviderRegistry: vi.fn(),
@@ -39,7 +41,8 @@ vi.mock('@/composition/kernel', () => ({
   getKernel: mocks.getKernel,
 }));
 
-vi.mock('@/modules/intelligence', () => ({
+vi.mock('@/modules/intelligence', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/intelligence')>()),
   generateWeeklyReport: mocks.generateWeeklyReport,
   handleProviderCallback: mocks.handleProviderCallback,
   runWorkspaceIngest: mocks.runWorkspaceIngest,
@@ -382,7 +385,9 @@ describe('intelligence job request auth', () => {
       expect(
         repositories.scheduledJobRepository.upsertWorkspace
       ).not.toHaveBeenCalled();
-      expect(repositories.scheduledJobRepository.finish).not.toHaveBeenCalled();
+      expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+        expect.objectContaining({ id: summary.runId, status: 'succeeded' })
+      );
       if (kind === 'daily')
         expect(mocks.runWorkspaceIngest.mock.calls[0]?.[1]).not.toHaveProperty(
           'scheduledJobRunId'
@@ -509,6 +514,250 @@ describe('intelligence job request auth', () => {
       expect.objectContaining({ failureCode: 'REPORT_SCHEMA_INVALID' })
     );
   });
+  it.each(['daily', 'weekly'])(
+    'reconciles an absent %s parent without a duplicate exception',
+    async (kind) => {
+      const repositories = mocks.getIntelligenceRepositories();
+      repositories.scheduledJobRepository.start.mockResolvedValue(
+        Result.Error({ code: 'START_FAILED' })
+      );
+      repositories.scheduledJobRepository.finish.mockResolvedValue(
+        Result.Error({ code: 'SCHEDULED_JOB_FINISH_MISSING' })
+      );
+      const jobs = await import('@/composition/intelligence-jobs');
+      const summary = await (kind === 'daily'
+        ? jobs.runDailyIngest()
+        : jobs.runWeeklyReports());
+      expect(summary).toMatchObject({
+        status: 'succeeded',
+        historyStatus: 'failed',
+        failed: 0,
+      });
+      expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+        expect.objectContaining({ id: summary.runId })
+      );
+      expect(
+        logger.error.mock.calls.filter(([entry]) => entry.exception)
+      ).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'intelligence.scheduled_job.reconciliation_missing',
+        })
+      );
+    }
+  );
+
+  it.each(['daily', 'weekly'])(
+    'counts a missing %s workspace as a skip without writing its FK',
+    async (kind) => {
+      const repositories = mocks.getIntelligenceRepositories();
+      repositories.workspaceRepository.list.mockResolvedValue(
+        Result.Ok([{ id: 'deleted-workspace' }])
+      );
+      mocks.generateWeeklyReport.mockResolvedValue(
+        Result.Ok({ type: 'workspace_not_found' })
+      );
+      mocks.runWorkspaceIngest.mockResolvedValue(
+        Result.Ok({ type: 'workspace_not_found' })
+      );
+      const jobs = await import('@/composition/intelligence-jobs');
+      const summary = await (kind === 'daily'
+        ? jobs.runDailyIngest()
+        : jobs.runWeeklyReports());
+      expect(summary).toMatchObject({
+        status: 'succeeded',
+        historyStatus: 'recorded',
+        failed: 0,
+      });
+      expect(
+        repositories.scheduledJobRepository.upsertWorkspace
+      ).not.toHaveBeenCalled();
+      expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+        expect.objectContaining({ skipped: 1, total: 1 })
+      );
+      expect(logger.error).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(
+    (['daily', 'weekly'] as const).flatMap((kind) =>
+      (['start', 'upsertWorkspace', 'finish'] as const).map((stage) => ({
+        kind,
+        stage,
+      }))
+    )
+  )(
+    'captures a safe exception for returned and thrown $kind $stage history failures',
+    async ({ kind, stage }) => {
+      const jobs = await import('@/composition/intelligence-jobs');
+      const repositories = mocks.getIntelligenceRepositories();
+      repositories.workspaceRepository.list.mockResolvedValue(
+        Result.Ok([{ id: 'ws-1' }])
+      );
+      mocks.generateWeeklyReport.mockResolvedValue(
+        Result.Ok({ type: 'report_published', report: { id: 'report-1' } })
+      );
+      mocks.runWorkspaceIngest.mockResolvedValue(
+        Result.Ok({
+          type: 'workspace_ingested',
+          providersRun: 1,
+          providersPartial: 0,
+          providersFailed: 0,
+          providersSkipped: 0,
+          sourceRecords: 0,
+          searchResults: 0,
+          requestsFailed: 0,
+        })
+      );
+      const secret = 'sk-history-secret';
+      const error = new AppError({
+        code: 'HISTORY_WRITE_ERROR',
+        category: 'system',
+        status: 500,
+        message: secret,
+        cause: new Error(secret),
+      });
+      for (const throws of [false, true]) {
+        logger.error.mockClear();
+        repositories.scheduledJobRepository[stage].mockImplementation(
+          async () => {
+            if (throws) throw error;
+            return Result.Error(error);
+          }
+        );
+        const summary = await (kind === 'weekly'
+          ? jobs.runWeeklyReports()
+          : jobs.runDailyIngest());
+        expect(summary).toMatchObject({
+          status: 'succeeded',
+          historyStatus: 'failed',
+          failed: 0,
+        });
+        const captures = logger.error.mock.calls.filter(
+          ([entry]) => entry.exception
+        );
+        expect(captures).toHaveLength(1);
+        expect(captures[0]?.[0]).toMatchObject({
+          event: 'intelligence.scheduled_job.history_failed',
+          details: {
+            runId: summary.runId,
+            kind: kind === 'weekly' ? 'weekly_reports' : 'daily_ingest',
+            stage: stage === 'upsertWorkspace' ? 'workspace' : stage,
+            errorCode: throws ? 'UNEXPECTED_ERROR' : 'HISTORY_WRITE_ERROR',
+          },
+        });
+        expect(captures[0]?.[0].exception.cause).toBeUndefined();
+        expect(JSON.stringify(captures)).not.toContain(secret);
+      }
+    }
+  );
+
+  it('captures an acknowledged parent that vanishes before finalization', async () => {
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.scheduledJobRepository.finish.mockResolvedValue(
+      Result.Error({ code: 'SCHEDULED_JOB_FINISH_MISSING' })
+    );
+    const jobs = await import('@/composition/intelligence-jobs');
+    await jobs.runDailyIngest();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        exception: expect.any(AppError),
+        details: expect.objectContaining({
+          errorCode: 'SCHEDULED_JOB_FINISH_MISSING',
+        }),
+      })
+    );
+  });
+
+  it('preserves generation context when persisting the failure also fails', async () => {
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.workspaceRepository.list.mockResolvedValue(
+      Result.Ok([{ id: 'ws-1' }])
+    );
+    const secret = 'sk-provider-secret';
+    mocks.generateWeeklyReport.mockResolvedValue(
+      Result.Error(
+        new AppError({
+          code: 'FAILURE_WRITE_ERROR',
+          category: 'system',
+          status: 500,
+          cause: new Error(secret),
+          details: {
+            reportFailure: {
+              failureCode: 'OPENAI_GENERATION_ERROR',
+              diagnostics: {
+                stage: 'repair',
+                provider: 'openai',
+                model: 'model',
+                upstreamStatus: 429,
+                requestId: 'req-1',
+                durationMs: 125,
+                rawPrompt: secret,
+                validationDiagnostics: [
+                  { path: 'title', code: 'invalid_type' },
+                ],
+              },
+            },
+          },
+        })
+      )
+    );
+    const jobs = await import('@/composition/intelligence-jobs');
+    expect(await jobs.runWeeklyReports()).toMatchObject({
+      failed: 1,
+      historyStatus: 'recorded',
+    });
+    expect(
+      repositories.scheduledJobRepository.upsertWorkspace
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ failureCode: 'OPENAI_GENERATION_ERROR' })
+    );
+    const captures = logger.error.mock.calls.filter(
+      ([entry]) => entry.exception
+    );
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.[0]).toMatchObject({
+      sentryTags: { failureCode: 'OPENAI_GENERATION_ERROR' },
+      details: {
+        failureCode: 'OPENAI_GENERATION_ERROR',
+        errorCode: 'FAILURE_WRITE_ERROR',
+        stage: 'repair',
+        upstreamStatus: 429,
+        requestId: 'req-1',
+        model: 'model',
+        validationDiagnostics: [{ path: 'title', code: 'invalid_type' }],
+      },
+    });
+    expect(captures[0]?.[0].exception.cause).toBeUndefined();
+    expect(JSON.stringify(captures)).not.toContain(secret);
+  });
+
+  it('includes safe diagnostics in the report outcome exception capture', async () => {
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.workspaceRepository.list.mockResolvedValue(
+      Result.Ok([{ id: 'ws-1' }])
+    );
+    mocks.generateWeeklyReport.mockResolvedValue(
+      Result.Ok({
+        type: 'report_failed',
+        failureCode: 'REPORT_SCHEMA_INVALID',
+        diagnostics: {
+          validationDiagnostics: [{ path: 'title', code: 'invalid_type' }],
+        },
+      })
+    );
+    const jobs = await import('@/composition/intelligence-jobs');
+    await jobs.runWeeklyReports();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        exception: expect.any(AppError),
+        details: expect.objectContaining({
+          validationDiagnostics: [{ path: 'title', code: 'invalid_type' }],
+        }),
+      })
+    );
+  });
+
   it('preserves completed work when a later unexpected failure aborts the run', async () => {
     const repositories = mocks.getIntelligenceRepositories();
     const brokenWorkspace = Object.defineProperty({ id: 'ws-2' }, 'id', {

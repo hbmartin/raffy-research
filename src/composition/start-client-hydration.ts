@@ -19,6 +19,9 @@ type Lifecycle = {
   blurred: boolean;
   departureVersion: number;
   importSettlementUntil: number;
+  returnUntil: number;
+  recoveryTimer?: ReturnType<typeof setTimeout>;
+  recoveryNeeded: boolean;
   departed: boolean;
   committed: boolean;
   reloadRequested: boolean;
@@ -26,10 +29,33 @@ type Lifecycle = {
 };
 const lifecycles = new WeakMap<Document, Lifecycle>();
 const coordinators = new WeakMap<Document, object>();
-// Settle active-document imports without treating elapsed time as navigation cancellation.
+// Tab returns reconcile uncertain navigation after a bounded settling period.
 const IMPORT_FAILURE_SETTLE_MS = 2_000;
 const ownsDocument = (document: Document) =>
   document.defaultView?.document === document;
+const monotonicNow = (document: Document) =>
+  (document.defaultView?.performance ?? performance).now();
+
+const cancelRecoveryTimer = (state: Lifecycle) => {
+  clearTimeout(state.recoveryTimer);
+  state.recoveryTimer = undefined;
+};
+
+const scheduleRecovery = (
+  document: Document,
+  state: Lifecycle,
+  delay: number,
+  showNotice = false
+) => {
+  cancelRecoveryTimer(state);
+  state.recoveryTimer = setTimeout(
+    () => {
+      state.recoveryTimer = undefined;
+      resumeRecovery(document, state, showNotice);
+    },
+    Math.max(0, delay)
+  );
+};
 
 const reportFailure = (document: Document, failure: PendingFailure) => {
   if (failure.event === 'client.root_uncaught')
@@ -38,43 +64,127 @@ const reportFailure = (document: Document, failure: PendingFailure) => {
   failure.status = 'reported';
 };
 
-const resumeRecovery = (document: Document, state: Lifecycle) => {
+const resumeRecovery = (
+  document: Document,
+  state: Lifecycle,
+  showNotice = false
+) => {
   if (
     !ownsDocument(document) ||
-    state.departed ||
-    state.tentativeDeparture ||
     state.reloadRequested ||
     document.visibilityState === 'hidden'
   )
     return;
+  const now = monotonicNow(document);
+  if (state.returnUntil > 0) {
+    if (now < state.returnUntil) {
+      scheduleRecovery(document, state, state.returnUntil - now);
+      return;
+    }
+    state.returnUntil = 0;
+    state.tentativeDeparture = false;
+    state.departed = false;
+  }
+  if (state.departed || state.tentativeDeparture || !state.recoveryNeeded)
+    return;
+  let pending = false;
+  let notice = false;
   for (const [error, failure] of state.failures) {
     if (!failure.isCurrent()) {
       state.failures.delete(error);
       continue;
     }
     if (failure.status === 'pending') {
-      if (Date.now() < state.importSettlementUntil) continue;
+      if (now < state.importSettlementUntil) {
+        pending = true;
+        continue;
+      }
       reportFailure(document, failure);
     }
-    if (failure.status !== 'reported') continue;
-    failure.status = 'scheduled';
-    // Let a click finish before inserting a notice over its target.
-    setTimeout(() => {
-      if (
-        !ownsDocument(document) ||
-        !failure.isCurrent() ||
-        state.departed ||
-        state.reloadRequested ||
-        state.tentativeDeparture ||
-        document.visibilityState === 'hidden'
-      ) {
-        failure.status = 'reported';
-        return;
-      }
+    if (failure.status === 'reported') {
+      failure.status = 'scheduled';
+      notice = true;
+    } else if (failure.status === 'scheduled' && showNotice) {
       showClientRecovery(document, failure.event);
       failure.status = 'shown';
-    }, 0);
+    } else if (failure.status === 'scheduled') notice = true;
   }
+  state.recoveryNeeded = pending || notice;
+  // Let the interaction and failure reporting finish before inserting a notice.
+  if (notice) scheduleRecovery(document, state, 0, true);
+  else if (pending)
+    scheduleRecovery(document, state, state.importSettlementUntil - now);
+};
+
+const targetsDocument = (document: Document, target: string) => {
+  const view = document.defaultView;
+  const normalized = target.toLowerCase();
+  return (
+    target === '' ||
+    normalized === '_self' ||
+    normalized === '_parent' ||
+    normalized === '_top' ||
+    (target === view?.name && !normalized.startsWith('_'))
+  );
+};
+
+const nativeDocumentActivation = (document: Document, event: Event) => {
+  const target = event.target;
+  const element =
+    target && 'nodeType' in target && target.nodeType === 1
+      ? (target as Element)
+      : null;
+  const baseTarget =
+    document.querySelector?.('base[target]')?.getAttribute('target') ?? '';
+  if (event.type === 'submit' && element?.matches('form')) {
+    const form = element;
+    const submitter = (event as SubmitEvent).submitter;
+    const method = submitter?.getAttribute('formmethod') ?? form.method;
+    const action = URL.parse(
+      submitter?.getAttribute('formaction') ?? form.action,
+      document.baseURI
+    );
+    return (
+      method.toLowerCase() !== 'dialog' &&
+      action !== null &&
+      !/^(javascript|mailto|tel):$/.test(action.protocol) &&
+      targetsDocument(
+        document,
+        submitter?.getAttribute('formtarget') ??
+          form.getAttribute('target') ??
+          baseTarget
+      )
+    );
+  }
+  if (event.type !== 'click') return false;
+  const mouse = event as MouseEvent;
+  if (
+    mouse.button !== 0 ||
+    mouse.metaKey ||
+    mouse.ctrlKey ||
+    mouse.shiftKey ||
+    mouse.altKey
+  )
+    return false;
+  const link = element?.closest('a[href], area[href]');
+  if (
+    !link ||
+    link.hasAttribute('download') ||
+    !targetsDocument(document, link.getAttribute('target') ?? baseTarget)
+  )
+    return false;
+  const href = link.getAttribute('href') ?? '';
+  const destination = URL.parse(href, document.baseURI);
+  const current = URL.parse(document.URL);
+  if (!destination || /^(javascript|mailto|tel):$/.test(destination.protocol))
+    return false;
+  return !(
+    destination.href.includes('#') &&
+    current &&
+    destination.origin === current.origin &&
+    destination.pathname === current.pathname &&
+    destination.search === current.search
+  );
 };
 
 const lifecycleFor = (document: Document): Lifecycle => {
@@ -86,6 +196,8 @@ const lifecycleFor = (document: Document): Lifecycle => {
     blurred: false,
     departureVersion: 0,
     importSettlementUntil: 0,
+    returnUntil: 0,
+    recoveryNeeded: false,
     departed: false,
     committed: false,
     reloadRequested: false,
@@ -94,24 +206,37 @@ const lifecycleFor = (document: Document): Lifecycle => {
   lifecycles.set(document, state);
   const view = document.defaultView;
   const resume = () => resumeRecovery(document, state);
-  const returnToDocument = (settleImports = false) => {
+  const returnToDocument = (reconcileDeparture = false) => {
     if (
       !ownsDocument(document) ||
       state.reloadRequested ||
       document.visibilityState === 'hidden'
     )
       return;
-    state.tentativeDeparture = false;
-    state.departed = false;
-    state.importSettlementUntil = settleImports
-      ? Date.now() + IMPORT_FAILURE_SETTLE_MS
-      : 0;
+    const wasDeparting = state.tentativeDeparture || state.departed;
+    if (reconcileDeparture) {
+      if (state.returnUntil === 0)
+        state.returnUntil = Math.max(
+          state.importSettlementUntil,
+          monotonicNow(document) + IMPORT_FAILURE_SETTLE_MS
+        );
+    } else if (state.returnUntil === 0) {
+      state.tentativeDeparture = false;
+      state.departed = false;
+      state.returnUntil = 0;
+      if (wasDeparting)
+        state.importSettlementUntil = Math.max(
+          state.importSettlementUntil,
+          monotonicNow(document) + IMPORT_FAILURE_SETTLE_MS
+        );
+    }
     resume();
-    if (settleImports) setTimeout(resume, IMPORT_FAILURE_SETTLE_MS);
   };
   const markDeparture = () => {
     state.tentativeDeparture = true;
     state.departureVersion += 1;
+    state.returnUntil = 0;
+    cancelRecoveryTimer(state);
   };
   view?.addEventListener('beforeunload', () => {
     if (ownsDocument(document)) markDeparture();
@@ -126,6 +251,7 @@ const lifecycleFor = (document: Document): Lifecycle => {
     if (!ownsDocument(document) || !event.persisted) return;
     state.departed = false;
     state.tentativeDeparture = false;
+    state.returnUntil = 0;
     if (!state.committed && !state.reloadRequested) {
       state.reloadRequested = true;
       view.location.reload();
@@ -137,47 +263,50 @@ const lifecycleFor = (document: Document): Lifecycle => {
   view?.addEventListener('focus', () => {
     const returning = state.blurred;
     state.blurred = false;
-    if (returning) returnToDocument();
+    if (returning) returnToDocument(true);
   });
   document.addEventListener('visibilitychange', () => {
     const wasHidden = state.hidden;
     state.hidden = document.visibilityState === 'hidden';
-    if (wasHidden && !state.hidden) returnToDocument();
+    if (wasHidden && !state.hidden) returnToDocument(true);
   });
   const resumeOnInteraction = (event: Event) => {
     if (!event.isTrusted || !ownsDocument(document)) return;
-    // Activation keys can start navigation before their corresponding keyup.
-    const activationKey =
-      event.type === 'keydown' &&
-      ['Enter', ' ', 'Spacebar'].includes((event as KeyboardEvent).key);
-    const target = event.target;
-    const element =
-      target && 'nodeType' in target && target.nodeType === 1
-        ? (target as Element)
-        : null;
-    const activation = element?.closest('a[href], area[href], button, input');
+    // The resulting click or submit determines whether an activation navigates.
     if (
-      (event.type === 'click' || activationKey) &&
-      activation?.matches('a[href], area[href]')
-    ) {
+      event.type === 'keydown' &&
+      ['Enter', ' ', 'Spacebar'].includes((event as KeyboardEvent).key)
+    )
+      return;
+    if (nativeDocumentActivation(document, event)) {
+      const previous = {
+        tentativeDeparture: state.tentativeDeparture,
+        departed: state.departed,
+        returnUntil: state.returnUntil,
+      };
       // WebKit can delay beforeunload until the destination response arrives.
       markDeparture();
+      const version = state.departureVersion;
+      const coordinator = coordinators.get(document);
+      setTimeout(() => {
+        if (
+          !ownsDocument(document) ||
+          state.departureVersion !== version ||
+          coordinators.get(document) !== coordinator
+        )
+          return;
+        if (
+          !event.defaultPrevented &&
+          nativeDocumentActivation(document, event)
+        )
+          return;
+        Object.assign(state, previous);
+        resume();
+      }, 0);
       return;
     }
-    if (
-      (event.type === 'click' || activationKey) &&
-      activation?.matches('button, input') &&
-      (activation as HTMLButtonElement).type === 'submit' &&
-      activation.closest('form')
-    ) {
-      markDeparture();
+    if (!state.recoveryNeeded && !state.tentativeDeparture && !state.departed)
       return;
-    }
-    if (activationKey) {
-      if ((event as KeyboardEvent).key === 'Enter' && element?.closest('form'))
-        markDeparture();
-      return;
-    }
     const departureVersion = state.departureVersion;
     const coordinator = coordinators.get(document);
     // Let the interaction and its default action finish before changing recovery.
@@ -187,11 +316,12 @@ const lifecycleFor = (document: Document): Lifecycle => {
         coordinators.get(document) !== coordinator
       )
         return;
-      returnToDocument(true);
+      returnToDocument();
     }, 0);
   };
   view?.addEventListener('click', resumeOnInteraction, { capture: true });
   view?.addEventListener('keydown', resumeOnInteraction, { capture: true });
+  view?.addEventListener('submit', resumeOnInteraction, { capture: true });
   return state;
 };
 
@@ -233,15 +363,18 @@ export const handleClientHydrationFailure = (
         : 'client.hydration_failed',
   };
   state.failures.set(error, failure);
+  state.recoveryNeeded = true;
   // Import failures during departure may be canceled requests. Other failures
   // have reached application code and can be recorded even while leaving.
   if (source !== 'module_import') {
     reportFailure(document, failure);
-    if (!state.tentativeDeparture && !state.departed)
-      resumeRecovery(document, state);
-  } else if (!state.tentativeDeparture && !state.departed) {
-    setTimeout(() => resumeRecovery(document, state), IMPORT_FAILURE_SETTLE_MS);
+  } else {
+    state.importSettlementUntil = Math.max(
+      state.importSettlementUntil,
+      monotonicNow(document) + IMPORT_FAILURE_SETTLE_MS
+    );
   }
+  resumeRecovery(document, state);
 };
 
 export const startClientHydration = async ({

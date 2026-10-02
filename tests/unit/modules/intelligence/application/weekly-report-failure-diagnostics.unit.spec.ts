@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   generateWeeklyReport,
+  reportFailureContext,
+  safeReportFailureDiagnostics,
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
@@ -83,6 +85,12 @@ describe('weekly report failure privacy', () => {
       type: 'report_failed',
       reason: 'Report generation failed',
       failureCode: 'OPENAI_GENERATION_ERROR',
+      diagnostics: {
+        stage: 'initial',
+        provider: 'openai',
+        model: 'gpt-4.1',
+        upstreamStatus: 429,
+      },
     });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -148,7 +156,17 @@ it('returns failure-record persistence errors with a distinct non-capturing diag
   });
   deps.reportRepository.create = vi.fn(async () => Result.Error(error));
   const result = await generateWeeklyReport(deps, { workspaceId });
-  expect(result.isError() && result.getError()).toBe(error);
+  expect(result.isError() && result.getError()).toMatchObject({
+    code: error.code,
+    category: error.category,
+    status: error.status,
+    details: {
+      reportFailure: {
+        failureCode: 'OPENAI_GENERATION_ERROR',
+        diagnostics: { stage: 'initial', upstreamStatus: 429 },
+      },
+    },
+  });
   expect(logger.error).toHaveBeenCalledWith(
     expect.objectContaining({
       event: 'intelligence.report.failure_record_failed',
@@ -161,4 +179,41 @@ it('returns failure-record persistence errors with a distinct non-capturing diag
   expect(logger.error.mock.calls.every(([entry]) => !entry.exception)).toBe(
     true
   );
+});
+
+it('allowlists failure context and bounds safe diagnostic paths at the composition boundary', () => {
+  const secret = 'sk-provider-secret';
+  const diagnostics = safeReportFailureDiagnostics({
+    stage: secret,
+    provider: 'openai',
+    model: 'model',
+    requestId: secret,
+    rawPrompt: secret,
+    upstreamStatus: 999,
+    durationMs: -1,
+    validationDiagnostics: [
+      { path: `${secret}.confidence`, code: 'forbidden_key', message: secret },
+      { path: 'topic_clusters.0.title', code: 'invalid_type' },
+      { path: '<root>', code: 'invalid_json' },
+      ...Array.from({ length: 30 }, () => ({
+        path: 'title',
+        code: 'invalid_type',
+      })),
+    ],
+  });
+  expect(diagnostics).toMatchObject({ provider: 'openai', model: 'model' });
+  expect(diagnostics.validationDiagnostics).toHaveLength(20);
+  expect(diagnostics.validationDiagnostics?.slice(0, 3)).toEqual([
+    { path: '<unknown>.confidence', code: 'forbidden_key' },
+    { path: 'topic_clusters.0.title', code: 'invalid_type' },
+    { path: '<root>', code: 'invalid_json' },
+  ]);
+  expect(JSON.stringify(diagnostics)).not.toContain(secret);
+  const error = new AppError({
+    code: 'DB_ERROR',
+    category: 'system',
+    status: 500,
+    details: { reportFailure: { failureCode: secret, diagnostics } },
+  });
+  expect(reportFailureContext(error)).toBeUndefined();
 });

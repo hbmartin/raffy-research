@@ -197,12 +197,21 @@ const advicePhraseExcludedKeys = new Set([
   'source_excerpt',
 ]);
 
-function findForbiddenReportKeys(value: unknown, path: string[] = []) {
-  const issues: string[] = [];
+type ForbiddenIssue = {
+  path: (string | number)[];
+  code: 'forbidden_key' | 'forbidden_advice';
+  message: string;
+};
+
+function findForbiddenReportKeys(
+  value: unknown,
+  path: (string | number)[] = []
+) {
+  const issues: ForbiddenIssue[] = [];
 
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      issues.push(...findForbiddenReportKeys(item, [...path, String(index)]));
+      issues.push(...findForbiddenReportKeys(item, [...path, index]));
     }
     return issues;
   }
@@ -211,9 +220,11 @@ function findForbiddenReportKeys(value: unknown, path: string[] = []) {
 
   for (const [key, child] of Object.entries(value)) {
     if (forbiddenReportKeys.has(key)) {
-      issues.push(
-        `Report contains forbidden key "${[...path, key].join('.')}".`
-      );
+      issues.push({
+        path: [...path, key],
+        code: 'forbidden_key',
+        message: `Report contains forbidden key "${[...path, key].join('.')}".`,
+      });
     }
     issues.push(...findForbiddenReportKeys(child, [...path, key]));
   }
@@ -221,8 +232,11 @@ function findForbiddenReportKeys(value: unknown, path: string[] = []) {
   return issues;
 }
 
-function findForbiddenAdvicePhrases(value: unknown, path: string[] = []) {
-  const issues: string[] = [];
+function findForbiddenAdvicePhrases(
+  value: unknown,
+  path: (string | number)[] = []
+) {
+  const issues: ForbiddenIssue[] = [];
 
   if (typeof value === 'string') {
     const normalized = value.toLowerCase();
@@ -230,16 +244,18 @@ function findForbiddenAdvicePhrases(value: unknown, path: string[] = []) {
       normalized.includes(candidate)
     );
     if (phrase) {
-      issues.push(`Report contains disallowed advice phrase "${phrase}".`);
+      issues.push({
+        path,
+        code: 'forbidden_advice',
+        message: `Report contains disallowed advice phrase "${phrase}".`,
+      });
     }
     return issues;
   }
 
   if (Array.isArray(value)) {
     for (const [index, item] of value.entries()) {
-      issues.push(
-        ...findForbiddenAdvicePhrases(item, [...path, String(index)])
-      );
+      issues.push(...findForbiddenAdvicePhrases(item, [...path, index]));
     }
     return issues;
   }
@@ -265,7 +281,8 @@ function addForbiddenReportContentIssues(value: unknown, ctx: z.RefinementCtx) {
   for (const issue of findForbiddenReportContent(value)) {
     ctx.addIssue({
       code: 'custom',
-      message: issue,
+      message: issue.message,
+      path: issue.path,
     });
   }
 }
@@ -303,8 +320,9 @@ export type ReportData = z.infer<typeof zReportData>;
 
 export type ReportValidationDiagnostic = { path: string; code: string };
 
-const diagnosticFields = new Set(
-  pipe(
+const diagnosticFields = new Set([
+  ...forbiddenReportKeys,
+  ...pipe(
     [
       zReportData,
       zExecutiveSummary,
@@ -321,10 +339,10 @@ const diagnosticFields = new Set(
       zSourceLibraryItem,
     ],
     flatMap((schema) => Object.keys(schema.shape))
-  )
-);
+  ),
+]);
 
-function validationDiagnostics(
+export function sanitizeReportValidationDiagnostics(
   issues: ReadonlyArray<{ path: readonly PropertyKey[]; code: string }>
 ): ReportValidationDiagnostic[] {
   return issues.slice(0, 20).map((issue) => ({
@@ -368,8 +386,8 @@ const formatZodIssues = (
       `${issue.path.map(String).join('.') || '<root>'}: ${issue.message}`
   );
 
-const formatForbiddenIssues = (input: unknown) =>
-  findForbiddenReportContent(input).map((issue) => `<root>: ${issue}`);
+const formatForbiddenIssues = (issues: ForbiddenIssue[]) =>
+  issues.map((issue) => `<root>: ${issue.message}`);
 
 const mergeIssues = (first: string[], second: string[]) => [
   ...new Set([...first, ...second]),
@@ -380,15 +398,17 @@ export function validateGeneratedReportData(
   input: unknown
 ): GeneratedReportDataValidation {
   const result = zGeneratedReportData.safeParse(input);
-  const forbiddenIssues = formatForbiddenIssues(input);
+  const forbiddenContent = findForbiddenReportContent(input);
+  const forbiddenIssues = formatForbiddenIssues(forbiddenContent);
   if (result.success && forbiddenIssues.length === 0) {
     return { type: 'generated_report_data_valid', data: result.data };
   }
   return {
     type: 'generated_report_data_invalid',
-    diagnostics: result.success
-      ? []
-      : validationDiagnostics(result.error.issues),
+    diagnostics: sanitizeReportValidationDiagnostics([
+      ...forbiddenContent,
+      ...(result.success ? [] : result.error.issues),
+    ]),
     issues: mergeIssues(
       result.success ? [] : formatZodIssues(result.error.issues),
       forbiddenIssues
@@ -399,15 +419,17 @@ export function validateGeneratedReportData(
 /** Validate unknown report JSON against the V1 contract. Never throws. */
 export function validateReportData(input: unknown): ReportDataValidation {
   const result = zReportData.safeParse(input);
-  const forbiddenIssues = formatForbiddenIssues(input);
+  const forbiddenContent = findForbiddenReportContent(input);
+  const forbiddenIssues = formatForbiddenIssues(forbiddenContent);
   if (result.success && forbiddenIssues.length === 0) {
     return { type: 'report_data_valid', data: result.data };
   }
   return {
     type: 'report_data_invalid',
-    diagnostics: result.success
-      ? []
-      : validationDiagnostics(result.error.issues),
+    diagnostics: sanitizeReportValidationDiagnostics([
+      ...forbiddenContent,
+      ...(result.success ? [] : result.error.issues),
+    ]),
     issues: mergeIssues(
       result.success ? [] : formatZodIssues(result.error.issues),
       forbiddenIssues

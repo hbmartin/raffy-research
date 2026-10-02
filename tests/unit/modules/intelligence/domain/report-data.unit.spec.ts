@@ -99,6 +99,12 @@ describe('report data validation', () => {
 
     expect(result.type).toBe('report_data_invalid');
     expect(getReportDataIssues(result).join('\n')).toContain('confidence');
+    expect(result.type === 'report_data_invalid' && result.diagnostics).toEqual(
+      [
+        { path: 'executive_summary.confidence', code: 'forbidden_key' },
+        { path: 'confidence', code: 'forbidden_key' },
+      ]
+    );
   });
 
   it('rejects forbidden keys in generated report JSON', () => {
@@ -113,6 +119,12 @@ describe('report data validation', () => {
     expect(getGeneratedReportIssues(result).join('\n')).toContain(
       'recommendation'
     );
+    expect(
+      result.type === 'generated_report_data_invalid' && result.diagnostics
+    ).toEqual([
+      { path: 'recommendation', code: 'forbidden_key' },
+      { path: 'recommendation', code: 'forbidden_advice' },
+    ]);
   });
 
   it('rejects advice phrases in authored narrative fields', () => {

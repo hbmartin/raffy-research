@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  handleClientHydrationFailure,
   isInitialHydrationDocumentActive,
   markInitialHydrationCommitted,
   startClientHydration,
@@ -24,16 +25,41 @@ const fixture = (visibilityState: DocumentVisibilityState = 'visible') => {
   };
   view.document = document;
   view.location = { reload: vi.fn() };
-  Object.assign(document, { defaultView: view, visibilityState });
+  Object.assign(document, {
+    defaultView: view,
+    visibilityState,
+    URL: 'https://example.test/current',
+    baseURI: 'https://example.test/current',
+  });
   return { document, view };
 };
 
 const trustedInteraction = (type: 'click' | 'keydown' | 'keyup') => {
-  const event = new Event(type);
+  const event = new Event(type, { cancelable: true });
   Object.defineProperty(event, 'isTrusted', { value: true });
   return event;
 };
 const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+const linkClick = (
+  attributes: Record<string, string | undefined> = { href: '/destination' },
+  mouse: Partial<MouseEvent> = {}
+) => {
+  const event = trustedInteraction('click');
+  const link = {
+    getAttribute: (key: string) => attributes[key] ?? null,
+    hasAttribute: (key: string) => Object.hasOwn(attributes, key),
+  };
+  Object.defineProperties(event, {
+    target: { value: { nodeType: 1, closest: () => link } },
+    button: { value: mouse.button ?? 0 },
+    metaKey: { value: mouse.metaKey },
+    ctrlKey: { value: mouse.ctrlKey },
+    shiftKey: { value: mouse.shiftKey },
+    altKey: { value: mouse.altKey },
+  });
+  return event;
+};
 
 afterEach(async () => {
   if (vi.isFakeTimers()) await vi.runOnlyPendingTimersAsync();
@@ -195,6 +221,8 @@ describe('initial hydration coordinator', () => {
     expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
     view.dispatchEvent(new Event('blur'));
     view.dispatchEvent(new Event('focus'));
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
       document,
       expect.any(Error),
@@ -319,6 +347,7 @@ it('does not flush recovery for a document replaced during tentative departure',
 });
 
 it('reports tentative failures when the document returns to visible', async () => {
+  vi.useFakeTimers();
   const { document, view } = fixture();
   const loading = Promise.withResolvers<never>();
   const hydration = startClientHydration({
@@ -334,16 +363,19 @@ it('reports tentative failures when the document returns to visible', async () =
   document.dispatchEvent(new Event('visibilitychange'));
   Object.assign(document, { visibilityState: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(2_000);
   expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
     document,
     expect.any(Error),
     false
   );
-  await nextTask();
+  await vi.runAllTimersAsync();
   expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
 });
 
 it('reports an import failure after a hidden document returns', async () => {
+  vi.useFakeTimers();
   const { document } = fixture();
   const loading = Promise.withResolvers<never>();
   const hydration = startClientHydration({
@@ -356,16 +388,19 @@ it('reports an import failure after a hidden document returns', async () => {
   await hydration;
   Object.assign(document, { visibilityState: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
+  expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(2_000);
   expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
     document,
     expect.any(Error),
     false
   );
-  await nextTask();
+  await vi.runAllTimersAsync();
   expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
 });
 
 it('retains an import failure across a tab switch', async () => {
+  vi.useFakeTimers();
   const { document } = fixture();
   const failure = new Error('failed before switch');
   await startClientHydration({
@@ -376,11 +411,11 @@ it('retains an import failure across a tab switch', async () => {
   });
   Object.assign(document, { visibilityState: 'hidden' });
   document.dispatchEvent(new Event('visibilitychange'));
-  await nextTask();
+  await vi.runAllTimersAsync();
   expect(mocks.showClientRecovery).not.toHaveBeenCalled();
   Object.assign(document, { visibilityState: 'visible' });
   document.dispatchEvent(new Event('visibilitychange'));
-  await nextTask();
+  await vi.runAllTimersAsync();
   expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
   expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
 });
@@ -486,4 +521,291 @@ it('does not clear a new departure after an eligible interaction', async () => {
   view.dispatchEvent(new Event('beforeunload'));
   await vi.runAllTimersAsync();
   expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+});
+
+describe('recovery settlement and provisional activation', () => {
+  it.each([
+    { name: 'fragment', attributes: { href: '#section' }, mouse: {} },
+    { name: 'empty fragment', attributes: { href: '/current#' }, mouse: {} },
+    {
+      name: 'absolute fragment',
+      attributes: { href: 'https://example.test/current#section' },
+      mouse: {},
+    },
+    {
+      name: 'new tab',
+      attributes: { href: '/destination', target: '_blank' },
+      mouse: {},
+    },
+    {
+      name: 'named other window',
+      attributes: { href: '/destination', target: 'other' },
+      mouse: {},
+    },
+    {
+      name: 'download',
+      attributes: { href: '/destination', download: '' },
+      mouse: {},
+    },
+    { name: 'script', attributes: { href: 'javascript:void(0)' }, mouse: {} },
+    {
+      name: 'email',
+      attributes: { href: 'mailto:user@example.test' },
+      mouse: {},
+    },
+    { name: 'telephone', attributes: { href: 'tel:123' }, mouse: {} },
+    {
+      name: 'control click',
+      attributes: { href: '/destination' },
+      mouse: { ctrlKey: true },
+    },
+    {
+      name: 'meta click',
+      attributes: { href: '/destination' },
+      mouse: { metaKey: true },
+    },
+    {
+      name: 'shift click',
+      attributes: { href: '/destination' },
+      mouse: { shiftKey: true },
+    },
+    {
+      name: 'alt click',
+      attributes: { href: '/destination' },
+      mouse: { altKey: true },
+    },
+    {
+      name: 'middle click',
+      attributes: { href: '/destination' },
+      mouse: { button: 1 },
+    },
+  ])(
+    'does not guard an unprevented $name activation',
+    async ({ attributes, mouse }) => {
+      vi.useFakeTimers();
+      const { document, view } = fixture();
+      await startClientHydration({
+        document,
+        loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+      });
+      view.dispatchEvent(linkClick(attributes, mouse));
+      handleClientHydrationFailure(
+        document,
+        new Error('application failure'),
+        () => true,
+        'hydrate_start'
+      );
+      await vi.runAllTimersAsync();
+      expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('resolves a base target before marking a link departure', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    Object.assign(document, {
+      querySelector: () => ({ getAttribute: () => '_blank' }),
+    });
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.dispatchEvent(linkClick());
+    handleClientHydrationFailure(
+      document,
+      new Error('application failure'),
+      () => true,
+      'hydrate_start'
+    );
+    await vi.runAllTimersAsync();
+    expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+  });
+
+  it('guards a fragment resolved against a base URL in a different document', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    Object.assign(document, { baseURI: 'https://example.test/other' });
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.dispatchEvent(linkClick({ href: '#section' }));
+    handleClientHydrationFailure(document, new Error('chunk'));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the final link target after event handlers run', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    const attributes = { href: '/destination', target: '_self' };
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.addEventListener('click', () => {
+      attributes.target = '_blank';
+    });
+    view.dispatchEvent(linkClick(attributes));
+    handleClientHydrationFailure(
+      document,
+      new Error('application failure'),
+      () => true,
+      'hydrate_start'
+    );
+    await vi.runAllTimersAsync();
+    expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+  });
+
+  it('restores recovery after a prevented native link activation', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.addEventListener('click', (event) => {
+      handleClientHydrationFailure(document, new Error('chunk'));
+      event.preventDefault();
+    });
+    view.dispatchEvent(linkClick());
+    await vi.runAllTimersAsync();
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+    expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+  });
+
+  it('does not undo a newer departure when a link is prevented', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.addEventListener('click', (event) => {
+      event.preventDefault();
+      view.dispatchEvent(new Event('beforeunload'));
+      handleClientHydrationFailure(document, new Error('canceled request'));
+    });
+    view.dispatchEvent(linkClick());
+    await vi.runAllTimersAsync();
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('retains an earlier departure after a prevented link', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.dispatchEvent(new Event('beforeunload'));
+    handleClientHydrationFailure(document, new Error('chunk'));
+    view.addEventListener('click', (event) => event.preventDefault());
+    view.dispatchEvent(linkClick());
+    await vi.runAllTimersAsync();
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('keeps unprevented document navigation guarded beyond the settlement delay', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    view.dispatchEvent(linkClick());
+    handleClientHydrationFailure(document, new Error('chunk'));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+  });
+
+  it('keeps recovery timer-free during healthy ordinary input', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    await startClientHydration({
+      document,
+      loadHydrationModule: async () => ({ hydrateClient: vi.fn() }),
+    });
+    for (let count = 0; count < 20; count += 1) {
+      view.dispatchEvent(trustedInteraction('click'));
+      view.dispatchEvent(
+        Object.assign(trustedInteraction('keydown'), { key: 'a' })
+      );
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('recovers despite a backward wall-clock adjustment', async () => {
+    vi.useFakeTimers();
+    const { document } = fixture();
+    handleClientHydrationFailure(document, new Error('chunk'));
+    vi.setSystemTime(Date.now() - 60_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+    await vi.runAllTimersAsync();
+    expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+  });
+
+  it('rearms when the monotonic deadline has not elapsed at the timer callback', async () => {
+    vi.useFakeTimers();
+    const { document } = fixture();
+    const now = vi.fn(() => 0);
+    Object.assign(document.defaultView!, { performance: { now } });
+    handleClientHydrationFailure(document, new Error('chunk'));
+    now.mockReturnValue(1_999);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    now.mockReturnValue(2_000);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+    await vi.runAllTimersAsync();
+  });
+
+  it('coalesces return signals and does not postpone recovery while typing', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    handleClientHydrationFailure(document, new Error('chunk'));
+    view.dispatchEvent(new Event('beforeunload'));
+    view.dispatchEvent(new Event('blur'));
+    view.dispatchEvent(new Event('focus'));
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    Object.assign(document, { visibilityState: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.assign(document, { visibilityState: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(vi.getTimerCount()).toBe(1);
+    view.dispatchEvent(
+      Object.assign(trustedInteraction('keydown'), { key: 'a' })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+    await vi.runAllTimersAsync();
+    vi.clearAllMocks();
+    handleClientHydrationFailure(document, new Error('another chunk'));
+    for (let count = 0; count < 4; count += 1) {
+      view.dispatchEvent(
+        Object.assign(trustedInteraction('keydown'), { key: 'a' })
+      );
+      await vi.advanceTimersByTimeAsync(500);
+    }
+    expect(mocks.reportHydrationFailure).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates an automatic return when departure starts again', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    handleClientHydrationFailure(document, new Error('chunk'));
+    view.dispatchEvent(new Event('blur'));
+    view.dispatchEvent(new Event('focus'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    view.dispatchEvent(new Event('beforeunload'));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

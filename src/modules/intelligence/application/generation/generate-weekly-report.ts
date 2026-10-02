@@ -19,7 +19,11 @@ import type { AlertPort, ReportGeneratorPort } from '../ports/report-generator';
 import type { ReportRepository } from '../ports/report-repository';
 import type { SourceRepository } from '../ports/source-repository';
 import type { WorkspaceRepository } from '../ports/workspace-repository';
-import { safeAppErrorDetails } from '../safe-diagnostics';
+import {
+  type ReportFailureDiagnostics,
+  safeAppErrorDetails,
+  safeReportFailureDiagnostics,
+} from '../safe-diagnostics';
 import { computeWeeklyPeriod, formatPeriodDate } from '../../domain/period';
 import type { WeeklyReport, WeeklyReportSummary } from '../../domain/report';
 import type { GeneratedReportDataValidation } from '../../domain/report-data';
@@ -48,7 +52,12 @@ export type GenerateWeeklyReportInput = {
 
 export type GenerateWeeklyReportOutcome =
   | { type: 'report_published'; report: WeeklyReport }
-  | { type: 'report_failed'; reason: string; failureCode: string }
+  | {
+      type: 'report_failed';
+      reason: string;
+      failureCode: string;
+      diagnostics?: ReportFailureDiagnostics;
+    }
   | { type: 'workspace_not_found' };
 
 export async function generateWeeklyReport(
@@ -302,16 +311,17 @@ async function recordFailure(
     reservedReportId?: WeeklyReportId;
     reason: string;
     failureCode?: string;
-    diagnostics?: Record<string, unknown>;
+    diagnostics?: ReportFailureDiagnostics;
   }
 ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> {
   const now = deps.clock.now();
+  const diagnostics = safeReportFailureDiagnostics(input.diagnostics);
   deps.logger.error({
     event: 'intelligence.report.generation_failed',
     details: {
       workspaceId: input.workspace.id,
       failureCode: input.failureCode ?? 'REPORT_FAILED',
-      ...input.diagnostics,
+      ...diagnostics,
     },
   });
 
@@ -355,6 +365,7 @@ async function recordFailure(
           type: 'report_failed',
           reason: input.reason,
           failureCode: input.failureCode ?? 'REPORT_FAILED',
+          diagnostics,
         });
       }
     }
@@ -378,6 +389,7 @@ async function recordFailure(
     type: 'report_failed',
     reason: input.reason,
     failureCode: input.failureCode ?? 'REPORT_FAILED',
+    diagnostics,
   });
 }
 
@@ -434,7 +446,11 @@ async function sendFailureAlert(
 
 function failureRecordError(
   deps: WeeklyReportGenerationDeps,
-  input: { workspace: { id: WorkspaceId }; failureCode?: string },
+  input: {
+    workspace: { id: WorkspaceId };
+    failureCode?: string;
+    diagnostics?: ReportFailureDiagnostics;
+  },
   error: AppError
 ): ApplicationResult<GenerateWeeklyReportOutcome> {
   deps.logger.error({
@@ -445,5 +461,18 @@ function failureRecordError(
       errorCode: error.code,
     },
   });
-  return Result.Error(error);
+  return Result.Error(
+    new AppError({
+      code: error.code,
+      category: error.category,
+      status: error.status,
+      message: 'Report failure persistence failed',
+      details: {
+        reportFailure: {
+          failureCode: input.failureCode ?? 'REPORT_FAILED',
+          diagnostics: safeReportFailureDiagnostics(input.diagnostics),
+        },
+      },
+    })
+  );
 }
