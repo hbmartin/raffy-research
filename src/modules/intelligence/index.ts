@@ -63,7 +63,16 @@ export * from './domain/report-data';
 export * from './domain/rubric';
 export * from './domain/scheduled-job';
 export * from './domain/source';
-export { isSafeHttpUrl, normalizeHttpUrl } from './domain/url';
+export {
+  collapseDuplicateSources,
+  type CollapseSourcesResult,
+  type CollapsibleSource,
+} from './domain/source-dedup';
+export {
+  canonicalizeSourceUrl,
+  isSafeHttpUrl,
+  normalizeHttpUrl,
+} from './domain/url';
 export * from './domain/workspace';
 export {
   createIntelligenceUseCases,

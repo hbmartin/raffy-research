@@ -12,6 +12,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { collapseDuplicateSources } from '@/modules/intelligence';
+
 export const CASE_FORMAT_VERSION = 2;
 
 export const CASE_FILES = {
@@ -35,6 +37,8 @@ export type CaseSource = {
   diffRemovedText: string | null;
   relevanceLabel: string | null;
   publishedAt: string | null;
+  /** ISO string, not a Date: a case is this record after a JSON round trip. */
+  capturedAt: string;
   [key: string]: unknown;
 };
 
@@ -257,9 +261,19 @@ export function writePhoenixBinding(
   evalCase.manifest = manifest;
 }
 
-/** Sources an analyst has not labelled as junk — what the prompt is built from. */
+/**
+ * What the prompt is built from: sources an analyst has not labelled as junk,
+ * collapsed to one record per page.
+ *
+ * Both steps mirror `generateWeeklyReport` exactly, and must keep doing so —
+ * measuring a different selection than production builds would make every
+ * score here describe a generation that never happens.
+ */
 export function usableSources(evalCase: EvalCase): CaseSource[] {
-  return evalCase.sources.filter((source) => source.relevanceLabel !== 'junk');
+  const unlabelled = evalCase.sources.filter(
+    (source) => source.relevanceLabel !== 'junk'
+  );
+  return collapseDuplicateSources(unlabelled).selected;
 }
 
 /**
