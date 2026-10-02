@@ -1,4 +1,5 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 
 import { Logo } from '@/platform/components/brand/logo';
 import {
@@ -11,7 +12,7 @@ import { ReportHeader } from './report-header';
 import { ReportPageBody } from '../report-page';
 import { intelligenceQueries } from '../wired-queries';
 
-export const PageLatestReport = () => {
+export const PageLatestReport = ({ children }: { children?: ReactNode }) => {
   const { data } = useSuspenseQuery(intelligenceQueries.latestReport());
 
   return (
@@ -34,6 +35,7 @@ export const PageLatestReport = () => {
             </p>
           </div>
         )}
+        {children}
       </PageLayoutContent>
     </PageLayout>
   );

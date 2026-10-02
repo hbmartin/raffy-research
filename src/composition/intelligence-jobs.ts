@@ -34,6 +34,7 @@ import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
 import { getIntelligenceRepositories } from './intelligence';
 import { getKernel } from './kernel';
+import { newsletterPublicationNotifier } from './newsletter';
 
 const providerRegistry = createProviderRegistry();
 
@@ -55,6 +56,7 @@ function buildGenerationDeps(): WeeklyReportGenerationDeps {
   const kernel = getKernel();
   const repositories = getIntelligenceRepositories();
   return {
+    publicationNotifier: newsletterPublicationNotifier,
     workspaceRepository: repositories.workspaceRepository,
     sourceRepository: repositories.sourceRepository,
     reportRepository: repositories.reportRepository,

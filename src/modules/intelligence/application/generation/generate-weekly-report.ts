@@ -34,6 +34,16 @@ import {
 import type { SourceSummary } from '../../domain/source';
 
 export type WeeklyReportGenerationDeps = {
+  publicationNotifier?: {
+    published(input: {
+      workspaceId: WorkspaceId;
+      reportId: WeeklyReportId;
+    }): Promise<
+      ApplicationResult<{
+        type: 'notification_queued' | 'notification_skipped';
+      }>
+    >;
+  };
   workspaceRepository: WorkspaceRepository;
   sourceRepository: SourceRepository;
   reportRepository: ReportRepository;
@@ -300,6 +310,21 @@ export async function generateWeeklyReport(
     event: 'intelligence.report.published',
     details: { workspaceId: workspace.id, reportId },
   });
+  if (deps.publicationNotifier) {
+    const notified = await deps.publicationNotifier.published({
+      workspaceId: workspace.id,
+      reportId,
+    });
+    if (notified.isError())
+      deps.logger.warn({
+        event: 'intelligence.report.publication_notification_failed',
+        details: {
+          workspaceId: workspace.id,
+          reportId,
+          code: notified.getError().code,
+        },
+      });
+  }
   return Result.Ok({ type: 'report_published', report: frozenOutcome.report });
 }
 

@@ -21,6 +21,7 @@ import { Route as ManagerIndexRouteImport } from './routes/manager/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth.$'
 import { Route as ApiCronDailyIngestRouteImport } from './routes/api/cron.daily-ingest'
+import { Route as ApiCronNewsletterRouteImport } from './routes/api/cron.newsletter'
 import { Route as ApiCronWeeklyReportsRouteImport } from './routes/api/cron.weekly-reports'
 import { Route as ApiTelemetryLogsRouteImport } from './routes/api/telemetry.logs'
 import { Route as ApiTelemetrySentryTunnelRouteImport } from './routes/api/telemetry.sentry-tunnel'
@@ -99,6 +100,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 const ApiCronDailyIngestRoute = ApiCronDailyIngestRouteImport.update({
   id: '/api/cron/daily-ingest',
   path: '/api/cron/daily-ingest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCronNewsletterRoute = ApiCronNewsletterRouteImport.update({
+  id: '/api/cron/newsletter',
+  path: '/api/cron/newsletter',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCronWeeklyReportsRoute = ApiCronWeeklyReportsRouteImport.update({
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/daily-ingest': typeof ApiCronDailyIngestRoute
+  '/api/cron/newsletter': typeof ApiCronNewsletterRoute
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
@@ -246,6 +253,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/daily-ingest': typeof ApiCronDailyIngestRoute
+  '/api/cron/newsletter': typeof ApiCronNewsletterRoute
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
@@ -280,6 +288,7 @@ export interface FileRoutesById {
   '/onboarding/': typeof OnboardingIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/cron/daily-ingest': typeof ApiCronDailyIngestRoute
+  '/api/cron/newsletter': typeof ApiCronNewsletterRoute
   '/api/cron/weekly-reports': typeof ApiCronWeeklyReportsRoute
   '/api/telemetry/logs': typeof ApiTelemetryLogsRoute
   '/api/telemetry/sentry-tunnel': typeof ApiTelemetrySentryTunnelRoute
@@ -315,6 +324,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/api/auth/$'
     | '/api/cron/daily-ingest'
+    | '/api/cron/newsletter'
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
@@ -344,6 +354,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/api/auth/$'
     | '/api/cron/daily-ingest'
+    | '/api/cron/newsletter'
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
@@ -377,6 +388,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/api/auth/$'
     | '/api/cron/daily-ingest'
+    | '/api/cron/newsletter'
     | '/api/cron/weekly-reports'
     | '/api/telemetry/logs'
     | '/api/telemetry/sentry-tunnel'
@@ -407,6 +419,7 @@ export interface RootRouteChildren {
   LogoutRoute: typeof LogoutRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCronDailyIngestRoute: typeof ApiCronDailyIngestRoute
+  ApiCronNewsletterRoute: typeof ApiCronNewsletterRoute
   ApiCronWeeklyReportsRoute: typeof ApiCronWeeklyReportsRoute
   ApiTelemetryLogsRoute: typeof ApiTelemetryLogsRoute
   ApiTelemetrySentryTunnelRoute: typeof ApiTelemetrySentryTunnelRoute
@@ -500,6 +513,13 @@ declare module '@tanstack/react-router' {
       path: '/api/cron/daily-ingest'
       fullPath: '/api/cron/daily-ingest'
       preLoaderRoute: typeof ApiCronDailyIngestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/cron/newsletter': {
+      id: '/api/cron/newsletter'
+      path: '/api/cron/newsletter'
+      fullPath: '/api/cron/newsletter'
+      preLoaderRoute: typeof ApiCronNewsletterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/cron/weekly-reports': {
@@ -719,6 +739,7 @@ const rootRouteChildren: RootRouteChildren = {
   LogoutRoute: LogoutRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCronDailyIngestRoute: ApiCronDailyIngestRoute,
+  ApiCronNewsletterRoute: ApiCronNewsletterRoute,
   ApiCronWeeklyReportsRoute: ApiCronWeeklyReportsRoute,
   ApiTelemetryLogsRoute: ApiTelemetryLogsRoute,
   ApiTelemetrySentryTunnelRoute: ApiTelemetrySentryTunnelRoute,

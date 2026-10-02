@@ -6,6 +6,7 @@ import {
   getIntelligenceUseCases,
 } from '@/composition/intelligence';
 import { getKernel } from '@/composition/kernel';
+import { newsletterPublicationNotifier } from '@/composition/newsletter';
 import {
   type AlertPort,
   type IngestionDeps,
@@ -52,6 +53,7 @@ function buildGenerationDeps(
   const kernel = getKernel();
   const repositories = getIntelligenceRepositories();
   return {
+    publicationNotifier: newsletterPublicationNotifier,
     workspaceRepository: repositories.workspaceRepository,
     sourceRepository: repositories.sourceRepository,
     reportRepository: repositories.reportRepository,

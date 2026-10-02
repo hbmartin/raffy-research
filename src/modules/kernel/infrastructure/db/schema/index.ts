@@ -3,6 +3,7 @@ export * from './legacy-email';
 export * from './relations';
 export * from '@/modules/auth/infrastructure/drizzle/schema';
 export * from '@/modules/intelligence/infrastructure/drizzle/schema';
+export * from '@/modules/newsletter/infrastructure/drizzle/schema';
 
 import {
   account,
