@@ -45,6 +45,7 @@ export {
   reportFailureContext,
   type ReportFailureDiagnostics,
   safeReportFailureDiagnostics,
+  safeUnexpectedFailureDiagnostics,
 } from './application/safe-diagnostics';
 export {
   handleProviderCallback,

@@ -38,6 +38,158 @@ const watchRecoveryAlerts = async (page: Page) => {
   return () => seen;
 };
 
+const holdStartupRouteFailure = async (page: Page) => {
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const pattern = /\/assets\/login-[^/]+\.js$/;
+  await page.route(pattern, async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.abort('failed').catch(() => undefined);
+  });
+  await page.goto('/login', { waitUntil: 'commit' });
+  await requested.promise;
+  await expect
+    .poll(() => page.evaluate(() => window.$_TSR?.initialized))
+    .toBe(true);
+  await page.evaluate(() => {
+    // The router handles failed imports through its route boundary. Inject a
+    // startup rejection when it resumes after those real route imports settle,
+    // so this test also exercises the hydrateStart catch before React starts.
+    Object.defineProperty(window.$_TSR!.router!.matches[0], 'b', {
+      get: () => {
+        document.documentElement.dataset.startupFailure = 'observed';
+        throw new TypeError('Fixture startup failure after route loading');
+      },
+    });
+    const probe = document.createElement('button');
+    probe.textContent = 'Startup recovery probe';
+    probe.style.cssText =
+      'position:fixed;bottom:20px;right:20px;padding:12px;z-index:1';
+    probe.addEventListener('click', () => {
+      document.body.dataset.startupProbeClicks = String(
+        Number(document.body.dataset.startupProbeClicks ?? '0') + 1
+      );
+    });
+    document.body.append(probe);
+  });
+  return { release, pattern };
+};
+
+test('defers hydrateStart failure while route loading is canceled by document departure', async ({
+  page,
+}) => {
+  const reports: string[] = [];
+  const canceledRoutes: string[] = [];
+  page.on('requestfailed', (request) => {
+    if (/\/assets\/login-[^/]+\.js$/.test(request.url()))
+      canceledRoutes.push(request.url());
+  });
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  const { release, pattern } = await holdStartupRouteFailure(page);
+  const destinationRequested = Promise.withResolvers<void>();
+  const releaseDestination = Promise.withResolvers<void>();
+  await page.route('**/quiet-startup-destination', async (route) => {
+    destinationRequested.resolve();
+    await releaseDestination.promise;
+    await route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body>Startup destination</body></html>',
+    });
+  });
+  try {
+    const recoveryAlerts = await watchRecoveryAlerts(page);
+    await page.evaluate(() => {
+      const link = document.createElement('a');
+      link.href = '/quiet-startup-destination';
+      link.textContent = 'Leave startup document';
+      document.body.append(link);
+    });
+    await page
+      .getByRole('link', { name: 'Leave startup document' })
+      .click({ noWaitAfter: true });
+    await destinationRequested.promise;
+    release.resolve();
+    // Chromium may stop startup execution entirely when it cancels route
+    // loading for navigation. Either outcome must remain quiet during departure.
+    await expect.poll(() => canceledRoutes.length).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 2_200));
+    expect(recoveryAlerts()).toBe(0);
+    expect(reports).toHaveLength(0);
+    releaseDestination.resolve();
+    await expect(
+      page.getByText('Startup destination', { exact: true })
+    ).toBeVisible();
+    expect(reports).toHaveLength(0);
+  } finally {
+    release.resolve();
+    releaseDestination.resolve();
+    await page.unroute(pattern);
+  }
+});
+
+test('recovers a deferred hydrateStart failure after canceled navigation without swallowing input', async ({
+  page,
+}, testInfo) => {
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  const { release, pattern } = await holdStartupRouteFailure(page);
+  try {
+    await page.getByRole('button', { name: 'Startup recovery probe' }).click();
+    await page.evaluate(() =>
+      window.addEventListener(
+        'beforeunload',
+        (event) => {
+          event.preventDefault();
+          event.returnValue = '';
+        },
+        { once: true }
+      )
+    );
+    const dialog = page
+      .waitForEvent('dialog')
+      .then((dialog) => dialog.dismiss());
+    await page.evaluate(() =>
+      setTimeout(() => window.location.assign('/quiet-startup-cancel'), 0)
+    );
+    await dialog;
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
+    release.resolve();
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-startup-failure',
+      'observed'
+    );
+    expect(page.url()).toContain('/login');
+    expect(reports).toHaveLength(0);
+    await expect(page.locator('#hydration-failure')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Startup recovery probe' }).click();
+    await expect(page.locator('body')).toHaveAttribute(
+      'data-startup-probe-clicks',
+      '2'
+    );
+    await expect(page.locator('#hydration-failure')).toContainText(
+      'This page could not finish loading'
+    );
+    await expect
+      .poll(
+        () =>
+          reports.filter((report) => report.includes('client.hydration_failed'))
+            .length
+      )
+      .toBe(1);
+    await captureSsrScreenshot(page, testInfo, 'startup-return-recovery.png');
+  } finally {
+    release.resolve();
+    await page.unroute(pattern);
+  }
+});
+
 const waitForHttpReady = async (
   url: string,
   child: ReturnType<typeof spawn>,

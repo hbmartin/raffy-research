@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   safeAppErrorDetails,
   safeFailureDiagnostics,
+  safeUnexpectedFailureDiagnostics,
 } from '@/modules/intelligence/application/safe-diagnostics';
 import { fetchJson } from '@/modules/intelligence/infrastructure/providers/http';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
@@ -102,6 +103,58 @@ describe('safe provider diagnostics', () => {
     expect(safeAppErrorDetails(error)).toEqual({
       provider: 'exa',
       requestId: 'req_abc123',
+    });
+  });
+});
+
+describe('safe unexpected failure diagnostics', () => {
+  it('retains safe AppError context without raw error data', () => {
+    const error = new AppError({
+      code: 'PROVIDER_HTTP_ERROR',
+      category: 'system',
+      status: 502,
+      message: fakeSecret,
+      cause: new Error(fakeSecret),
+      details: {
+        provider: 'openai',
+        stage: 'repair',
+        upstreamStatus: 429,
+        requestId: 'req_1',
+        rawBody: fakeSecret,
+      },
+    });
+    expect(safeUnexpectedFailureDiagnostics(error)).toEqual({
+      errorType: 'AppError',
+      errorCode: 'PROVIDER_HTTP_ERROR',
+      provider: 'openai',
+      stage: 'repair',
+      upstreamStatus: 429,
+      requestId: 'req_1',
+    });
+  });
+
+  it('keeps allowlisted error types and codes without messages or causes', () => {
+    expect(
+      safeUnexpectedFailureDiagnostics(
+        Object.assign(new TypeError(fakeSecret), {
+          code: 'ETIMEDOUT',
+          cause: new Error(fakeSecret),
+          requestBody: fakeSecret,
+        })
+      )
+    ).toEqual({ errorType: 'TypeError', errorCode: 'ETIMEDOUT' });
+  });
+
+  it.each([
+    undefined,
+    null,
+    fakeSecret,
+    42,
+    { name: fakeSecret, code: fakeSecret },
+    Object.assign(new Error(fakeSecret), { name: 'PrivateProviderName' }),
+  ])('handles unknown thrown values without leaking them', (error) => {
+    expect(safeUnexpectedFailureDiagnostics(error)).toEqual({
+      errorType: 'UnknownError',
     });
   });
 });

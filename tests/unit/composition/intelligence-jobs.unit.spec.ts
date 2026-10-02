@@ -758,6 +758,146 @@ describe('intelligence job request auth', () => {
     );
   });
 
+  it.each(['daily', 'weekly'])(
+    'records and finalizes %s workspace throws without leaking or duplicating errors',
+    async (kind) => {
+      const repositories = mocks.getIntelligenceRepositories();
+      repositories.workspaceRepository.list.mockResolvedValue(
+        Result.Ok([{ id: 'ws-1' }, { id: 'ws-2' }])
+      );
+      const secret = 'sk-private-provider-payload';
+      const error = Object.assign(new TypeError(secret), {
+        code: 'ETIMEDOUT',
+        cause: new Error(secret),
+      });
+      mocks.generateWeeklyReport
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce(
+          Result.Ok({ type: 'report_published', report: { id: 'report-2' } })
+        );
+      mocks.runWorkspaceIngest
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce(
+          Result.Ok({
+            type: 'workspace_ingested',
+            providersRun: 1,
+            providersPartial: 0,
+            providersFailed: 0,
+            providersSkipped: 0,
+            sourceRecords: 3,
+            searchResults: 0,
+            requestsFailed: 0,
+          })
+        );
+      const jobs = await import('@/composition/intelligence-jobs');
+      const summary = await (kind === 'weekly'
+        ? jobs.runWeeklyReports()
+        : jobs.runDailyIngest());
+      expect(summary).toMatchObject({
+        status: 'partial',
+        failed: 1,
+        historyStatus: 'recorded',
+      });
+      expect(
+        repositories.scheduledJobRepository.upsertWorkspace
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspaceId: 'ws-1',
+          status: 'failed',
+          failureCode: 'UNEXPECTED_ERROR',
+        })
+      );
+      expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'partial',
+          failed: 1,
+          succeeded: 1,
+          items: kind === 'weekly' ? 1 : 3,
+        })
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            workspaceId: 'ws-1',
+            stage: 'workspace',
+            errorType: 'TypeError',
+            errorCode: 'ETIMEDOUT',
+          }),
+        })
+      );
+      expect(
+        logger.error.mock.calls.filter(([entry]) => entry.exception)
+      ).toHaveLength(kind === 'weekly' ? 1 : 0);
+      expect(
+        JSON.stringify({
+          logs: logger.error.mock.calls,
+          summary,
+          history:
+            repositories.scheduledJobRepository.upsertWorkspace.mock.calls,
+        })
+      ).not.toContain(secret);
+    }
+  );
+
+  it.each(['daily', 'weekly'])(
+    'keeps safe diagnostics and finalizes %s when listing workspaces throws',
+    async (kind) => {
+      const repositories = mocks.getIntelligenceRepositories();
+      repositories.workspaceRepository.list.mockRejectedValue(
+        new SyntaxError('sk-private-data')
+      );
+      const jobs = await import('@/composition/intelligence-jobs');
+      expect(
+        await (kind === 'weekly'
+          ? jobs.runWeeklyReports()
+          : jobs.runDailyIngest())
+      ).toMatchObject({ status: 'failed', historyStatus: 'recorded' });
+      expect(repositories.scheduledJobRepository.finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'failed',
+          failureCode: 'UNEXPECTED_ERROR',
+        })
+      );
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          details: expect.objectContaining({
+            stage: 'processing',
+            errorType: 'SyntaxError',
+          }),
+        })
+      );
+      expect(JSON.stringify(logger.error.mock.calls)).not.toContain(
+        'sk-private-data'
+      );
+    }
+  );
+
+  it('keeps diagnostics when history writes throw and preserves processing counts', async () => {
+    const repositories = mocks.getIntelligenceRepositories();
+    repositories.scheduledJobRepository.finish.mockRejectedValue(
+      new RangeError('sk-private-data')
+    );
+    const jobs = await import('@/composition/intelligence-jobs');
+    expect(await jobs.runDailyIngest()).toMatchObject({
+      status: 'succeeded',
+      historyStatus: 'failed',
+      failed: 0,
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({
+          kind: 'daily_ingest',
+          stage: 'finish',
+          errorType: 'RangeError',
+          errorCode: 'UNEXPECTED_ERROR',
+        }),
+      })
+    );
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(
+      'sk-private-data'
+    );
+  });
+
   it('preserves completed work when a later unexpected failure aborts the run', async () => {
     const repositories = mocks.getIntelligenceRepositories();
     const brokenWorkspace = Object.defineProperty({ id: 'ws-2' }, 'id', {

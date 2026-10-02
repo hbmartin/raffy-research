@@ -272,11 +272,9 @@ const forwardSentryEnvelope = async (
   });
 
   const responseHeaders = new Headers();
-  if (status === 429) {
-    for (const header of ['Retry-After', 'X-Sentry-Rate-Limits']) {
-      const value = sentryResponse.headers.get(header);
-      if (value) responseHeaders.set(header, value);
-    }
+  for (const header of ['Retry-After', 'X-Sentry-Rate-Limits']) {
+    const value = sentryResponse.headers.get(header);
+    if (value) responseHeaders.set(header, value);
   }
   return new Response(null, { status, headers: responseHeaders });
 };

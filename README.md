@@ -746,10 +746,13 @@ completion. An upstream repro and public API proposal are in
 `UPSTREAM_TANSTACK_HYDRATION.md`.
 A composition boundary records the first React commit, including Strict Mode.
 `beforeunload` and navigation activation mark tentative departure; hydration
-continues immediately. Actual hydration and root errors are recorded once using
-fetch with keepalive, including while leaving. Active-document bootstrap import
+continues immediately. Startup failures from `hydrateStart` are recorded immediately
+on an active document, but remain pending during departure until the original
+document returns. React root errors are recorded once using fetch with keepalive,
+including while leaving. Active-document bootstrap import
 failures settle for two seconds before producing telemetry and a recovery notice.
-Timers never clear departure state. Visibility is tracked separately, including
+Settlement timers never clear departure state without an eligible return.
+Visibility is tracked separately, including
 pages initially opened in background tabs; returning to a tab or a later trusted
 non-navigation interaction can resume recovery. Incidental focus and navigation
 activation keys do not resume it. `pagehide` retains uncertain failures for recovery

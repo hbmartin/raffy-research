@@ -1,4 +1,4 @@
-import { flatMap, pipe } from 'remeda';
+import { flatMap, map, pipe, take, uniqueBy } from 'remeda';
 import { z } from 'zod';
 
 import { isSafeHttpUrl, normalizeHttpUrl } from './url';
@@ -283,6 +283,7 @@ function addForbiddenReportContentIssues(value: unknown, ctx: z.RefinementCtx) {
       code: 'custom',
       message: issue.message,
       path: issue.path,
+      params: { diagnosticCode: issue.code },
     });
   }
 }
@@ -343,23 +344,36 @@ const diagnosticFields = new Set([
 ]);
 
 export function sanitizeReportValidationDiagnostics(
-  issues: ReadonlyArray<{ path: readonly PropertyKey[]; code: string }>
+  issues: ReadonlyArray<{
+    path: readonly PropertyKey[];
+    code: string;
+    params?: Record<string, unknown>;
+  }>
 ): ReportValidationDiagnostic[] {
-  return issues.slice(0, 20).map((issue) => ({
-    path:
-      issue.path
-        .slice(0, 12)
-        .map((part) =>
-          typeof part === 'number' && Number.isSafeInteger(part) && part >= 0
-            ? String(part)
-            : typeof part === 'string' && diagnosticFields.has(part)
-              ? part
-              : '<unknown>'
-        )
-        .join('.')
-        .slice(0, 128) || '<root>',
-    code: issue.code,
-  }));
+  return pipe(
+    issues,
+    map((issue) => ({
+      path:
+        issue.path
+          .slice(0, 12)
+          .map((part) =>
+            typeof part === 'number' && Number.isSafeInteger(part) && part >= 0
+              ? String(part)
+              : typeof part === 'string' && diagnosticFields.has(part)
+                ? part
+                : '<unknown>'
+          )
+          .join('.')
+          .slice(0, 128) || '<root>',
+      code:
+        issue.params?.diagnosticCode === 'forbidden_key' ||
+        issue.params?.diagnosticCode === 'forbidden_advice'
+          ? issue.params.diagnosticCode
+          : issue.code,
+    })),
+    uniqueBy(({ path, code }) => `${path}:${code}`),
+    take(20)
+  );
 }
 
 export type GeneratedReportDataValidation =

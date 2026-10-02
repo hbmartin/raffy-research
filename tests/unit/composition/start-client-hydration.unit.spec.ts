@@ -9,11 +9,13 @@ import {
 
 const mocks = vi.hoisted(() => ({
   reportHydrationFailure: vi.fn(),
+  reportRootFailure: vi.fn(),
   showClientRecovery: vi.fn(),
 }));
 
 vi.mock('@/composition/hydration-failure', () => ({
   reportHydrationFailure: mocks.reportHydrationFailure,
+  reportRootFailure: mocks.reportRootFailure,
   showClientRecovery: mocks.showClientRecovery,
 }));
 
@@ -66,6 +68,105 @@ afterEach(async () => {
   else await nextTask();
   vi.useRealTimers();
   vi.clearAllMocks();
+});
+
+describe('startup failures during departure', () => {
+  it.each(['beforeunload', 'pagehide'])(
+    'defers hydrateStart after %s until a trusted return',
+    async (departure) => {
+      vi.useFakeTimers();
+      const { document, view } = fixture();
+      const failure = new TypeError('startup loading canceled');
+      isInitialHydrationDocumentActive(document);
+      view.dispatchEvent(new Event(departure));
+      handleClientHydrationFailure(
+        document,
+        failure,
+        () => true,
+        'hydrate_start'
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+      expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+      view.dispatchEvent(trustedInteraction('click'));
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.runAllTimersAsync();
+      expect(mocks.reportHydrationFailure).toHaveBeenCalledExactlyOnceWith(
+        document,
+        failure,
+        false
+      );
+      expect(mocks.showClientRecovery).toHaveBeenCalledOnce();
+    }
+  );
+
+  it('discards pending startup failures once their owner is stale', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    let current = true;
+    isInitialHydrationDocumentActive(document);
+    view.dispatchEvent(new Event('beforeunload'));
+    handleClientHydrationFailure(
+      document,
+      new Error('stale startup'),
+      () => current,
+      'hydrate_start'
+    );
+    current = false;
+    view.dispatchEvent(trustedInteraction('click'));
+    await vi.runAllTimersAsync();
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+  });
+
+  it('keeps startup recovery suppressed when departure begins again', async () => {
+    vi.useFakeTimers();
+    const { document, view } = fixture();
+    isInitialHydrationDocumentActive(document);
+    view.dispatchEvent(new Event('beforeunload'));
+    handleClientHydrationFailure(
+      document,
+      new Error('startup'),
+      () => true,
+      'hydrate_start'
+    );
+    view.dispatchEvent(trustedInteraction('click'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    view.dispatchEvent(new Event('beforeunload'));
+    await vi.runAllTimersAsync();
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    'upgrades a pending startup failure to one root report (committed=%s)',
+    async (committed) => {
+      vi.useFakeTimers();
+      const { document, view } = fixture();
+      if (committed) markInitialHydrationCommitted(document);
+      else isInitialHydrationDocumentActive(document);
+      view.dispatchEvent(new Event('pagehide'));
+      const failure = new Error('root failure');
+      handleClientHydrationFailure(
+        document,
+        failure,
+        () => true,
+        'hydrate_start'
+      );
+      handleClientHydrationFailure(document, failure, () => true, 'root');
+      handleClientHydrationFailure(document, failure, () => true, 'root');
+      expect(
+        committed ? mocks.reportRootFailure : mocks.reportHydrationFailure
+      ).toHaveBeenCalledExactlyOnceWith(document, failure, false);
+      expect(
+        committed ? mocks.reportHydrationFailure : mocks.reportRootFailure
+      ).not.toHaveBeenCalled();
+      await vi.runAllTimersAsync();
+      expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('initial hydration coordinator', () => {

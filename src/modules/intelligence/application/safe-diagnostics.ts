@@ -1,6 +1,6 @@
 import { isMatching, P } from 'ts-pattern';
 
-import type { AppError } from '@/modules/kernel/domain/errors/app-error';
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 
 import {
   type ReportValidationDiagnostic,
@@ -120,7 +120,7 @@ export function safeReportFailureDiagnostics(
 const safeValidationDiagnostics = (input: unknown) => {
   if (!Array.isArray(input)) return undefined;
   return sanitizeReportValidationDiagnostics(
-    input.slice(0, 20).flatMap((issue: unknown) =>
+    input.flatMap((issue: unknown) =>
       isMatching({ path: P.string, code: P.string }, issue) &&
       safeToken(issue.code)
         ? [
@@ -144,6 +144,42 @@ const safeValidationDiagnostics = (input: unknown) => {
 
 export function safeAppErrorDetails(error: AppError): ReportFailureDiagnostics {
   return safeReportFailureDiagnostics(error.details);
+}
+
+const unexpectedErrorTypes = new Set([
+  'Error',
+  'AppError',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'URIError',
+  'EvalError',
+  'AggregateError',
+  'AbortError',
+  'TimeoutError',
+  'AI_APICallError',
+  'AI_RetryError',
+]);
+
+/** Unexpected throws carry only known types and allowlisted diagnostic fields. */
+export function safeUnexpectedFailureDiagnostics(
+  error: unknown
+): ReportFailureDiagnostics {
+  const raw =
+    typeof error === 'object' && error !== null
+      ? (error as Record<string, unknown>)
+      : {};
+  const diagnostics =
+    error instanceof AppError ? safeAppErrorDetails(error) : {};
+  return {
+    ...diagnostics,
+    ...safeReportFailureDiagnostics({ errorCode: raw.code }),
+    errorType:
+      typeof raw.name === 'string' && unexpectedErrorTypes.has(raw.name)
+        ? raw.name
+        : 'UnknownError',
+  };
 }
 
 export function reportFailureContext(error: AppError):

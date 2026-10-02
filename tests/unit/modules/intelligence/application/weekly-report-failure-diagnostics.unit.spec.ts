@@ -147,6 +147,53 @@ it('records safe field diagnostics when repair output is invalid', async () => {
   );
 });
 
+it('logs forbidden-content codes without model text in logs or failed rows', async () => {
+  const { deps, workspaceId, logger, create, fakeSecret } = fixture();
+  deps.reportGenerator.generate = vi.fn(async () =>
+    Result.Ok({
+      text: JSON.stringify({
+        title: 'Report',
+        executive_summary: {
+          bullets: [`You should act on ${fakeSecret}`, 'two', 'three'],
+        },
+        topic_clusters: [],
+        confidence: fakeSecret,
+      }),
+      modelName: 'model',
+    })
+  );
+  const result = await generateWeeklyReport(deps, { workspaceId });
+  expect(result.isOk() && result.get()).toMatchObject({
+    type: 'report_failed',
+    failureCode: 'REPORT_SCHEMA_INVALID',
+  });
+  expect(logger.error).toHaveBeenCalledWith(
+    expect.objectContaining({
+      details: expect.objectContaining({
+        validationDiagnostics: expect.arrayContaining([
+          { path: 'confidence', code: 'forbidden_key' },
+          { path: 'executive_summary.bullets.0', code: 'forbidden_advice' },
+        ]),
+      }),
+    })
+  );
+  expect(create).toHaveBeenCalledWith(
+    expect.objectContaining({
+      failureReason: 'Report schema validation failed',
+    })
+  );
+  expect(
+    JSON.stringify({
+      logs: logger.error.mock.calls,
+      persisted: create.mock.calls,
+      result: result.isOk() && result.get(),
+    })
+  ).not.toContain(fakeSecret);
+  expect(logger.error.mock.calls.every(([entry]) => !entry.exception)).toBe(
+    true
+  );
+});
+
 it('returns failure-record persistence errors with a distinct non-capturing diagnostic', async () => {
   const { deps, workspaceId, logger } = fixture();
   const error = new AppError({
@@ -202,7 +249,7 @@ it('allowlists failure context and bounds safe diagnostic paths at the compositi
     ],
   });
   expect(diagnostics).toMatchObject({ provider: 'openai', model: 'model' });
-  expect(diagnostics.validationDiagnostics).toHaveLength(20);
+  expect(diagnostics.validationDiagnostics).toHaveLength(4);
   expect(diagnostics.validationDiagnostics?.slice(0, 3)).toEqual([
     { path: '<unknown>.confidence', code: 'forbidden_key' },
     { path: 'topic_clusters.0.title', code: 'invalid_type' },

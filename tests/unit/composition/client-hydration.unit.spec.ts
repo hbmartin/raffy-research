@@ -52,7 +52,7 @@ const fixture = () => {
 const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('client hydration cleanup ownership', () => {
-  it('records a hydrateStart failure even after pagehide', async () => {
+  it('retains a hydrateStart failure after pagehide without reporting it', async () => {
     const { document, loading, view } = fixture();
     const hydration = startClientHydration({
       document,
@@ -64,11 +64,8 @@ describe('client hydration cleanup ownership', () => {
     loading.reject(new Error('navigation canceled the route chunk'));
     await hydration;
 
-    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
-      document,
-      expect.any(Error),
-      false
-    );
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
   });
 
   it('reports a hydrateStart failure without waiting for interaction', async () => {

@@ -7,9 +7,11 @@ import {
 type HydrationModule = {
   hydrateClient(document: Document): Promise<void>;
 };
+type FailureSource = 'module_import' | 'hydrate_start' | 'root';
 type PendingFailure = {
   error: unknown;
   isCurrent: () => boolean;
+  source: FailureSource;
   event: 'client.hydration_failed' | 'client.root_uncaught';
   status: 'pending' | 'reported' | 'scheduled' | 'shown';
 };
@@ -340,7 +342,7 @@ export const handleClientHydrationFailure = (
   document: Document,
   error: unknown,
   isCurrent: () => boolean = () => true,
-  source: 'module_import' | 'hydrate_start' | 'root' = 'module_import'
+  source: FailureSource = 'module_import'
 ) => {
   const state = lifecycleFor(document);
   // A provisional navigation can briefly replace WebKit's current document.
@@ -352,10 +354,27 @@ export const handleClientHydrationFailure = (
     state.reloadRequested
   )
     return;
-  if (state.failures.has(error)) return;
+  const existing = state.failures.get(error);
+  if (existing) {
+    if (
+      source === 'root' &&
+      existing.source !== 'root' &&
+      existing.status === 'pending'
+    ) {
+      existing.source = source;
+      existing.isCurrent = isCurrent;
+      existing.event = state.committed
+        ? 'client.root_uncaught'
+        : 'client.hydration_failed';
+      reportFailure(document, existing);
+      resumeRecovery(document, state);
+    }
+    return;
+  }
   const failure: PendingFailure = {
     error,
     isCurrent,
+    source,
     status: 'pending',
     event:
       source === 'root' && state.committed
@@ -364,9 +383,12 @@ export const handleClientHydrationFailure = (
   };
   state.failures.set(error, failure);
   state.recoveryNeeded = true;
-  // Import failures during departure may be canceled requests. Other failures
-  // have reached application code and can be recorded even while leaving.
-  if (source !== 'module_import') {
+  // Startup loading can be canceled during departure, including inside
+  // hydrateStart. React root errors are actual failures even while leaving.
+  if (
+    source === 'root' ||
+    (source === 'hydrate_start' && !state.tentativeDeparture && !state.departed)
+  ) {
     reportFailure(document, failure);
   } else {
     state.importSettlementUntil = Math.max(

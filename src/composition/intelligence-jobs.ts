@@ -12,6 +12,7 @@ import {
   type ReportFailureDiagnostics,
   runWorkspaceIngest,
   safeReportFailureDiagnostics,
+  safeUnexpectedFailureDiagnostics,
   type ScheduledJobKind,
   type ScheduledJobStatus,
   type WeeklyReportGenerationDeps,
@@ -99,13 +100,21 @@ async function writeHistory(
         details: { ...details, errorCode },
       });
     } else logHistoryFailure(details, errorCode);
-  } catch {
-    logHistoryFailure(details, 'UNEXPECTED_ERROR');
+  } catch (error) {
+    logHistoryFailure(
+      details,
+      'UNEXPECTED_ERROR',
+      safeUnexpectedFailureDiagnostics(error)
+    );
   }
   return false;
 }
 
-function logHistoryFailure(details: Record<string, unknown>, code: string) {
+function logHistoryFailure(
+  details: Record<string, unknown>,
+  code: string,
+  diagnostics?: ReportFailureDiagnostics
+) {
   const errorCode =
     safeReportFailureDiagnostics({ errorCode: code }).errorCode ??
     'UNKNOWN_ERROR';
@@ -117,7 +126,11 @@ function logHistoryFailure(details: Record<string, unknown>, code: string) {
       status: 500,
       message: 'Scheduled job history persistence failed',
     }),
-    details: { ...details, errorCode },
+    details: {
+      ...safeReportFailureDiagnostics(diagnostics),
+      ...details,
+      errorCode,
+    },
     sentryTags: {
       job: String(details.kind),
       stage: String(details.stage),
@@ -207,6 +220,13 @@ function logReportFailure(
   diagnostics?: ReportFailureDiagnostics,
   errorCode?: string
 ) {
+  const details = {
+    ...safeReportFailureDiagnostics(diagnostics),
+    runId,
+    ...(workspaceId ? { workspaceId } : {}),
+    failureCode,
+    ...(errorCode ? { errorCode } : {}),
+  };
   getKernel().logger.error({
     event,
     exception: new AppError({
@@ -214,14 +234,9 @@ function logReportFailure(
       category: 'system',
       status: 502,
       message: 'Scheduled weekly report failed',
+      details,
     }),
-    details: {
-      runId,
-      ...(workspaceId ? { workspaceId } : {}),
-      failureCode,
-      ...safeReportFailureDiagnostics(diagnostics),
-      ...(errorCode ? { errorCode } : {}),
-    },
+    details,
     sentryTags: { job: 'weekly_reports', failureCode },
   });
 }
@@ -296,7 +311,11 @@ async function generateOneWorkspaceReport(
           .exhaustive()
       )
       .exhaustive();
-  } catch {
+  } catch (error) {
+    diagnostics = {
+      ...safeUnexpectedFailureDiagnostics(error),
+      stage: 'workspace',
+    };
     step = failedStep('UNEXPECTED_ERROR');
   }
   if (step.status === 'failed')
@@ -367,13 +386,15 @@ export async function runWeeklyReports(input?: {
       summary.status = runStatus(summary.generated, 0, summary.failed);
       failureCode = summary.failed > 0 ? 'WORKSPACE_REPORT_FAILED' : null;
     }
-  } catch {
+  } catch (error) {
     summary.status = 'failed';
     failureCode = 'UNEXPECTED_ERROR';
     logReportFailure(
       'intelligence.weekly_reports.unexpected_failure',
       runId,
-      failureCode
+      failureCode,
+      undefined,
+      { ...safeUnexpectedFailureDiagnostics(error), stage: 'processing' }
     );
   }
   if (
@@ -442,11 +463,17 @@ async function ingestOneWorkspace(
           .exhaustive()
       )
       .exhaustive();
-  } catch {
+  } catch (error) {
     step = failedStep('UNEXPECTED_ERROR');
     getKernel().logger.error({
       event: 'intelligence.daily_ingest.workspace_failed',
-      details: { runId, workspaceId, failureCode: 'UNEXPECTED_ERROR' },
+      details: {
+        ...safeUnexpectedFailureDiagnostics(error),
+        runId,
+        workspaceId,
+        stage: 'workspace',
+        failureCode: 'UNEXPECTED_ERROR',
+      },
     });
   }
   return recordWorkspace(
@@ -522,12 +549,17 @@ export async function runDailyIngest(input?: {
       failureCode =
         summary.failed + summary.partial > 0 ? 'WORKSPACE_INGEST_FAILED' : null;
     }
-  } catch {
+  } catch (error) {
     summary.status = 'failed';
     failureCode = 'UNEXPECTED_ERROR';
     getKernel().logger.error({
       event: 'intelligence.daily_ingest.unexpected_failure',
-      details: { runId, failureCode },
+      details: {
+        ...safeUnexpectedFailureDiagnostics(error),
+        runId,
+        stage: 'processing',
+        failureCode,
+      },
     });
   }
   if (
