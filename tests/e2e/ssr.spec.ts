@@ -38,6 +38,158 @@ const watchRecoveryAlerts = async (page: Page) => {
   return () => seen;
 };
 
+const holdStartupRouteFailure = async (page: Page) => {
+  const requested = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const pattern = /\/assets\/login-[^/]+\.js$/;
+  await page.route(pattern, async (route) => {
+    requested.resolve();
+    await release.promise;
+    await route.abort('failed').catch(() => undefined);
+  });
+  await page.goto('/login', { waitUntil: 'commit' });
+  await requested.promise;
+  await expect
+    .poll(() => page.evaluate(() => window.$_TSR?.initialized))
+    .toBe(true);
+  await page.evaluate(() => {
+    // The router handles failed imports through its route boundary. Inject a
+    // startup rejection when it resumes after those real route imports settle,
+    // so this test also exercises the hydrateStart catch before React starts.
+    Object.defineProperty(window.$_TSR!.router!.matches[0], 'b', {
+      get: () => {
+        document.documentElement.dataset.startupFailure = 'observed';
+        throw new TypeError('Fixture startup failure after route loading');
+      },
+    });
+    const probe = document.createElement('button');
+    probe.textContent = 'Startup recovery probe';
+    probe.style.cssText =
+      'position:fixed;bottom:20px;right:20px;padding:12px;z-index:1';
+    probe.addEventListener('click', () => {
+      document.body.dataset.startupProbeClicks = String(
+        Number(document.body.dataset.startupProbeClicks ?? '0') + 1
+      );
+    });
+    document.body.append(probe);
+  });
+  return { release, pattern };
+};
+
+test('defers hydrateStart failure while route loading is canceled by document departure', async ({
+  page,
+}) => {
+  const reports: string[] = [];
+  const canceledRoutes: string[] = [];
+  page.on('requestfailed', (request) => {
+    if (/\/assets\/login-[^/]+\.js$/.test(request.url()))
+      canceledRoutes.push(request.url());
+  });
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  const { release, pattern } = await holdStartupRouteFailure(page);
+  const destinationRequested = Promise.withResolvers<void>();
+  const releaseDestination = Promise.withResolvers<void>();
+  await page.route('**/quiet-startup-destination', async (route) => {
+    destinationRequested.resolve();
+    await releaseDestination.promise;
+    await route.fulfill({
+      contentType: 'text/html',
+      body: '<html><body>Startup destination</body></html>',
+    });
+  });
+  try {
+    const recoveryAlerts = await watchRecoveryAlerts(page);
+    await page.evaluate(() => {
+      const link = document.createElement('a');
+      link.href = '/quiet-startup-destination';
+      link.textContent = 'Leave startup document';
+      document.body.append(link);
+    });
+    await page
+      .getByRole('link', { name: 'Leave startup document' })
+      .click({ noWaitAfter: true });
+    await destinationRequested.promise;
+    release.resolve();
+    // Chromium may stop startup execution entirely when it cancels route
+    // loading for navigation. Either outcome must remain quiet during departure.
+    await expect.poll(() => canceledRoutes.length).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 2_200));
+    expect(recoveryAlerts()).toBe(0);
+    expect(reports).toHaveLength(0);
+    releaseDestination.resolve();
+    await expect(
+      page.getByText('Startup destination', { exact: true })
+    ).toBeVisible();
+    expect(reports).toHaveLength(0);
+  } finally {
+    release.resolve();
+    releaseDestination.resolve();
+    await page.unroute(pattern);
+  }
+});
+
+test('recovers a deferred hydrateStart failure after canceled navigation without swallowing input', async ({
+  page,
+}, testInfo) => {
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  const { release, pattern } = await holdStartupRouteFailure(page);
+  try {
+    await page.getByRole('button', { name: 'Startup recovery probe' }).click();
+    await page.evaluate(() =>
+      window.addEventListener(
+        'beforeunload',
+        (event) => {
+          event.preventDefault();
+          event.returnValue = '';
+        },
+        { once: true }
+      )
+    );
+    const dialog = page
+      .waitForEvent('dialog')
+      .then((dialog) => dialog.dismiss());
+    await page.evaluate(() =>
+      setTimeout(() => window.location.assign('/quiet-startup-cancel'), 0)
+    );
+    await dialog;
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
+    release.resolve();
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-startup-failure',
+      'observed'
+    );
+    expect(page.url()).toContain('/login');
+    expect(reports).toHaveLength(0);
+    await expect(page.locator('#hydration-failure')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Startup recovery probe' }).click();
+    await expect(page.locator('body')).toHaveAttribute(
+      'data-startup-probe-clicks',
+      '2'
+    );
+    await expect(page.locator('#hydration-failure')).toContainText(
+      'This page could not finish loading'
+    );
+    await expect
+      .poll(
+        () =>
+          reports.filter((report) => report.includes('client.hydration_failed'))
+            .length
+      )
+      .toBe(1);
+    await captureSsrScreenshot(page, testInfo, 'startup-return-recovery.png');
+  } finally {
+    release.resolve();
+    await page.unroute(pattern);
+  }
+});
+
 const waitForHttpReady = async (
   url: string,
   child: ReturnType<typeof spawn>,
@@ -776,12 +928,12 @@ test('keeps recovery suppressed through Enter activation and a slow destination'
     await page.goto('/login', { waitUntil: 'commit' });
     await chunkRequested.promise;
     const recoveryAlerts = await watchRecoveryAlerts(page);
-    await page.evaluate(() => {
+    await page.locator('body').evaluate((body) => {
       const link = document.createElement('a');
       link.id = 'keyboard-destination-link';
       link.href = '/keyboard-destination';
       link.textContent = 'Keyboard destination';
-      document.body.append(link);
+      body.append(link);
       link.focus();
     });
     releaseChunk.resolve();
@@ -804,6 +956,243 @@ test('keeps recovery suppressed through Enter activation and a slow destination'
     releaseChunk.resolve();
     releaseDestination.resolve();
   }
+});
+
+for (const control of ['external', 'image'] as const) {
+  test(`suppresses a chunk failure during a slow native ${control} form submission`, async ({
+    page,
+  }) => {
+    const requested = Promise.withResolvers<void>();
+    const releaseChunk = Promise.withResolvers<void>();
+    const destinationRequested = Promise.withResolvers<void>();
+    const releaseDestination = Promise.withResolvers<void>();
+    const reports: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/telemetry/logs'))
+        reports.push(request.postData() ?? '');
+    });
+    await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+      requested.resolve();
+      await releaseChunk.promise;
+      await route.abort('failed').catch(() => undefined);
+    });
+    await page.route('**/native-form-destination*', async (route) => {
+      destinationRequested.resolve();
+      await releaseDestination.promise;
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<html><body>Form destination</body></html>',
+      });
+    });
+    try {
+      await page.goto('/login', { waitUntil: 'commit' });
+      await requested.promise;
+      const recoveryAlerts = await watchRecoveryAlerts(page);
+      await page.locator('body').evaluate((body, kind) => {
+        const form = document.createElement('form');
+        form.id = 'native-form-probe';
+        form.action = '/native-form-destination';
+        body.append(form);
+        if (kind === 'external') {
+          const button = document.createElement('button');
+          button.setAttribute('form', form.id);
+          button.textContent = 'Native submit';
+          button.style.cssText = 'position:fixed;top:20px;right:20px;z-index:1';
+          body.append(button);
+        } else {
+          const image = document.createElement('input');
+          image.type = 'image';
+          image.alt = 'Native image submit';
+          image.src =
+            "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='30'%3E%3Crect width='80' height='30'/%3E%3C/svg%3E";
+          image.style.cssText = 'position:fixed;top:20px;right:20px;z-index:1';
+          form.append(image);
+        }
+      }, control);
+      releaseChunk.resolve();
+      await page.evaluate(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      );
+      const activation =
+        control === 'external'
+          ? page
+              .getByRole('button', { name: 'Native submit' })
+              .click({ noWaitAfter: true })
+          : page
+              .getByAltText('Native image submit')
+              .click({ noWaitAfter: true });
+      await destinationRequested.promise;
+      await activation;
+      await new Promise((resolve) => setTimeout(resolve, 3_200));
+      expect(recoveryAlerts()).toBe(0);
+      expect(reports).toHaveLength(0);
+      releaseDestination.resolve();
+      await expect(
+        page.getByText('Form destination', { exact: true })
+      ).toBeVisible();
+      expect(reports).toHaveLength(0);
+    } finally {
+      releaseChunk.resolve();
+      releaseDestination.resolve();
+    }
+  });
+}
+
+for (const signal of ['focus', 'visibility'] as const) {
+  test(`automatically reconciles a surviving document after ${signal} returns`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () =>
+          document.documentElement?.dataset.testVisibility === 'hidden'
+            ? 'hidden'
+            : 'visible',
+      });
+    });
+    const requested = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const reports: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/telemetry/logs'))
+        reports.push(request.postData() ?? '');
+    });
+    await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+      requested.resolve();
+      await release.promise;
+      await route.abort('failed').catch(() => undefined);
+    });
+    try {
+      await page.goto('/login', { waitUntil: 'commit' });
+      await requested.promise;
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event('beforeunload'))
+      );
+      release.resolve();
+      await page.evaluate(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+      );
+      await page.evaluate((kind) => {
+        if (kind === 'focus') {
+          window.dispatchEvent(new Event('blur'));
+          window.dispatchEvent(new Event('focus'));
+        } else {
+          document.documentElement.dataset.testVisibility = 'hidden';
+          document.dispatchEvent(new Event('visibilitychange'));
+          document.documentElement.dataset.testVisibility = 'visible';
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+      }, signal);
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      expect(reports).toHaveLength(0);
+      await expect(page.getByRole('alert')).toContainText(
+        'This page could not finish loading'
+      );
+      await expect.poll(() => reports.length).toBeGreaterThan(0);
+      await captureSsrScreenshot(
+        page,
+        testInfo,
+        `automatic-${signal}-recovery.png`
+      );
+    } finally {
+      release.resolve();
+    }
+  });
+}
+
+test('reloads an uncommitted document on a persisted cache restoration', async ({
+  page,
+}) => {
+  const release = Promise.withResolvers<void>();
+  const reports: string[] = [];
+  let pending = true;
+  await page.addInitScript(() => {
+    const register = window.addEventListener.bind(window);
+    Object.defineProperty(window, 'addEventListener', {
+      value: (...args: Parameters<Window['addEventListener']>) => {
+        register(...args);
+        if (args[0] === 'pageshow')
+          document.documentElement.dataset.cacheCoordinator = 'ready';
+      },
+    });
+  });
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.route(/\/assets\/hydrate-client-[^/]+\.js$/, async (route) => {
+    if (pending) await release.promise;
+    await route.continue().catch(() => undefined);
+  });
+  try {
+    await page.goto('/login', { waitUntil: 'commit' });
+    // A preload request can precede installation of the recovery coordinator.
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-cache-coordinator',
+      'ready'
+    );
+    const reloaded = page.waitForEvent(
+      'framenavigated',
+      (frame) => frame === page.mainFrame()
+    );
+    pending = false;
+    // Exercise the cache lifecycle contract independently of browser cache policy.
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new PageTransitionEvent('pagehide', { persisted: true })
+      );
+      window.dispatchEvent(
+        new PageTransitionEvent('pageshow', { persisted: true })
+      );
+    });
+    release.resolve();
+    await reloaded;
+    await expect(page.getByTestId('auth-login-form')).toHaveAttribute(
+      'data-hydrated',
+      'true'
+    );
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(reports).toHaveLength(0);
+  } finally {
+    release.resolve();
+  }
+});
+
+test('keeps a committed document interactive on a persisted cache restoration', async ({
+  page,
+}) => {
+  const reports: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/telemetry/logs'))
+      reports.push(request.postData() ?? '');
+  });
+  await page.goto('/login');
+  await expect(page.getByTestId('auth-login-form')).toHaveAttribute(
+    'data-hydrated',
+    'true'
+  );
+  await page.evaluate(() => {
+    document.documentElement.dataset.cacheFixture = 'retained';
+    window.dispatchEvent(
+      new PageTransitionEvent('pagehide', { persisted: true })
+    );
+    window.dispatchEvent(
+      new PageTransitionEvent('pageshow', { persisted: true })
+    );
+  });
+  await page.getByPlaceholder('Email', { exact: true }).fill(ADMIN_EMAIL);
+  await page
+    .getByPlaceholder('Password', { exact: true })
+    .fill(SSR_SEED_PASSWORD);
+  await expect(page.locator('button[type="submit"]')).toBeEnabled();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-cache-fixture',
+    'retained'
+  );
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(reports).toHaveLength(0);
 });
 
 test('recovers an initially hidden document when visibility returns', async ({

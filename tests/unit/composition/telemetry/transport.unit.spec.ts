@@ -167,79 +167,87 @@ describe('telemetry transport handlers', () => {
     );
   });
 
-  it('passes Sentry rate limits to the browser without upstream response data', async () => {
-    configMock.browserDsn = 'https://public@collector.example/1';
-    vi.mocked(fetch).mockResolvedValue(
-      new Response('private upstream response', {
-        status: 429,
-        headers: {
-          'Retry-After': '120',
-          'X-Sentry-Rate-Limits': '120:error:organization',
-          'Set-Cookie': 'secret=private',
-        },
-      })
-    );
-    const { handleSentryTunnelRequest } =
-      await import('@/composition/telemetry/transport');
-    const response = await handleSentryTunnelRequest(
-      request(
-        '/api/telemetry/sentry-tunnel',
-        'application/x-sentry-envelope',
-        'payload'
-      )
-    );
-    expect(response.status).toBe(429);
-    expect(response.headers.get('Retry-After')).toBe('120');
-    expect(response.headers.get('X-Sentry-Rate-Limits')).toBe(
-      '120:error:organization'
-    );
-    expect(response.headers.get('Set-Cookie')).toBeNull();
-    expect(await response.text()).toBe('');
-    const outboundHeaders = new Headers(
-      vi.mocked(fetch).mock.calls[0]?.[1]?.headers
-    );
-    expect(outboundHeaders.has('User-Agent')).toBe(false);
-  });
+  it.each([200, 429, 503])(
+    'passes Sentry rate limits from HTTP %i without upstream response data',
+    async (status) => {
+      configMock.browserDsn = 'https://public@collector.example/1';
+      vi.mocked(fetch).mockResolvedValue(
+        new Response('private upstream response', {
+          status,
+          headers: {
+            'Retry-After': '120',
+            'X-Sentry-Rate-Limits': '120:error:organization',
+            'Set-Cookie': 'secret=private',
+          },
+        })
+      );
+      const { handleSentryTunnelRequest } =
+        await import('@/composition/telemetry/transport');
+      const response = await handleSentryTunnelRequest(
+        request(
+          '/api/telemetry/sentry-tunnel',
+          'application/x-sentry-envelope',
+          'payload'
+        )
+      );
+      expect(response.status).toBe(
+        status === 200 ? 202 : status === 429 ? 429 : 502
+      );
+      expect(response.headers.get('Retry-After')).toBe('120');
+      expect(response.headers.get('X-Sentry-Rate-Limits')).toBe(
+        '120:error:organization'
+      );
+      expect(response.headers.get('Set-Cookie')).toBeNull();
+      expect(await response.text()).toBe('');
+      const outboundHeaders = new Headers(
+        vi.mocked(fetch).mock.calls[0]?.[1]?.headers
+      );
+      expect(outboundHeaders.has('User-Agent')).toBe(false);
+    }
+  );
 
-  it('lets the Sentry browser transport back off after a tunneled 429', async () => {
-    configMock.browserDsn = 'https://public@collector.example/1';
-    vi.mocked(fetch).mockResolvedValue(
-      new Response(null, {
-        status: 429,
-        headers: { 'X-Sentry-Rate-Limits': '120:error:organization' },
-      })
-    );
-    const { handleSentryTunnelRequest } =
-      await import('@/composition/telemetry/transport');
-    const tunnelResponse = await handleSentryTunnelRequest(
-      request(
-        '/api/telemetry/sentry-tunnel',
-        'application/x-sentry-envelope',
-        'payload'
-      )
-    );
-    const send = vi.fn(async () => ({
-      statusCode: tunnelResponse.status,
-      headers: {
-        'x-sentry-rate-limits': tunnelResponse.headers.get(
-          'x-sentry-rate-limits'
-        ),
-        'retry-after': tunnelResponse.headers.get('retry-after'),
-      },
-    }));
-    const dropped = vi.fn();
-    const browserTransport = createTransport(
-      { recordDroppedEvent: dropped },
-      send
-    );
-    const envelope = createEnvelope({ event_id: 'event-1' }, [
-      [{ type: 'event' }, { event_id: 'event-1' }],
-    ]);
-    await browserTransport.send(envelope);
-    await browserTransport.send(envelope);
-    expect(send).toHaveBeenCalledOnce();
-    expect(dropped).toHaveBeenCalledWith('ratelimit_backoff', 'error');
-  });
+  it.each([200, 429])(
+    'lets the Sentry browser transport back off after a tunneled HTTP %i',
+    async (status) => {
+      configMock.browserDsn = 'https://public@collector.example/1';
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(null, {
+          status,
+          headers: { 'X-Sentry-Rate-Limits': '120:error:organization' },
+        })
+      );
+      const { handleSentryTunnelRequest } =
+        await import('@/composition/telemetry/transport');
+      const tunnelResponse = await handleSentryTunnelRequest(
+        request(
+          '/api/telemetry/sentry-tunnel',
+          'application/x-sentry-envelope',
+          'payload'
+        )
+      );
+      const send = vi.fn(async () => ({
+        statusCode: tunnelResponse.status,
+        headers: {
+          'x-sentry-rate-limits': tunnelResponse.headers.get(
+            'x-sentry-rate-limits'
+          ),
+          'retry-after': tunnelResponse.headers.get('retry-after'),
+        },
+      }));
+      const dropped = vi.fn();
+      const browserTransport = createTransport(
+        { recordDroppedEvent: dropped },
+        send
+      );
+      const envelope = createEnvelope({ event_id: 'event-1' }, [
+        [{ type: 'event' }, { event_id: 'event-1' }],
+      ]);
+      await browserTransport.send(envelope);
+      await browserTransport.send(envelope);
+      expect(send).toHaveBeenCalledOnce();
+      expect(dropped).toHaveBeenCalledWith('ratelimit_backoff', 'error');
+    }
+  );
 
   it('no-ops OTLP proxy requests when Collector env is missing', async () => {
     const { handleOtlpProxyRequest } =

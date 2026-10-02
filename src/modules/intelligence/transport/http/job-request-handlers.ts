@@ -6,6 +6,7 @@ import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import { type WorkspaceId, zWorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
+import { safeUnexpectedFailureDiagnostics } from '../../application/safe-diagnostics';
 import type { HandleProviderCallbackOutcome } from '../../application/use-cases/ingestion/handle-provider-callback';
 import type {
   DailyIngestRunSummary,
@@ -117,7 +118,7 @@ export function createIntelligenceJobRequestHandlers(
       try {
         const summary = await deps.runWeeklyReports(runId);
         return jsonResponse({ ok: summary.status === 'succeeded', ...summary });
-      } catch {
+      } catch (error) {
         const summary = {
           runId,
           status: 'failed' as const,
@@ -127,6 +128,12 @@ export function createIntelligenceJobRequestHandlers(
           failed: 0,
           skipped: 0,
         };
+        const details = {
+          ...safeUnexpectedFailureDiagnostics(error),
+          runId,
+          stage: 'http',
+          failureCode: 'UNEXPECTED_ERROR',
+        };
         deps.getLogger().error({
           event: 'intelligence.weekly_reports.unexpected_failure',
           exception: new AppError({
@@ -134,8 +141,9 @@ export function createIntelligenceJobRequestHandlers(
             category: 'system',
             status: 502,
             message: 'Scheduled weekly report failed',
+            details,
           }),
-          details: { runId, failureCode: 'UNEXPECTED_ERROR' },
+          details,
           sentryTags: {
             job: 'weekly_reports',
             failureCode: 'UNEXPECTED_ERROR',
@@ -157,7 +165,7 @@ export function createIntelligenceJobRequestHandlers(
       try {
         const summary = await deps.runDailyIngest(runId);
         return jsonResponse({ ok: summary.status === 'succeeded', ...summary });
-      } catch {
+      } catch (error) {
         const summary = {
           runId,
           status: 'failed' as const,
@@ -174,7 +182,12 @@ export function createIntelligenceJobRequestHandlers(
         };
         deps.getLogger().error({
           event: 'intelligence.daily_ingest.unexpected_failure',
-          details: { runId, failureCode: 'UNEXPECTED_ERROR' },
+          details: {
+            ...safeUnexpectedFailureDiagnostics(error),
+            runId,
+            stage: 'http',
+            failureCode: 'UNEXPECTED_ERROR',
+          },
         });
         deps.getLogger().info({
           event: 'intelligence.daily_ingest.completed',

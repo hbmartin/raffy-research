@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   parseGeneratedReportJson,
   parseReportJson,
+  sanitizeReportValidationDiagnostics,
+  validateGeneratedReportData,
   validateReportData,
 } from '@/modules/intelligence';
 
@@ -99,6 +101,12 @@ describe('report data validation', () => {
 
     expect(result.type).toBe('report_data_invalid');
     expect(getReportDataIssues(result).join('\n')).toContain('confidence');
+    expect(result.type === 'report_data_invalid' && result.diagnostics).toEqual(
+      [
+        { path: 'executive_summary.confidence', code: 'forbidden_key' },
+        { path: 'confidence', code: 'forbidden_key' },
+      ]
+    );
   });
 
   it('rejects forbidden keys in generated report JSON', () => {
@@ -113,6 +121,12 @@ describe('report data validation', () => {
     expect(getGeneratedReportIssues(result).join('\n')).toContain(
       'recommendation'
     );
+    expect(
+      result.type === 'generated_report_data_invalid' && result.diagnostics
+    ).toEqual([
+      { path: 'recommendation', code: 'forbidden_key' },
+      { path: 'recommendation', code: 'forbidden_advice' },
+    ]);
   });
 
   it('rejects advice phrases in authored narrative fields', () => {
@@ -246,6 +260,61 @@ describe('report data validation', () => {
 
     expect(result.type).toBe('generated_report_data_valid');
   });
+});
+
+it.each([validateReportData, validateGeneratedReportData])(
+  'deduplicates and prioritizes forbidden-content diagnostics',
+  (validate) => {
+    const result = validate({
+      ...validReport,
+      confidence: 'private content',
+      executive_summary: {
+        bullets: ['You should act on private content', 'two', 'three'],
+      },
+      topic_clusters: Array.from({ length: 30 }, () => ({
+        ...validReport.topic_clusters[0],
+        title: 42,
+      })),
+    });
+    if (!('diagnostics' in result)) throw new Error('Expected invalid report');
+    expect(result.diagnostics).toHaveLength(20);
+    expect(result.diagnostics.slice(0, 2)).toEqual([
+      { path: 'confidence', code: 'forbidden_key' },
+      { path: 'executive_summary.bullets.0', code: 'forbidden_advice' },
+    ]);
+    expect(
+      new Set(result.diagnostics.map(({ path, code }) => `${path}:${code}`))
+        .size
+    ).toBe(20);
+    expect(JSON.stringify(result.diagnostics)).not.toContain('private content');
+  }
+);
+
+it('deduplicates diagnostics after sanitizing paths and before applying the entry limit', () => {
+  const issues = [
+    ...Array.from({ length: 25 }, () => ({
+      path: ['title'],
+      code: 'invalid_type',
+    })),
+    { path: ['executive_summary'], code: 'invalid_type' },
+    { path: ['private-one', 'confidence'], code: 'forbidden_key' },
+    { path: ['private-two', 'confidence'], code: 'forbidden_key' },
+    {
+      path: Array.from({ length: 30 }, () => 'executive_summary'),
+      code: 'invalid_type',
+    },
+  ];
+  const diagnostics = sanitizeReportValidationDiagnostics(issues);
+  expect(diagnostics).toHaveLength(4);
+  expect(diagnostics[2]).toEqual({
+    path: '<unknown>.confidence',
+    code: 'forbidden_key',
+  });
+  expect(
+    diagnostics.every(
+      ({ path }) => path.length <= 128 && path.split('.').length <= 12
+    )
+  ).toBe(true);
 });
 
 it('keeps bounded safe field diagnostics independently of repair messages', () => {

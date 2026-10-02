@@ -42,6 +42,12 @@ export type * from './application/ports/scheduled-job-repository';
 export type * from './application/ports/source-repository';
 export type * from './application/ports/workspace-repository';
 export {
+  reportFailureContext,
+  type ReportFailureDiagnostics,
+  safeReportFailureDiagnostics,
+  safeUnexpectedFailureDiagnostics,
+} from './application/safe-diagnostics';
+export {
   handleProviderCallback,
   type HandleProviderCallbackInput,
   type HandleProviderCallbackOutcome,

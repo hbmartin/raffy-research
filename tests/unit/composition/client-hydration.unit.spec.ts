@@ -25,7 +25,9 @@ vi.mock('@/composition/hydration-failure', () => ({
   reportRootFailure: mocks.reportRootFailure,
 }));
 afterEach(async () => {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  if (vi.isFakeTimers()) await vi.runOnlyPendingTimersAsync();
+  else await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -50,7 +52,7 @@ const fixture = () => {
 const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe('client hydration cleanup ownership', () => {
-  it('records a hydrateStart failure even after pagehide', async () => {
+  it('retains a hydrateStart failure after pagehide without reporting it', async () => {
     const { document, loading, view } = fixture();
     const hydration = startClientHydration({
       document,
@@ -62,11 +64,8 @@ describe('client hydration cleanup ownership', () => {
     loading.reject(new Error('navigation canceled the route chunk'));
     await hydration;
 
-    expect(mocks.reportHydrationFailure).toHaveBeenCalledWith(
-      document,
-      expect.any(Error),
-      false
-    );
+    expect(mocks.reportHydrationFailure).not.toHaveBeenCalled();
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
   });
 
   it('reports a hydrateStart failure without waiting for interaction', async () => {
@@ -257,6 +256,7 @@ describe('client hydration cleanup ownership', () => {
 it.each([false, true])(
   'records tentative root errors once and defers only recovery (committed=%s)',
   async (committed) => {
+    vi.useFakeTimers();
     const { document, loading, view } = fixture();
     const hydration = hydrateClient(document);
     loading.resolve({});
@@ -277,7 +277,9 @@ it.each([false, true])(
     view.dispatchEvent(new Event('blur'));
     view.dispatchEvent(new Event('focus'));
     expect(report).toHaveBeenCalledOnce();
-    await nextTask();
+    expect(mocks.showClientRecovery).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.runAllTimersAsync();
     expect(mocks.showClientRecovery).toHaveBeenCalledExactlyOnceWith(
       document,
       committed ? 'client.root_uncaught' : 'client.hydration_failed'

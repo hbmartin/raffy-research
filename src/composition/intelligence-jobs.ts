@@ -8,7 +8,11 @@ import {
   handleProviderCallback,
   type IngestionDeps,
   type JobHistoryStatus,
+  reportFailureContext,
+  type ReportFailureDiagnostics,
   runWorkspaceIngest,
+  safeReportFailureDiagnostics,
+  safeUnexpectedFailureDiagnostics,
   type ScheduledJobKind,
   type ScheduledJobStatus,
   type WeeklyReportGenerationDeps,
@@ -83,22 +87,56 @@ export type {
 
 async function writeHistory(
   details: Record<string, unknown>,
-  write: () => Promise<ApplicationResult<unknown>>
+  write: () => Promise<ApplicationResult<unknown>>,
+  reconcileMissing = false
 ): Promise<boolean> {
   try {
     const result = await write();
     if (result.isOk()) return true;
-    getKernel().logger.error({
-      event: 'intelligence.scheduled_job.history_failed',
-      details: { ...details, errorCode: result.getError().code },
-    });
-  } catch {
-    getKernel().logger.error({
-      event: 'intelligence.scheduled_job.history_failed',
-      details: { ...details, errorCode: 'UNEXPECTED_ERROR' },
-    });
+    const errorCode = result.getError().code;
+    if (reconcileMissing && errorCode === 'SCHEDULED_JOB_FINISH_MISSING') {
+      getKernel().logger.warn({
+        event: 'intelligence.scheduled_job.reconciliation_missing',
+        details: { ...details, errorCode },
+      });
+    } else logHistoryFailure(details, errorCode);
+  } catch (error) {
+    logHistoryFailure(
+      details,
+      'UNEXPECTED_ERROR',
+      safeUnexpectedFailureDiagnostics(error)
+    );
   }
   return false;
+}
+
+function logHistoryFailure(
+  details: Record<string, unknown>,
+  code: string,
+  diagnostics?: ReportFailureDiagnostics
+) {
+  const errorCode =
+    safeReportFailureDiagnostics({ errorCode: code }).errorCode ??
+    'UNKNOWN_ERROR';
+  getKernel().logger.error({
+    event: 'intelligence.scheduled_job.history_failed',
+    exception: new AppError({
+      code: 'SCHEDULED_JOB_HISTORY_FAILED',
+      category: 'system',
+      status: 500,
+      message: 'Scheduled job history persistence failed',
+    }),
+    details: {
+      ...safeReportFailureDiagnostics(diagnostics),
+      ...details,
+      errorCode,
+    },
+    sentryTags: {
+      job: String(details.kind),
+      stage: String(details.stage),
+      errorCode,
+    },
+  });
 }
 
 async function beginRun(id: string, kind: ScheduledJobKind, now: Date) {
@@ -111,22 +149,29 @@ async function beginRun(id: string, kind: ScheduledJobKind, now: Date) {
   );
 }
 
-async function finishRun(input: {
-  id: string;
-  status: ScheduledJobStatus;
-  total: number;
-  succeeded: number;
-  partial: number;
-  failed: number;
-  skipped: number;
-  items: number;
-  failureCode: string | null;
-}) {
-  return writeHistory({ runId: input.id, stage: 'finish' }, () =>
-    getIntelligenceRepositories().scheduledJobRepository.finish({
-      ...input,
-      finishedAt: new Date(),
-    })
+async function finishRun(
+  kind: ScheduledJobKind,
+  started: boolean,
+  input: {
+    id: string;
+    status: ScheduledJobStatus;
+    total: number;
+    succeeded: number;
+    partial: number;
+    failed: number;
+    skipped: number;
+    items: number;
+    failureCode: string | null;
+  }
+) {
+  return writeHistory(
+    { runId: input.id, kind, stage: 'finish' },
+    () =>
+      getIntelligenceRepositories().scheduledJobRepository.finish({
+        ...input,
+        finishedAt: new Date(),
+      }),
+    !started
   );
 }
 
@@ -171,8 +216,17 @@ function logReportFailure(
   event: string,
   runId: string,
   failureCode: string,
-  workspaceId?: string
+  workspaceId?: string,
+  diagnostics?: ReportFailureDiagnostics,
+  errorCode?: string
 ) {
+  const details = {
+    ...safeReportFailureDiagnostics(diagnostics),
+    runId,
+    ...(workspaceId ? { workspaceId } : {}),
+    failureCode,
+    ...(errorCode ? { errorCode } : {}),
+  };
   getKernel().logger.error({
     event,
     exception: new AppError({
@@ -180,13 +234,15 @@ function logReportFailure(
       category: 'system',
       status: 502,
       message: 'Scheduled weekly report failed',
+      details,
     }),
-    details: { runId, ...(workspaceId ? { workspaceId } : {}), failureCode },
+    details,
     sentryTags: { job: 'weekly_reports', failureCode },
   });
 }
 
 async function recordWorkspace(
+  kind: ScheduledJobKind,
   runId: string | null,
   workspaceId: string,
   startedAt: Date,
@@ -194,7 +250,7 @@ async function recordWorkspace(
 ): Promise<RecordedWorkspaceStep> {
   const recorded =
     runId !== null &&
-    (await writeHistory({ runId, workspaceId, stage: 'workspace' }, () =>
+    (await writeHistory({ runId, kind, workspaceId, stage: 'workspace' }, () =>
       getIntelligenceRepositories().scheduledJobRepository.upsertWorkspace({
         jobRunId: runId,
         workspaceId: toWorkspaceId(workspaceId),
@@ -215,13 +271,26 @@ async function generateOneWorkspaceReport(
   'use step';
   const startedAt = new Date();
   let step: WorkspaceStep;
+  let diagnostics: ReportFailureDiagnostics | undefined;
+  let errorCode: string | undefined;
   try {
     const result = await generateWeeklyReport(buildGenerationDeps(), {
       workspaceId: toWorkspaceId(workspaceId),
       now: nowMs === null ? undefined : new Date(nowMs),
     });
+    if (result.isOk() && result.get().type === 'workspace_not_found')
+      return {
+        step: skippedStep(),
+        historyStatus: historyRunId === null ? 'failed' : 'recorded',
+      };
     step = match(result)
-      .with(Result.P.Error(P.select()), (error) => failedStep(error.code))
+      .with(Result.P.Error(P.select()), (error) => {
+        const context = reportFailureContext(error);
+        diagnostics =
+          context?.diagnostics ?? safeReportFailureDiagnostics(error.details);
+        if (context) errorCode = error.code;
+        return failedStep(context?.failureCode ?? error.code);
+      })
       .with(Result.P.Ok(P.select()), (value) =>
         match(value)
           .with({ type: 'report_published' }, ({ report }): WorkspaceStep => ({
@@ -234,14 +303,19 @@ async function generateOneWorkspaceReport(
             failureCode: null,
             reportId: report.id,
           }))
-          .with({ type: 'report_failed' }, ({ failureCode }) =>
-            failedStep(failureCode)
-          )
+          .with({ type: 'report_failed' }, (outcome) => {
+            diagnostics = outcome.diagnostics;
+            return failedStep(outcome.failureCode);
+          })
           .with({ type: 'workspace_not_found' }, () => skippedStep())
           .exhaustive()
       )
       .exhaustive();
-  } catch {
+  } catch (error) {
+    diagnostics = {
+      ...safeUnexpectedFailureDiagnostics(error),
+      stage: 'workspace',
+    };
     step = failedStep('UNEXPECTED_ERROR');
   }
   if (step.status === 'failed')
@@ -249,9 +323,17 @@ async function generateOneWorkspaceReport(
       'intelligence.report.failed',
       runId,
       step.failureCode ?? 'REPORT_FAILED',
-      workspaceId
+      workspaceId,
+      diagnostics,
+      errorCode
     );
-  return recordWorkspace(historyRunId, workspaceId, startedAt, step);
+  return recordWorkspace(
+    'weekly_reports',
+    historyRunId,
+    workspaceId,
+    startedAt,
+    step
+  );
 }
 
 /** Generate the weekly report for every workspace (Monday cron entrypoint). */
@@ -304,18 +386,19 @@ export async function runWeeklyReports(input?: {
       summary.status = runStatus(summary.generated, 0, summary.failed);
       failureCode = summary.failed > 0 ? 'WORKSPACE_REPORT_FAILED' : null;
     }
-  } catch {
+  } catch (error) {
     summary.status = 'failed';
     failureCode = 'UNEXPECTED_ERROR';
     logReportFailure(
       'intelligence.weekly_reports.unexpected_failure',
       runId,
-      failureCode
+      failureCode,
+      undefined,
+      { ...safeUnexpectedFailureDiagnostics(error), stage: 'processing' }
     );
   }
   if (
-    started &&
-    !(await finishRun({
+    !(await finishRun('weekly_reports', started, {
       id: runId,
       status: summary.status,
       total: summary.total,
@@ -347,6 +430,11 @@ async function ingestOneWorkspace(
       ...(historyRunId !== null ? { scheduledJobRunId: historyRunId } : {}),
       now: nowMs === null ? undefined : new Date(nowMs),
     });
+    if (result.isOk() && result.get().type === 'workspace_not_found')
+      return {
+        step: skippedStep(),
+        historyStatus: historyRunId === null ? 'failed' : 'recorded',
+      };
     step = match(result)
       .with(Result.P.Error(P.select()), (error) => failedStep(error.code))
       .with(Result.P.Ok(P.select()), (value) =>
@@ -375,14 +463,26 @@ async function ingestOneWorkspace(
           .exhaustive()
       )
       .exhaustive();
-  } catch {
+  } catch (error) {
     step = failedStep('UNEXPECTED_ERROR');
     getKernel().logger.error({
       event: 'intelligence.daily_ingest.workspace_failed',
-      details: { runId, workspaceId, failureCode: 'UNEXPECTED_ERROR' },
+      details: {
+        ...safeUnexpectedFailureDiagnostics(error),
+        runId,
+        workspaceId,
+        stage: 'workspace',
+        failureCode: 'UNEXPECTED_ERROR',
+      },
     });
   }
-  return recordWorkspace(historyRunId, workspaceId, startedAt, step);
+  return recordWorkspace(
+    'daily_ingest',
+    historyRunId,
+    workspaceId,
+    startedAt,
+    step
+  );
 }
 
 /** Daily ingestion entrypoint. */
@@ -449,17 +549,21 @@ export async function runDailyIngest(input?: {
       failureCode =
         summary.failed + summary.partial > 0 ? 'WORKSPACE_INGEST_FAILED' : null;
     }
-  } catch {
+  } catch (error) {
     summary.status = 'failed';
     failureCode = 'UNEXPECTED_ERROR';
     getKernel().logger.error({
       event: 'intelligence.daily_ingest.unexpected_failure',
-      details: { runId, failureCode },
+      details: {
+        ...safeUnexpectedFailureDiagnostics(error),
+        runId,
+        stage: 'processing',
+        failureCode,
+      },
     });
   }
   if (
-    started &&
-    !(await finishRun({
+    !(await finishRun('daily_ingest', started, {
       id: runId,
       status: summary.status,
       total: summary.workspaces,

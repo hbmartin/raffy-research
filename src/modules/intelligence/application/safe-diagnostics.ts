@@ -1,4 +1,23 @@
-import type { AppError } from '@/modules/kernel/domain/errors/app-error';
+import { isMatching, P } from 'ts-pattern';
+
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
+
+import {
+  type ReportValidationDiagnostic,
+  sanitizeReportValidationDiagnostics,
+} from '../domain/report-data';
+
+export type ReportFailureDiagnostics = {
+  stage?: string;
+  provider?: string;
+  model?: string;
+  errorCode?: string;
+  errorType?: string;
+  upstreamStatus?: number;
+  requestId?: string;
+  durationMs?: number;
+  validationDiagnostics?: ReportValidationDiagnostic[];
+};
 
 type SafeDiagnostics = {
   stage: string;
@@ -76,8 +95,10 @@ export function safeFailureDiagnostics(input: {
   };
 }
 
-export function safeAppErrorDetails(error: AppError): Record<string, unknown> {
-  const details = error.details ?? {};
+export function safeReportFailureDiagnostics(
+  input: unknown
+): ReportFailureDiagnostics {
+  const details = isMatching(P.record(P.string, P.unknown), input) ? input : {};
   return Object.fromEntries(
     [
       ['stage', safeToken(details.stage)],
@@ -88,6 +109,94 @@ export function safeAppErrorDetails(error: AppError): Record<string, unknown> {
       ['upstreamStatus', safeStatus(details.upstreamStatus)],
       ['requestId', safeToken(details.requestId)],
       ['durationMs', safeDuration(details.durationMs)],
+      [
+        'validationDiagnostics',
+        safeValidationDiagnostics(details.validationDiagnostics),
+      ],
     ].filter((entry) => entry[1] !== undefined)
   );
+}
+
+const safeValidationDiagnostics = (input: unknown) => {
+  if (!Array.isArray(input)) return undefined;
+  return sanitizeReportValidationDiagnostics(
+    input.flatMap((issue: unknown) =>
+      isMatching({ path: P.string, code: P.string }, issue) &&
+      safeToken(issue.code)
+        ? [
+            {
+              path:
+                issue.path === '<root>'
+                  ? []
+                  : issue.path
+                      .slice(0, 128)
+                      .split('.')
+                      .map((part) =>
+                        /^\d+$/.test(part) ? Number(part) : part
+                      ),
+              code: issue.code,
+            },
+          ]
+        : []
+    )
+  );
+};
+
+export function safeAppErrorDetails(error: AppError): ReportFailureDiagnostics {
+  return safeReportFailureDiagnostics(error.details);
+}
+
+const unexpectedErrorTypes = new Set([
+  'Error',
+  'AppError',
+  'TypeError',
+  'RangeError',
+  'ReferenceError',
+  'SyntaxError',
+  'URIError',
+  'EvalError',
+  'AggregateError',
+  'AbortError',
+  'TimeoutError',
+  'AI_APICallError',
+  'AI_RetryError',
+]);
+
+/** Unexpected throws carry only known types and allowlisted diagnostic fields. */
+export function safeUnexpectedFailureDiagnostics(
+  error: unknown
+): ReportFailureDiagnostics {
+  const raw =
+    typeof error === 'object' && error !== null
+      ? (error as Record<string, unknown>)
+      : {};
+  const diagnostics =
+    error instanceof AppError ? safeAppErrorDetails(error) : {};
+  return {
+    ...diagnostics,
+    ...safeReportFailureDiagnostics({ errorCode: raw.code }),
+    errorType:
+      typeof raw.name === 'string' && unexpectedErrorTypes.has(raw.name)
+        ? raw.name
+        : 'UnknownError',
+  };
+}
+
+export function reportFailureContext(error: AppError):
+  | {
+      failureCode: string;
+      diagnostics: ReportFailureDiagnostics;
+    }
+  | undefined {
+  const context = error.details?.reportFailure;
+  if (!isMatching({ failureCode: P.string }, context)) return undefined;
+  const failureCode = safeErrorCode(context.failureCode);
+  return failureCode
+    ? {
+        failureCode,
+        diagnostics: safeReportFailureDiagnostics(
+          'diagnostics' in context ? context.diagnostics : undefined
+        ),
+      }
+    : undefined;
 }
