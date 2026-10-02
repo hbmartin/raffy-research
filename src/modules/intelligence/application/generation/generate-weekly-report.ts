@@ -32,6 +32,7 @@ import {
   validateReportData,
 } from '../../domain/report-data';
 import type { SourceSummary } from '../../domain/source';
+import { collapseDuplicateSources } from '../../domain/source-dedup';
 
 export type WeeklyReportGenerationDeps = {
   workspaceRepository: WorkspaceRepository;
@@ -103,11 +104,29 @@ export async function generateWeeklyReport(
   if (sources.isError()) return Result.Error(sources.getError());
   if (priorReports.isError()) return Result.Error(priorReports.getError());
 
-  // Analyst-labelled junk never reaches the prompt or the citation link map.
-  const usableSources = sources
-    .get()
-    .filter((source) => source.relevanceLabel !== 'junk');
-  const junkCount = sources.get().length - usableSources.length;
+  // One record per page first. Ingestion keeps every capture, so a page matched
+  // by several keywords or re-fetched on later runs is in here many times over,
+  // and the survivor inherits the strongest label across all of them.
+  const { selected, collapsedCount, inheritedLabelCount } =
+    collapseDuplicateSources(sources.get());
+  if (collapsedCount > 0) {
+    deps.logger.info({
+      event: 'intelligence.report.duplicate_sources_collapsed',
+      details: {
+        workspaceId: workspace.id,
+        collapsedCount,
+        selectedCount: selected.length,
+        inheritedLabelCount,
+      },
+    });
+  }
+
+  // Then drop junk, which now excludes the whole page rather than the single
+  // row the analyst happened to have open when they labelled it.
+  const usableSources = selected.filter(
+    (source) => source.relevanceLabel !== 'junk'
+  );
+  const junkCount = selected.length - usableSources.length;
   if (junkCount > 0) {
     deps.logger.info({
       event: 'intelligence.report.junk_sources_excluded',
