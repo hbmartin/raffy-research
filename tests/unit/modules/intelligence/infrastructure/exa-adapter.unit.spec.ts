@@ -216,6 +216,108 @@ describe('exa adapter in-run deduplication', () => {
     expect(value.sourceRecords).toHaveLength(2);
   });
 
+  /**
+   * exa returns `text` per result, so one query can return a page with less of
+   * it than another. Keeping whichever arrived first would silently prefer the
+   * weaker copy.
+   */
+  it('keeps the richer page text when a later keyword returns more of it', async () => {
+    stubExa({
+      'dental no-show reduction': [
+        { ...result('https://example.com/guide'), text: 'thin' },
+      ],
+      'dental practice software': [
+        {
+          ...result('https://example.com/guide'),
+          text: 'the full page text, much longer than the other copy',
+          title: 'The full title',
+          publishedDate: '2026-06-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    const value = await runExa(
+      makeContext(
+        [
+          keyword('kw-1', 'dental no-show reduction'),
+          keyword('kw-2', 'dental practice software'),
+        ],
+        makeLogger()
+      )
+    );
+
+    expect(value.sourceRecords).toHaveLength(1);
+    const [record] = value.sourceRecords;
+    expect(record?.contentText).toBe(
+      'the full page text, much longer than the other copy'
+    );
+    // Replaced whole, so these describe the same response as the text.
+    expect(record?.title).toBe('The full title');
+    expect(record?.publishedAt).toEqual(new Date('2026-06-02T00:00:00.000Z'));
+    expect(record?.metadata).toEqual({
+      queries: ['dental no-show reduction', 'dental practice software'],
+    });
+  });
+
+  it('keeps the first copy when it already has the richer text', async () => {
+    stubExa({
+      'dental no-show reduction': [
+        {
+          ...result('https://example.com/guide'),
+          text: 'the full page text, much longer than the other copy',
+          title: 'The full title',
+        },
+      ],
+      'dental practice software': [
+        { ...result('https://example.com/guide'), text: 'thin', title: 'Thin' },
+      ],
+    });
+
+    const value = await runExa(
+      makeContext(
+        [
+          keyword('kw-1', 'dental no-show reduction'),
+          keyword('kw-2', 'dental practice software'),
+        ],
+        makeLogger()
+      )
+    );
+
+    expect(value.sourceRecords).toHaveLength(1);
+    const [record] = value.sourceRecords;
+    expect(record?.contentText).toBe(
+      'the full page text, much longer than the other copy'
+    );
+    expect(record?.title).toBe('The full title');
+    expect(record?.metadata).toEqual({
+      queries: ['dental no-show reduction', 'dental practice software'],
+    });
+  });
+
+  it('prefers a copy with text over one carrying none', async () => {
+    stubExa({
+      'dental no-show reduction': [
+        { ...result('https://example.com/guide'), text: null },
+      ],
+      'dental practice software': [
+        { ...result('https://example.com/guide'), text: 'real page text' },
+      ],
+    });
+
+    const value = await runExa(
+      makeContext(
+        [
+          keyword('kw-1', 'dental no-show reduction'),
+          keyword('kw-2', 'dental practice software'),
+        ],
+        makeLogger()
+      )
+    );
+
+    expect(value.sourceRecords).toHaveLength(1);
+    expect(value.sourceRecords[0]?.contentText).toBe('real page text');
+  });
+
   it('does not merge results that carry no usable URL', async () => {
     stubExa({
       'dental practice software': [

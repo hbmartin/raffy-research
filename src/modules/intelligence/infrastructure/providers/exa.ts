@@ -15,21 +15,51 @@ import { canonicalizeSourceUrl } from '../../domain/url';
 
 const EXA_SEARCH_URL = 'https://api.exa.ai/search';
 
-/**
- * Append a keyword to an already-captured record's query list.
- *
- * Tolerates a missing record and an unexpected metadata shape rather than
- * throwing: an ingest run losing one keyword attribution is a far better
- * outcome than it losing the whole provider's captures.
- */
-function addQuery(
-  record: SourceRecordWriteInput | undefined,
-  keywordString: string
-): void {
-  if (!record) return;
+const contentLength = (record: SourceRecordWriteInput): number =>
+  record.contentText?.length ?? 0;
+
+/** Tolerates an unexpected metadata shape rather than throwing. */
+const queriesOf = (record: SourceRecordWriteInput): string[] => {
   const queries = (record.metadata as { queries?: unknown } | null)?.queries;
-  if (!Array.isArray(queries)) return;
-  if (!queries.includes(keywordString)) queries.push(keywordString);
+  if (!Array.isArray(queries)) return [];
+  return queries.filter((query): query is string => typeof query === 'string');
+};
+
+/**
+ * Fold a second capture of one page, matched by another keyword, into the first.
+ *
+ * Whichever copy carries more page text wins outright, rather than whichever
+ * happened to be requested first: exa returns `text` per result, so one query
+ * can return a page without text or with less of it than another, and keeping
+ * the first arrival would silently prefer the weaker copy.
+ *
+ * The winning record replaces the other whole, so `title`, `publishedAt` and
+ * `rawPayload` keep describing the same response as the `contentText` beside
+ * them — a record stitched from two responses would have a `rawPayload` that no
+ * longer explains its own fields, which is what makes it auditable.
+ *
+ * There is deliberately no newest-wins tiebreak, unlike `collapseDuplicateSources`
+ * at report time: these requests are seconds apart within one run and
+ * `capturedAt` is not assigned until insert, so recency carries no information
+ * here. Page text does.
+ */
+function mergeDuplicateCapture(
+  records: SourceRecordWriteInput[],
+  index: number,
+  candidate: SourceRecordWriteInput
+): void {
+  const incumbent = records[index];
+  if (!incumbent) return;
+
+  const queries = [
+    ...new Set([...queriesOf(incumbent), ...queriesOf(candidate)]),
+  ];
+  const winner =
+    contentLength(candidate) > contentLength(incumbent) ? candidate : incumbent;
+  records[index] = {
+    ...winner,
+    metadata: { ...winner.metadata, queries },
+  };
 }
 
 /**
@@ -95,19 +125,7 @@ export const exaAdapter: ProviderAdapter = {
           rawPayload: rawResult,
           metadata: { keywordId: keyword.id },
         });
-        const canonicalUrl = canonicalizeSourceUrl(url);
-        const seenAt =
-          canonicalUrl === null
-            ? undefined
-            : sourceIndexByCanonicalUrl.get(canonicalUrl);
-        if (seenAt !== undefined) {
-          addQuery(sourceRecords[seenAt], keyword.keywordString);
-          return;
-        }
-        if (canonicalUrl !== null) {
-          sourceIndexByCanonicalUrl.set(canonicalUrl, sourceRecords.length);
-        }
-        sourceRecords.push({
+        const record: SourceRecordWriteInput = {
           workspaceId: ctx.workspace.id,
           providerName: 'exa',
           providerSourceId: asString(result.id),
@@ -124,7 +142,21 @@ export const exaAdapter: ProviderAdapter = {
           // source record is an account of what happened, and a later rename
           // must not change what a stored record says was searched for.
           metadata: { queries: [keyword.keywordString] },
-        });
+        };
+
+        const canonicalUrl = canonicalizeSourceUrl(url);
+        const seenAt =
+          canonicalUrl === null
+            ? undefined
+            : sourceIndexByCanonicalUrl.get(canonicalUrl);
+        if (seenAt !== undefined) {
+          mergeDuplicateCapture(sourceRecords, seenAt, record);
+          return;
+        }
+        if (canonicalUrl !== null) {
+          sourceIndexByCanonicalUrl.set(canonicalUrl, sourceRecords.length);
+        }
+        sourceRecords.push(record);
       });
     }
 
