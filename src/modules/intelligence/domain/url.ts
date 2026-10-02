@@ -3,9 +3,13 @@ const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:']);
 /**
  * Query parameters that identify a referral, not a page. Dropping them keeps
  * two links to the same article from reading as two articles.
+ *
+ * Google alone attaches several click ids that travel together — `wbraid` and
+ * `gbraid` ride alongside `gclid` on the same click — so dropping one and
+ * keeping its siblings would leave the collapse inconsistent.
  */
 const TRACKING_PARAMS =
-  /^(utm_[a-z0-9_]+|gclid|fbclid|msclkid|mc_cid|mc_eid|igshid|ref_src)$/i;
+  /^(utm_[a-z0-9_]+|gclid|wbraid|gbraid|dclid|fbclid|msclkid|yclid|twclid|ttclid|li_fat_id|mc_cid|mc_eid|igshid|ref_src)$/i;
 
 /**
  * Normalize a URL for display/storage fields that only allow http(s).
@@ -60,9 +64,16 @@ export function canonicalizeSourceUrl(
     // distinction we want: a different port is a different server.
     const host = url.host.toLowerCase().replace(/^www\./, '');
     const path = url.pathname.replace(/\/+$/, '');
+    // Re-encoded before joining: `searchParams` hands back decoded values, so
+    // joining them raw would let `?a=x%26b%3Dy` — one parameter whose value
+    // contains the delimiters — render identically to `?a=x&b=y`, two
+    // parameters, and collapse two distinct pages into one.
     const params = [...url.searchParams.entries()]
       .filter(([key]) => !TRACKING_PARAMS.test(key))
-      .map(([key, param]) => `${key}=${param}`)
+      .map(
+        ([key, param]) =>
+          `${encodeURIComponent(key)}=${encodeURIComponent(param)}`
+      )
       .sort();
     const query = params.length > 0 ? `?${params.join('&')}` : '';
     return `${host}${path}${query}`;

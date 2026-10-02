@@ -97,6 +97,41 @@ describe('canonicalizeSourceUrl', () => {
     ).toBe('example.com/a?id=7');
   });
 
+  it.each([
+    'gclid',
+    'wbraid',
+    'gbraid',
+    'dclid',
+    'fbclid',
+    'msclkid',
+    'yclid',
+    'twclid',
+    'ttclid',
+    'li_fat_id',
+    'mc_cid',
+    'mc_eid',
+    'igshid',
+    'ref_src',
+  ])('drops the %s click id', (param) => {
+    expect(canonicalizeSourceUrl(`https://example.com/a?${param}=abc123`)).toBe(
+      'example.com/a'
+    );
+  });
+
+  /**
+   * `searchParams` hands back decoded values. Joining them raw would let one
+   * parameter carrying the delimiters render identically to two parameters, and
+   * collapse two distinct pages into one.
+   */
+  it('does not let an encoded delimiter collide with a real one', () => {
+    const oneParam = canonicalizeSourceUrl('https://example.com/a?x=1%262=3');
+    const twoParams = canonicalizeSourceUrl('https://example.com/a?x=1&2=3');
+
+    expect(oneParam).not.toBe(twoParams);
+    expect(oneParam).toBe('example.com/a?x=1%262%3D3');
+    expect(twoParams).toBe('example.com/a?2=3&x=1');
+  });
+
   /**
    * Paths are case-sensitive in HTTP, and real captures carry case-significant
    * id segments. Lowercasing the path would corrupt them into a key that never
@@ -294,10 +329,13 @@ describe('collapseDuplicateSources', () => {
         capturedAt: 'not a date',
         diffAddedText: null,
         diffRemovedText: null,
+        contentText: 'from the unparseable capture',
       },
     ]);
 
     expect(result.selected).toHaveLength(1);
     expect(result.collapsedCount).toBe(1);
+    // The parseable capture wins, which is what "sorts oldest" has to mean.
+    expect(result.selected[0]?.contentText).toBe('real');
   });
 });
