@@ -291,6 +291,7 @@ describe('collapseDuplicateSources', () => {
     expect(collapseDuplicateSources([])).toEqual({
       selected: [],
       collapsedCount: 0,
+      inheritedLabelCount: 0,
     });
   });
 
@@ -300,12 +301,13 @@ describe('collapseDuplicateSources', () => {
    * function the generator uses, or it measures a selection that never ships.
    */
   it('accepts an ISO string capturedAt, as the eval harness supplies', () => {
-    const result = collapseDuplicateSources([
+    const captures = [
       {
         externalUrl: 'https://www.example.com/p',
         capturedAt: '2026-06-01T00:00:00.000Z',
         diffAddedText: null,
         diffRemovedText: null,
+        relevanceLabel: null,
         marker: 'old',
       },
       {
@@ -313,29 +315,152 @@ describe('collapseDuplicateSources', () => {
         capturedAt: '2026-06-05T00:00:00.000Z',
         diffAddedText: null,
         diffRemovedText: null,
+        relevanceLabel: null,
         marker: 'new',
       },
-    ]);
+    ];
+
+    const result = collapseDuplicateSources(captures);
 
     expect(result.selected).toHaveLength(1);
     expect(result.selected[0]?.marker).toBe('new');
   });
 
   it('treats an unparseable timestamp as oldest instead of throwing', () => {
-    const result = collapseDuplicateSources([
-      sourceWith({ id: 'good', contentText: 'real' }),
+    const captures = [
+      {
+        externalUrl: 'https://example.com/a',
+        capturedAt: '2026-06-01T00:00:00.000Z',
+        diffAddedText: null,
+        diffRemovedText: null,
+        relevanceLabel: null,
+        contentText: 'real',
+      },
       {
         externalUrl: 'https://example.com/a',
         capturedAt: 'not a date',
         diffAddedText: null,
         diffRemovedText: null,
+        relevanceLabel: null,
         contentText: 'from the unparseable capture',
       },
-    ]);
+    ];
+
+    const result = collapseDuplicateSources(captures);
 
     expect(result.selected).toHaveLength(1);
     expect(result.collapsedCount).toBe(1);
     // The parseable capture wins, which is what "sorts oldest" has to mean.
     expect(result.selected[0]?.contentText).toBe('real');
+  });
+});
+
+/**
+ * An analyst labels a page, but the label lands on one `sourceRecord` id. A page
+ * captured seventeen times leaves sixteen rows unreviewed, so without
+ * inheritance a junk verdict suppresses one arbitrary row and a keep vanishes
+ * behind any newer unreviewed capture.
+ */
+describe('collapseDuplicateSources label inheritance', () => {
+  it('carries a junk label from an older capture to the survivor', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({
+        id: 'labelled',
+        relevanceLabel: 'junk',
+        labeledAt: new Date('2026-06-02T00:00:00.000Z'),
+        capturedAt: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+      sourceWith({
+        id: 'newer-unreviewed',
+        capturedAt: new Date('2026-06-05T00:00:00.000Z'),
+      }),
+    ]);
+
+    expect(result.selected).toHaveLength(1);
+    expect(result.selected[0]?.id).toBe('newer-unreviewed');
+    expect(result.selected[0]?.relevanceLabel).toBe('junk');
+    expect(result.selected[0]?.labeledAt).toEqual(
+      new Date('2026-06-02T00:00:00.000Z')
+    );
+    expect(result.inheritedLabelCount).toBe(1);
+  });
+
+  it('carries a keep label forward too', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({
+        id: 'labelled',
+        relevanceLabel: 'keep',
+        capturedAt: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+      sourceWith({
+        id: 'newer-unreviewed',
+        capturedAt: new Date('2026-06-05T00:00:00.000Z'),
+      }),
+    ]);
+
+    expect(result.selected[0]?.relevanceLabel).toBe('keep');
+    expect(result.inheritedLabelCount).toBe(1);
+  });
+
+  /** Junk is the safety-relevant verdict, so it must never lose to keep. */
+  it('prefers junk over keep when one page carries both', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({ id: 'kept', relevanceLabel: 'keep' }),
+      sourceWith({ id: 'junked', relevanceLabel: 'junk' }),
+      sourceWith({ id: 'unreviewed' }),
+    ]);
+
+    expect(result.selected).toHaveLength(1);
+    expect(result.selected[0]?.relevanceLabel).toBe('junk');
+  });
+
+  it('prefers junk regardless of the order the captures arrive in', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({ id: 'junked', relevanceLabel: 'junk' }),
+      sourceWith({ id: 'kept', relevanceLabel: 'keep' }),
+    ]);
+
+    expect(result.selected[0]?.relevanceLabel).toBe('junk');
+  });
+
+  it('leaves an unlabelled page unlabelled and reports no inheritance', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({ id: 'a' }),
+      sourceWith({ id: 'b' }),
+    ]);
+
+    expect(result.selected[0]?.relevanceLabel).toBeNull();
+    expect(result.inheritedLabelCount).toBe(0);
+  });
+
+  it('does not count a survivor that already carried the strongest label', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({
+        id: 'older',
+        capturedAt: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+      sourceWith({
+        id: 'newer-labelled',
+        relevanceLabel: 'junk',
+        capturedAt: new Date('2026-06-05T00:00:00.000Z'),
+      }),
+    ]);
+
+    expect(result.selected[0]?.relevanceLabel).toBe('junk');
+    expect(result.inheritedLabelCount).toBe(0);
+  });
+
+  it('does not leak a label between different pages', () => {
+    const result = collapseDuplicateSources([
+      sourceWith({
+        id: 'junked',
+        externalUrl: 'https://example.com/a',
+        relevanceLabel: 'junk',
+      }),
+      sourceWith({ id: 'other', externalUrl: 'https://example.com/b' }),
+    ]);
+
+    expect(result.selected).toHaveLength(2);
+    expect(result.selected[1]?.relevanceLabel).toBeNull();
   });
 });

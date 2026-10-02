@@ -262,18 +262,18 @@ export function writePhoenixBinding(
 }
 
 /**
- * What the prompt is built from: sources an analyst has not labelled as junk,
- * collapsed to one record per page.
+ * What the prompt is built from: one record per page, minus the pages an
+ * analyst labelled junk.
  *
- * Both steps mirror `generateWeeklyReport` exactly, and must keep doing so —
- * measuring a different selection than production builds would make every
- * score here describe a generation that never happens.
+ * The order matters and mirrors `generateWeeklyReport` exactly, as it must keep
+ * doing — measuring a different selection than production builds would make
+ * every score here describe a generation that never happens. Collapsing first
+ * lets the survivor inherit a label from any capture of its page, so a junk
+ * verdict excludes the page rather than one row of it.
  */
 export function usableSources(evalCase: EvalCase): CaseSource[] {
-  const unlabelled = evalCase.sources.filter(
-    (source) => source.relevanceLabel !== 'junk'
-  );
-  return collapseDuplicateSources(unlabelled).selected;
+  const { selected } = collapseDuplicateSources(evalCase.sources);
+  return selected.filter((source) => source.relevanceLabel !== 'junk');
 }
 
 /**
