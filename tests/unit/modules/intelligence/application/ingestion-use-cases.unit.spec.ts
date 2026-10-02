@@ -6,7 +6,10 @@ import {
   type HandleProviderCallbackOutcome,
   type IngestionDeps,
   type IngestionRun,
+  type LastSuccessfulRunOutcome,
   type ProviderCallbackEvent,
+  type ProviderDailyContext,
+  resolveIngestWindowStart,
   runWorkspaceIngest,
   type RunWorkspaceIngestOutcome,
   type SourceRecord,
@@ -160,6 +163,9 @@ function makeDeps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
     ingestionRepository: {
       startRun: vi.fn(async () => Result.Ok(ingestionRun)),
       finishRun: vi.fn(async () => Result.Ok({ type: 'run_updated' as const })),
+      getLastSuccessfulDailyRun: vi.fn(async () =>
+        Result.Ok({ type: 'no_previous_run' as const })
+      ),
       recordCallbackEvent: vi.fn(async () => Result.Ok(callbackEvent)),
       updateCallbackNormalization: vi.fn(async () =>
         Result.Ok({ type: 'callback_updated' as const })
@@ -526,5 +532,213 @@ describe('ingestion use cases', () => {
       expect.objectContaining({ status: 'partial', itemsIngested: 1 })
     );
     expect(ingest).toHaveBeenCalledTimes(2);
+  });
+
+  describe('incremental window', () => {
+    function makeWindowDeps(lastRun: LastSuccessfulRunOutcome) {
+      const contexts: ProviderDailyContext[] = [];
+      const deps = makeDeps({
+        ingestionRepository: {
+          ...makeDeps().ingestionRepository,
+          getLastSuccessfulDailyRun: vi.fn(async () => Result.Ok(lastRun)),
+        },
+        registry: {
+          get: vi.fn(() => ({
+            name: 'awario' as const,
+            isConfigured: () => true,
+            runDailyIngest: async (ctx: ProviderDailyContext) => {
+              contexts.push(ctx);
+              return Result.Ok({ sourceRecords: [], searchResults: [] });
+            },
+          })),
+          all: vi.fn(() => []),
+        },
+      });
+      return { deps, contexts };
+    }
+
+    it('pulls the last 24 hours when the provider has never succeeded', async () => {
+      const { deps, contexts } = makeWindowDeps({ type: 'no_previous_run' });
+      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      if (result.isError()) throw result.getError();
+      expect(contexts[0]?.periodStart).toEqual(
+        new Date('2026-05-31T00:00:00.000Z')
+      );
+    });
+
+    it('starts where the last successful pull started and records the window', async () => {
+      const lastStart = new Date('2026-05-31T20:00:00.000Z');
+      const { deps, contexts } = makeWindowDeps({
+        type: 'last_run_found',
+        startedAt: lastStart,
+      });
+      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      if (result.isError()) throw result.getError();
+      expect(
+        deps.ingestionRepository.getLastSuccessfulDailyRun
+      ).toHaveBeenCalledWith({ workspaceId, providerName: 'awario' });
+      expect(contexts[0]?.periodStart).toEqual(lastStart);
+      expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
+        ingestionRun.id,
+        expect.objectContaining({
+          status: 'succeeded',
+          metadata: expect.objectContaining({
+            periodStart: lastStart.toISOString(),
+            periodEnd: now.toISOString(),
+          }),
+        })
+      );
+    });
+
+    it('returns watermark lookup errors before starting a run', async () => {
+      const deps = makeDeps({
+        ingestionRepository: {
+          ...makeDeps().ingestionRepository,
+          getLastSuccessfulDailyRun: vi.fn(async () =>
+            Result.Error(appError('INGESTION_RUN_LAST_SUCCESS_ERROR'))
+          ),
+        },
+        registry: {
+          get: vi.fn(() => ({
+            name: 'awario' as const,
+            isConfigured: () => true,
+            runDailyIngest: vi.fn(),
+          })),
+          all: vi.fn(() => []),
+        },
+      });
+      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      expectErrorCode(result, 'INGESTION_RUN_LAST_SUCCESS_ERROR');
+      expect(deps.ingestionRepository.startRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('overlapping window', () => {
+    const lookbackMs = 3 * 24 * 60 * 60 * 1000;
+    const storedPage = { ...sourceRecord, externalUrl: 'https://a.example/1' };
+    const newPage = { ...sourceRecord, externalUrl: 'https://a.example/2' };
+
+    function makeOverlapDeps(
+      excludeStoredCopies: IngestionDeps['sourceRepository']['excludeStoredCopies']
+    ) {
+      const contexts: ProviderDailyContext[] = [];
+      const deps = makeDeps({
+        sourceRepository: {
+          ...makeDeps().sourceRepository,
+          excludeStoredCopies,
+          createSourceRecord: vi.fn(async () => Result.Ok(sourceRecord)),
+        },
+        registry: {
+          get: vi.fn(() => ({
+            name: 'exa' as const,
+            isConfigured: () => true,
+            overlappingWindow: { lookbackMs },
+            runDailyIngest: async (ctx: ProviderDailyContext) => {
+              contexts.push(ctx);
+              return Result.Ok({
+                sourceRecords: [storedPage, newPage],
+                searchResults: [],
+              });
+            },
+          })),
+          all: vi.fn(() => []),
+        },
+      });
+      return { deps, contexts };
+    }
+
+    it('reaches back the full lookback and writes only records not already stored', async () => {
+      const excludeStoredCopies = vi.fn(async () =>
+        Result.Ok({ fresh: [newPage], storedCopies: 1 })
+      );
+      const { deps, contexts } = makeOverlapDeps(excludeStoredCopies);
+
+      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      if (result.isError()) throw result.getError();
+
+      const periodStart = new Date(now.getTime() - lookbackMs);
+      expect(contexts[0]?.periodStart).toEqual(periodStart);
+      expect(
+        deps.ingestionRepository.getLastSuccessfulDailyRun
+      ).not.toHaveBeenCalled();
+      expect(excludeStoredCopies).toHaveBeenCalledWith({
+        workspaceId,
+        providerName: 'awario',
+        capturedSince: periodStart,
+        records: [storedPage, newPage],
+      });
+      expect(deps.sourceRepository.createSourceRecord).toHaveBeenCalledOnce();
+      expect(deps.sourceRepository.createSourceRecord).toHaveBeenCalledWith(
+        newPage
+      );
+      expect(result.get()).toMatchObject({ sourceRecords: 1, providersRun: 1 });
+      expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
+        ingestionRun.id,
+        expect.objectContaining({
+          status: 'succeeded',
+          itemsIngested: 1,
+          metadata: expect.objectContaining({ storedCopiesSkipped: 1 }),
+        })
+      );
+    });
+
+    it('fails the provider run without writing when the stored-copy lookup fails', async () => {
+      const { deps } = makeOverlapDeps(
+        vi.fn(async () => Result.Error(appError('SOURCE_STORED_COPIES_ERROR')))
+      );
+
+      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      if (result.isError()) throw result.getError();
+
+      expect(result.get()).toMatchObject({ providersFailed: 1 });
+      expect(deps.sourceRepository.createSourceRecord).not.toHaveBeenCalled();
+      expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
+        ingestionRun.id,
+        expect.objectContaining({
+          status: 'failed',
+          failureReason: 'Stored copy lookup failed',
+        })
+      );
+    });
+  });
+});
+
+describe('resolveIngestWindowStart', () => {
+  const day = 24 * 60 * 60 * 1000;
+
+  it.each([
+    {
+      name: 'defaults to 24 hours with no previous run',
+      lastSuccessfulRun: { type: 'no_previous_run' } as const,
+      expected: new Date(now.getTime() - day),
+    },
+    {
+      name: 'uses a recent watermark as-is',
+      lastSuccessfulRun: {
+        type: 'last_run_found',
+        startedAt: new Date(now.getTime() - 4 * 60 * 60 * 1000),
+      } as const,
+      expected: new Date(now.getTime() - 4 * 60 * 60 * 1000),
+    },
+    {
+      name: 'caps an old watermark at seven days back',
+      lastSuccessfulRun: {
+        type: 'last_run_found',
+        startedAt: new Date(now.getTime() - 30 * day),
+      } as const,
+      expected: new Date(now.getTime() - 7 * day),
+    },
+    {
+      name: 'pulls a future watermark back to now',
+      lastSuccessfulRun: {
+        type: 'last_run_found',
+        startedAt: new Date(now.getTime() + day),
+      } as const,
+      expected: now,
+    },
+  ])('$name', ({ lastSuccessfulRun, expected }) => {
+    expect(resolveIngestWindowStart({ now, lastSuccessfulRun })).toEqual(
+      expected
+    );
   });
 });

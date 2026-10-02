@@ -11,6 +11,7 @@ import type { Logger } from '@/modules/kernel';
 import {
   toCompetitorId,
   toInternalNoteConfigId,
+  toKeywordId,
   toProviderConfigId,
   toWorkspaceId,
 } from '@/modules/kernel';
@@ -129,6 +130,128 @@ describe('provider adapters', () => {
         errorCode: 'invalid_auth',
         durationMs: 0,
       },
+    });
+  });
+
+  describe('incremental window', () => {
+    it('asks Slack only for messages since the window start', async () => {
+      const fetchMock = vi.fn(
+        async (_url: string) =>
+          new Response(JSON.stringify({ ok: true, messages: [] }), {
+            status: 200,
+          })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const ctx = makeDailyContext('slack', makeLogger());
+      expectOkValue(
+        await createProviderRegistry().get('slack')?.runDailyIngest?.(ctx)
+      );
+
+      const url = new URL(fetchMock.mock.calls[0]?.[0] ?? '');
+      expect(Number(url.searchParams.get('oldest'))).toBe(
+        ctx.periodStart.getTime() / 1000
+      );
+    });
+
+    it('searches Exa over an overlapping three-day lookback', async () => {
+      const fetchMock = vi.fn(
+        async (_url: string, _init?: RequestInit) =>
+          new Response(JSON.stringify({ results: [] }), { status: 200 })
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const adapter = createProviderRegistry().get('exa');
+      expect(adapter?.overlappingWindow).toEqual({
+        lookbackMs: 3 * 24 * 60 * 60 * 1000,
+      });
+
+      const ctx = {
+        ...makeDailyContext('exa', makeLogger()),
+        keywords: [
+          {
+            id: toKeywordId('keyword-1'),
+            workspaceId,
+            keywordString: 'dental recall',
+            active: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      };
+      expectOkValue(await adapter?.runDailyIngest?.(ctx));
+
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body).toMatchObject({
+        startPublishedDate: ctx.periodStart.toISOString(),
+      });
+      expect(body).not.toHaveProperty('endPublishedDate');
+    });
+
+    const notionContext = (): ProviderDailyContext => ({
+      ...makeDailyContext('notion', makeLogger()),
+      internalNoteConfigs: [
+        {
+          id: toInternalNoteConfigId('note-notion'),
+          workspaceId,
+          sourceSystem: 'notion',
+          sourceRef: 'page-1',
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+
+    const notionFetch = (lastEditedTime: string) =>
+      vi.fn(async (url: string) =>
+        url.includes('/v1/pages/')
+          ? new Response(JSON.stringify({ last_edited_time: lastEditedTime }), {
+              status: 200,
+            })
+          : new Response(
+              JSON.stringify({
+                results: [
+                  {
+                    type: 'paragraph',
+                    paragraph: { rich_text: [{ plain_text: 'Pricing notes' }] },
+                  },
+                ],
+              }),
+              { status: 200 }
+            )
+      );
+
+    it('skips a Notion page not edited since the window start', async () => {
+      const fetchMock = notionFetch('2026-05-30T12:00:00.000Z');
+      vi.stubGlobal('fetch', fetchMock);
+
+      const value = expectOkValue(
+        await createProviderRegistry()
+          .get('notion')
+          ?.runDailyIngest?.(notionContext())
+      );
+
+      expect(value.sourceRecords).toEqual([]);
+      expect(value.requestsFailed).toBe(0);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('captures a Notion page edited since the window start', async () => {
+      vi.stubGlobal('fetch', notionFetch('2026-05-31T12:00:00.000Z'));
+
+      const value = expectOkValue(
+        await createProviderRegistry()
+          .get('notion')
+          ?.runDailyIngest?.(notionContext())
+      );
+
+      expect(value.sourceRecords).toEqual([
+        expect.objectContaining({
+          providerSourceId: 'page-1',
+          contentText: 'Pricing notes',
+        }),
+      ]);
     });
   });
 

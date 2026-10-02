@@ -15,12 +15,21 @@ import type {
 const EXA_SEARCH_URL = 'https://api.exa.ai/search';
 
 /**
+ * How far back every Exa search reaches. Exa often records a day-only publish
+ * date (midnight UTC) and indexes pages hours or days after publication, so a
+ * window that starts at the last pull would miss pages indexed after it. Three
+ * days absorbs typical indexing delay; stored copies are dropped by ingestion.
+ */
+export const EXA_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
  * Exa: daily time-bounded web search over configured keyword strings.
  * Stores search results and the linked page content as source records.
  */
 export const exaAdapter: ProviderAdapter = {
   name: 'exa',
   isConfigured: ({ credential }) => Boolean(credential),
+  overlappingWindow: { lookbackMs: EXA_LOOKBACK_MS },
   async runDailyIngest(ctx) {
     if (!ctx.credential) {
       return Result.Ok({ sourceRecords: [], searchResults: [] });
@@ -40,6 +49,8 @@ export const exaAdapter: ProviderAdapter = {
         body: JSON.stringify({
           query: keyword.keywordString,
           numResults: 10,
+          // `periodStart` is now minus EXA_LOOKBACK_MS (see above). No end
+          // date: a publish date slightly ahead of our clock is still news.
           startPublishedDate: ctx.periodStart.toISOString(),
           contents: { text: true },
         }),

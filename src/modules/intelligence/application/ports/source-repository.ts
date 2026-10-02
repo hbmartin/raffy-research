@@ -36,6 +36,20 @@ export interface SourceRepository {
   createSourceRecord(
     input: SourceRecordWriteInput
   ): Promise<ApplicationResult<SourceRecord>>;
+  /**
+   * Drop records that are exact copies of one already stored: same provider,
+   * same page (canonical URL) and same text, captured since `capturedSince`.
+   * A page whose text changed is kept as a new version. Records without a
+   * usable URL are always kept, since nothing proves they were seen before.
+   */
+  excludeStoredCopies(input: {
+    workspaceId: WorkspaceId;
+    providerName: string;
+    capturedSince: Date;
+    records: SourceRecordWriteInput[];
+  }): Promise<
+    ApplicationResult<{ fresh: SourceRecordWriteInput[]; storedCopies: number }>
+  >;
   listForPeriod(input: {
     workspaceId: WorkspaceId;
     periodStart: Date;

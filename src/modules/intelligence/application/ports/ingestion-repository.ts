@@ -12,6 +12,7 @@ import type {
   IngestionRun,
   IngestionRunStatus,
   IngestionRunWriteInput,
+  LastSuccessfulRunOutcome,
   ProviderCallbackEvent,
   ProviderCallbackEventWriteInput,
 } from '../../domain/ingestion';
@@ -30,6 +31,11 @@ export interface IngestionRepository {
       metadata?: JsonObject | null;
     }
   ): Promise<ApplicationResult<{ type: 'run_updated' | 'run_not_found' }>>;
+  /** Start of the most recent fully `succeeded` daily pull for one provider. */
+  getLastSuccessfulDailyRun(input: {
+    workspaceId: WorkspaceId;
+    providerName: string;
+  }): Promise<ApplicationResult<LastSuccessfulRunOutcome>>;
 
   recordCallbackEvent(
     input: ProviderCallbackEventWriteInput

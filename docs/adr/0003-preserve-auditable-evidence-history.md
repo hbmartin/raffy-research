@@ -1,3 +1,5 @@
 # Preserve auditable evidence history
 
 Because provenance and reconstruction matter more than storage minimization, we chose to retain raw provider captures and metadata, keep Source Records even when they look duplicated, and keep Search Results distinct unless the underlying item is captured. Each published Weekly Report is frozen while later successful generations are stored as additional versions, preserving the exact synthesis instead of deduplicating or replacing sources or rewriting history.
+
+Amendment: daily pulls avoid re-capturing what is already stored. Most providers pull only what is new since their last fully successful pull (capped at seven days back). Exa instead searches an overlapping three-day lookback, because its day-only publish dates and indexing delay make a narrow window lose articles, and drops a result only when it is an exact copy of one already stored for that provider: same canonical URL and identical text. A changed page is a new version and is kept. Nothing already stored is merged or deleted. See `docs/ingestion-window.md`.

@@ -1,0 +1,1 @@
+CREATE INDEX "ingestionRun_workspace_provider_started_idx" ON "ingestionRun" USING btree ("workspaceId","providerName","startedAt");
