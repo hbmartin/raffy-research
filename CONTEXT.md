@@ -4,6 +4,28 @@ Raffy Research is an analyst-operated market-intelligence quality pipeline for a
 
 ## Language
 
+### Newsletter
+
+**Tracked Topic**:
+An enduring market subject whose public evidence accumulates across Weekly Reports and newsletter research.
+_Avoid_: Topic Cluster
+
+**Editorial Angle**:
+A specific reader takeaway about a Tracked Topic. Equivalent takeaways remain the same angle even when their titles differ.
+_Avoid_: Tracked Topic
+
+**Newsletter Theme**:
+An Editorial Angle proposed for a newsletter, accompanied by its supporting evidence and editorial rationale.
+_Avoid_: Topic Cluster
+
+**Newsletter Selection**:
+A shared choice of Editorial Angle for a Weekly Report, including its snooze and drafting history.
+_Avoid_: Publication
+
+**Newsletter Draft**:
+A saved article version written for busy industry insiders, with its style inputs, source citations, and audit judgments preserved.
+_Avoid_: Weekly Report
+
 ### Participants
 
 **Analyst**:

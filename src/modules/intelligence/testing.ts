@@ -1,5 +1,10 @@
 export { createIntelligenceUseCases } from './factory';
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';
+export {
+  createPublicResearchArchive,
+  deduplicatePublicCaptures,
+  isPublicResearchSource,
+} from './infrastructure/drizzle/public-research-archive';
 export { createReportRepository } from './infrastructure/drizzle/report-repository-drizzle';
 export { createRubricScoreRepository } from './infrastructure/drizzle/rubric-score-repository-drizzle';
 export { createScheduledJobRepository } from './infrastructure/drizzle/scheduled-job-repository-drizzle';

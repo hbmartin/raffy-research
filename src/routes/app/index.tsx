@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { LatestReportNewsletter } from '@/app/newsletter/report-newsletter';
 import { intelligenceQueries } from '@/modules/intelligence/client';
 import { PageLatestReport } from '@/modules/intelligence/presentation';
 import { observedLoader } from '@/platform/router/route-observability';
@@ -12,5 +13,9 @@ export const Route = createFileRoute('/app/')({
 });
 
 function RouteComponent() {
-  return <PageLatestReport />;
+  return (
+    <PageLatestReport>
+      <LatestReportNewsletter />
+    </PageLatestReport>
+  );
 }

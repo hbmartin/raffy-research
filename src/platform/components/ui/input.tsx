@@ -9,6 +9,10 @@ import {
 type InputProps = Pick<
   React.ComponentProps<'input'>,
   | 'type'
+  | 'required'
+  | 'min'
+  | 'max'
+  | 'maxLength'
   | 'className'
   | 'placeholder'
   | 'id'

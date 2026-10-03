@@ -1,4 +1,5 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 
 import {
   PageLayout,
@@ -11,7 +12,10 @@ import { ReportHeader } from './report-header';
 import { ReportPageBody } from '../report-page';
 import { intelligenceQueries } from '../wired-queries';
 
-export const PageReport = (props: { reportId: WeeklyReportId }) => {
+export const PageReport = (props: {
+  reportId: WeeklyReportId;
+  children?: ReactNode;
+}) => {
   const { data: report } = useSuspenseQuery(
     intelligenceQueries.report(props.reportId)
   );
@@ -23,6 +27,7 @@ export const PageReport = (props: { reportId: WeeklyReportId }) => {
           <ReportHeader report={report} />
           <ReportPageBody report={report} />
         </div>
+        {props.children}
       </PageLayoutContent>
     </PageLayout>
   );

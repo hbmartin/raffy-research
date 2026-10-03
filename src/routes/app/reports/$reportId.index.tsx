@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { ReportNewsletter } from '@/app/newsletter/report-newsletter';
 import { intelligenceQueries } from '@/modules/intelligence/client';
 import { PageReport } from '@/modules/intelligence/presentation';
 import { toWeeklyReportId } from '@/modules/kernel';
@@ -16,5 +17,9 @@ export const Route = createFileRoute('/app/reports/$reportId/')({
 
 function RouteComponent() {
   const params = Route.useParams();
-  return <PageReport reportId={toWeeklyReportId(params.reportId)} />;
+  return (
+    <PageReport reportId={toWeeklyReportId(params.reportId)}>
+      <ReportNewsletter reportId={params.reportId} />
+    </PageReport>
+  );
 }

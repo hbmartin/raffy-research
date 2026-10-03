@@ -97,10 +97,12 @@ test.describe('Manager scheduled jobs', () => {
         .locator('xpath=ancestor::*[@data-slot="card"][1]')
         .screenshot({
           path: 'test-results/task-verification/2026-10-01-job-recovery-fixes/jobs-badges.png',
+          caret: 'initial',
         });
       await page.screenshot({
         path: 'test-results/scheduled-jobs-desktop.png',
         fullPage: true,
+        caret: 'initial',
       });
 
       await page.setViewportSize({ width: 390, height: 844 });
@@ -114,6 +116,7 @@ test.describe('Manager scheduled jobs', () => {
       await page.screenshot({
         path: 'test-results/scheduled-jobs-mobile.png',
         fullPage: true,
+        caret: 'initial',
       });
     } finally {
       await client.query(

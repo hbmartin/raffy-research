@@ -6,6 +6,8 @@ import {
 type TextareaProps = Pick<
   React.ComponentProps<'textarea'>,
   | 'className'
+  | 'required'
+  | 'maxLength'
   | 'placeholder'
   | 'id'
   | 'value'
