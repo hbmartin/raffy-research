@@ -3,11 +3,7 @@ import type { ApplicationResult } from '@/modules/kernel/application/result';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonValue } from '@/modules/kernel/domain/json';
 
-import type {
-  InternalNoteConfig,
-  ProviderConfig,
-  ProviderName,
-} from '../../domain/provider';
+import type { ProviderConfig, ProviderName } from '../../domain/provider';
 import type {
   SearchResultWriteInput,
   SourceRecordWriteInput,
@@ -31,7 +27,6 @@ export type ProviderDailyContext = {
   keywords: Keyword[];
   competitors: Competitor[];
   socialAccounts: SocialAccount[];
-  internalNoteConfigs: InternalNoteConfig[];
   config: ProviderConfig;
   credential: string | undefined;
   now: Date;

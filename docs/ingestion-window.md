@@ -24,10 +24,6 @@ Run B, 2 Oct 14:00  →  asks for 1 Oct 14:00 … 2 Oct 14:00
                              └── 20 hours overlap → stored twice
 ```
 
-Slack and Notion ignored the window entirely. They re-fetched the latest 50
-messages and every configured page on every run, so they produced duplicates
-every day.
-
 **2. Lost Exa articles.** Exa often records only the *date* an article was
 published, stored as midnight UTC, and it indexes articles hours or days
 after publication. An article could fall through the gap between two windows:
@@ -39,7 +35,7 @@ after publication. An article could fall through the gap between two windows:
 | 2 Oct 14:10 | Exa indexes it, with publish date **2 Oct 00:00** (date only). |
 | 3 Oct 14:00 | Cron run asks for articles published since **2 Oct 14:00**. Exa thinks the article was published at 00:00, before the window, so it is filtered out. **Lost for good.** |
 
-## Strategy 1: "since the last successful pull" (Slack, Notion, others)
+## Strategy 1: "since the last successful pull" (default provider window)
 
 Each run starts where the provider's **last fully successful pull started**.
 Consecutive runs then cover adjoining windows, with no gap and no overlap:
@@ -54,7 +50,7 @@ Rules (`resolveIngestWindowStart` in `src/modules/intelligence/domain/ingestion.
 
 - **No successful pull yet:** start 24 hours ago (the old behaviour).
 - **Only `succeeded` pulls count.** If a pull was `partial` or `failed` (for
-  example, one Slack channel errored), the start does not move forward, so
+  example, one provider request errored), the start does not move forward, so
   the next run covers that window again instead of leaving a hole.
 - **Never more than 7 days back.** If a provider was disabled for a month,
   re-enabling it fetches the last week, not the whole month.
@@ -64,8 +60,6 @@ What each provider does with the window:
 
 | Provider | How it uses `periodStart` |
 |----------|---------------------------|
-| Slack    | Asks Slack only for messages posted after it (`oldest=`). |
-| Notion   | Checks each page's `last_edited_time` and skips pages not edited since then. A changed page is captured whole, as before. |
 | Ahrefs / Semrush | Doesn't use it. These are metric snapshots, so each run still stores one snapshot per competitor. |
 
 Each run records its window in `ingestionRun.metadata` as `periodStart` and
@@ -137,4 +131,3 @@ The run record shows how many results were dropped, in
 | Exact-copy check | `excludeStoredCopies` in `infrastructure/drizzle/source-repository-drizzle.ts` |
 | Opting a provider into the overlapping lookback | `overlappingWindow` on `ProviderAdapter` (`application/ports/provider-adapter.ts`) |
 | Exa lookback | `EXA_LOOKBACK_MS` in `infrastructure/providers/exa.ts` |
-| Slack / Notion use of the window | `infrastructure/providers/internal-notes.ts` |

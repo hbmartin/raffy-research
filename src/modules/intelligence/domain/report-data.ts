@@ -78,7 +78,6 @@ const zTopicCluster = z.object({
   all_evidence: z.array(zEvidenceItem).default([]),
   related_competitors: z.array(z.string()).default([]),
   related_keywords: z.array(z.string()).default([]),
-  related_internal_sources: z.array(z.string()).default([]),
 });
 
 const zCompetitorWatchItem = z.object({

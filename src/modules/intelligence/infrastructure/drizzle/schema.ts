@@ -122,24 +122,6 @@ export const providerConfig = pgTable(
   ]
 );
 
-/** Configured Slack channels / Notion pages eligible as internal evidence. */
-export const internalNoteConfig = pgTable(
-  'internalNoteConfig',
-  {
-    id: idColumn(),
-    createdAt: createdAtColumn(),
-    updatedAt: updatedAtColumn(),
-    workspaceId: text('workspaceId')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    sourceSystem: text('sourceSystem').$type<'slack' | 'notion'>().notNull(),
-    sourceRef: text('sourceRef').notNull(),
-    enabled: boolean('enabled').notNull().default(true),
-    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
-  },
-  (table) => [index('internalNoteConfig_workspaceId_idx').on(table.workspaceId)]
-);
-
 /** Permanently stored captured source objects. Duplicates are intentionally allowed. */
 export const sourceRecord = pgTable(
   'sourceRecord',

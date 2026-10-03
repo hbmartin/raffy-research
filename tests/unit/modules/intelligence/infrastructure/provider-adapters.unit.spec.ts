@@ -10,7 +10,6 @@ import { createProviderRegistry } from '@/modules/intelligence/testing';
 import type { Logger } from '@/modules/kernel';
 import {
   toCompetitorId,
-  toInternalNoteConfigId,
   toKeywordId,
   toProviderConfigId,
   toWorkspaceId,
@@ -62,17 +61,6 @@ function makeDailyContext(
       },
     ],
     socialAccounts: [],
-    internalNoteConfigs: [
-      {
-        id: toInternalNoteConfigId('note-1'),
-        workspaceId,
-        sourceSystem: 'slack',
-        sourceRef: 'C123',
-        enabled: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
     config: {
       id: toProviderConfigId(`provider-${providerName}`),
       workspaceId,
@@ -103,57 +91,7 @@ describe('provider adapters', () => {
     vi.unstubAllGlobals();
   });
 
-  it('logs and skips Slack ok:false responses', async () => {
-    const logger = makeLogger();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ ok: false, error: 'invalid_auth' }), {
-            status: 200,
-          })
-      )
-    );
-
-    const adapter = createProviderRegistry().get('slack');
-    const result = await adapter?.runDailyIngest?.(
-      makeDailyContext('slack', logger)
-    );
-    const value = expectOkValue(result);
-
-    expect(value.sourceRecords).toEqual([]);
-    expect(logger.warn).toHaveBeenCalledWith({
-      event: 'intelligence.ingest.provider_error',
-      details: {
-        provider: 'slack',
-        stage: 'response',
-        errorCode: 'invalid_auth',
-        durationMs: 0,
-      },
-    });
-  });
-
   describe('incremental window', () => {
-    it('asks Slack only for messages since the window start', async () => {
-      const fetchMock = vi.fn(
-        async (_url: string) =>
-          new Response(JSON.stringify({ ok: true, messages: [] }), {
-            status: 200,
-          })
-      );
-      vi.stubGlobal('fetch', fetchMock);
-
-      const ctx = makeDailyContext('slack', makeLogger());
-      expectOkValue(
-        await createProviderRegistry().get('slack')?.runDailyIngest?.(ctx)
-      );
-
-      const url = new URL(fetchMock.mock.calls[0]?.[0] ?? '');
-      expect(Number(url.searchParams.get('oldest'))).toBe(
-        ctx.periodStart.getTime() / 1000
-      );
-    });
-
     it('searches Exa over an overlapping three-day lookback', async () => {
       const fetchMock = vi.fn(
         async (_url: string, _init?: RequestInit) =>
@@ -186,72 +124,6 @@ describe('provider adapters', () => {
         startPublishedDate: ctx.periodStart.toISOString(),
       });
       expect(body).not.toHaveProperty('endPublishedDate');
-    });
-
-    const notionContext = (): ProviderDailyContext => ({
-      ...makeDailyContext('notion', makeLogger()),
-      internalNoteConfigs: [
-        {
-          id: toInternalNoteConfigId('note-notion'),
-          workspaceId,
-          sourceSystem: 'notion',
-          sourceRef: 'page-1',
-          enabled: true,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
-    });
-
-    const notionFetch = (lastEditedTime: string) =>
-      vi.fn(async (url: string) =>
-        url.includes('/v1/pages/')
-          ? new Response(JSON.stringify({ last_edited_time: lastEditedTime }), {
-              status: 200,
-            })
-          : new Response(
-              JSON.stringify({
-                results: [
-                  {
-                    type: 'paragraph',
-                    paragraph: { rich_text: [{ plain_text: 'Pricing notes' }] },
-                  },
-                ],
-              }),
-              { status: 200 }
-            )
-      );
-
-    it('skips a Notion page not edited since the window start', async () => {
-      const fetchMock = notionFetch('2026-05-30T12:00:00.000Z');
-      vi.stubGlobal('fetch', fetchMock);
-
-      const value = expectOkValue(
-        await createProviderRegistry()
-          .get('notion')
-          ?.runDailyIngest?.(notionContext())
-      );
-
-      expect(value.sourceRecords).toEqual([]);
-      expect(value.requestsFailed).toBe(0);
-      expect(fetchMock).toHaveBeenCalledOnce();
-    });
-
-    it('captures a Notion page edited since the window start', async () => {
-      vi.stubGlobal('fetch', notionFetch('2026-05-31T12:00:00.000Z'));
-
-      const value = expectOkValue(
-        await createProviderRegistry()
-          .get('notion')
-          ?.runDailyIngest?.(notionContext())
-      );
-
-      expect(value.sourceRecords).toEqual([
-        expect.objectContaining({
-          providerSourceId: 'page-1',
-          contentText: 'Pricing notes',
-        }),
-      ]);
     });
   });
 

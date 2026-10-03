@@ -1,6 +1,5 @@
 import { apifyAdapter } from './apify';
 import { exaAdapter } from './exa';
-import { notionAdapter, slackAdapter } from './internal-notes';
 import { ahrefsAdapter, semrushAdapter } from './seo';
 import {
   awarioAdapter,
@@ -23,8 +22,6 @@ const ADAPTERS: ProviderAdapter[] = [
   distillAdapter,
   semrushAdapter,
   ahrefsAdapter,
-  slackAdapter,
-  notionAdapter,
 ];
 
 export function createProviderRegistry(): ProviderRegistry {

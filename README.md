@@ -28,7 +28,7 @@ steer (topics/questions) → ingest (providers) → assess evidence → read syn
 ```mermaid
 flowchart LR
     subgraph Acquire
-        P[11 data providers<br/>Apify · Exa · Semrush · Ahrefs<br/>Awario · Trigify · ForumScout<br/>Visualping · Distill · Notion · Slack]
+        P[9 data providers<br/>Apify · Exa · Semrush · Ahrefs<br/>Awario · Trigify · ForumScout<br/>Visualping · Distill]
         CB[Provider callbacks<br/>POST /api/providers/:provider/callback]
         CRON[Cron ingest<br/>POST /api/cron/daily-ingest]
     end
@@ -112,7 +112,7 @@ The seed creates one workspace with a published example report. Sign in at `/log
 
 ### Manager workflow
 
-* `/manager/workspaces` → workspace detail shows company config, keywords, competitors (with suggested/accepted state), provider configs, internal note configs, report history with status badges, and the raw provider callback log.
+* `/manager/workspaces` → workspace detail shows company config, keywords, competitors (with suggested/accepted state), provider configs, report history with status badges, and the raw provider callback log.
 * `/manager/users` handles user administration.
 * In development builds, the workspace page also shows the **Local AI console** (see below).
 
@@ -178,7 +178,7 @@ Production wiring lives in `src/composition/*` using `createCachedFactory` (sing
 | Table | Role |
 |---|---|
 | `workspace` + `workspaceKeyword` / `workspaceCompetitor` / `workspaceSocialAccount` | What to watch, per customer |
-| `providerConfig`, `internalNoteConfig` | Which providers/notes feed the workspace |
+| `providerConfig` | Which providers feed the workspace |
 | `providerCallbackEvent` | Raw webhook payloads + normalization status (audit trail) |
 | `sourceRecord` | Permanent captured evidence; includes `relevanceLabel` (`keep`/`junk`/null) and `labeledAt` |
 | `searchResult` | Search hits stored separately from fetched records |

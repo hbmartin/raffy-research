@@ -22,6 +22,9 @@ const fixture = () => {
   };
   const create = vi.fn(async () => Result.Ok({ id: 'report-1' }));
   const listByWorkspace = vi.fn(async () => Result.Ok([]));
+  const sendAlert = vi.fn(async () =>
+    Result.Ok({ type: 'alert_skipped' as const })
+  );
   const deps = {
     workspaceRepository: {
       getById: async () =>
@@ -67,15 +70,28 @@ const fixture = () => {
           })
         ),
     },
-    alert: { sendAlert: async () => Result.Ok({ type: 'alert_skipped' }) },
+    alert: { sendAlert },
     clock: { now: () => now },
     logger,
   } as unknown as WeeklyReportGenerationDeps;
 
-  return { fakeSecret, workspaceId, now, deps, create, logger };
+  return { fakeSecret, workspaceId, now, deps, create, logger, sendAlert };
 };
 
 describe('weekly report failure privacy', () => {
+  it('still alerts when report generation fails', async () => {
+    const { workspaceId, now, deps, sendAlert } = fixture();
+
+    const result = await generateWeeklyReport(deps, { workspaceId, now });
+
+    expect(result.isOk() && result.get().type).toBe('report_failed');
+    expect(sendAlert).toHaveBeenCalledOnce();
+    expect(sendAlert).toHaveBeenCalledWith({
+      title: 'Weekly report generation failed',
+      message: expect.stringContaining(workspaceId),
+    });
+  });
+
   it('keeps raw OpenAI errors out of the log, Sentry exception, outcome, and report row', async () => {
     const { fakeSecret, workspaceId, now, deps, create, logger } = fixture();
 

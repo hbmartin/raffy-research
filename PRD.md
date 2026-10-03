@@ -109,7 +109,7 @@ Topic
 
 ## Goal 3: Store all raw source data permanently
 
-All provider payloads, search results, webhook callbacks, scraped content, source metadata, diffs, and internal notes should be stored permanently in Postgres.
+All provider payloads, search results, webhook callbacks, scraped content, source metadata, and diffs should be stored permanently in Postgres.
 
 V1 treats storage as cheap.
 
@@ -172,14 +172,13 @@ A workspace contains:
 * configured competitors
 * configured social accounts
 * configured providers
-* configured Slack / Notion sources
 * stored source records
 * weekly reports
 * feedback events
 
 ## Provider
 
-A third-party or internal integration that fetches or delivers data.
+A third-party integration that fetches or delivers market data.
 
 Examples:
 
@@ -192,8 +191,6 @@ Examples:
 * Distill.io
 * SEMrush
 * Ahrefs
-* Slack
-* Notion
 
 Important distinction: **the provider is not the source.**
 
@@ -203,8 +200,6 @@ Example:
 * Source: LinkedIn post
 * Provider: Visualping
 * Source: competitor homepage change event
-* Provider: Slack
-* Source: Slack thread
 
 ## Source
 
@@ -226,8 +221,6 @@ Examples:
 * SEMrush domain report
 * Visualping page-change event
 * Distill.io page-change event
-* Slack thread
-* Notion page
 
 ## Source record
 
@@ -275,8 +268,6 @@ Examples:
 * summarized forum question
 * added/removed webpage diff
 * search result snippet
-* internal Slack excerpt
-* Notion note excerpt
 * provider metric summary
 
 Every evidence item must include one or more source IDs.
@@ -385,8 +376,6 @@ The architecture should support all listed providers in V1, but the system must 
 | Distill.io | Competitor webpage change detection                         |
 | SEMrush    | SEO, keyword, and competitive search visibility             |
 | Ahrefs     | SEO, keyword, backlink, and domain momentum                 |
-| Slack      | Internal thread/note evidence                               |
-| Notion     | Internal page/note evidence                                 |
 
 ## Provider optionality
 
@@ -500,17 +489,6 @@ ignored
 
 Accepted competitors become part of the watchlist.
 
-## Internal notes
-
-V1 may configure:
-
-* one or more Slack channels
-* one or more Notion pages
-
-All configured Slack/Notion sources are allowed and may be used as evidence.
-
-Configured internal notes are not restricted to keyword-matching content in V1.
-
 ---
 
 # 10. Ingestion requirements
@@ -542,8 +520,6 @@ Callback examples:
 * Awario mention detected
 * Trigify lead trigger detected
 * ForumScout mention/question detected
-* Slack event
-* Notion update
 * manual upload or manual source insertion
 
 Each callback should create durable raw records.
@@ -577,19 +553,6 @@ V1 does not need:
 * inline visual diff
 * advanced semantic diff
 * LLM-generated diff confidence
-
-## Internal notes ingestion
-
-Slack and Notion ingestion should:
-
-* ingest only configured sources
-* store raw content and metadata
-* make internal notes eligible as report evidence
-* treat internal evidence equally with external evidence
-
-V1 does not need granular Slack/Notion permissions.
-
-The assumption is that configured sources are intentionally allowed for the CEO-facing internal report.
 
 ---
 
@@ -721,23 +684,6 @@ updated_at
 ```
 
 Credentials should not be stored directly in JSONB unless encrypted/secrets-managed appropriately.
-
-### `internal_note_configs`
-
-Stores configured Slack and Notion sources.
-
-Suggested columns:
-
-```text
-id
-workspace_id
-source_system -- slack | notion
-source_ref
-enabled
-created_at
-updated_at
-metadata jsonb
-```
 
 ### `source_records`
 
@@ -1060,7 +1006,7 @@ Reason: contradictions are high-value for CEOs.
 
 Examples:
 
-* Internal notes assume buyers care about speed, while external conversations emphasize compliance.
+* Configured market assumptions prioritize speed, while external conversations emphasize compliance.
 * Competitor messaging shifts toward a narrative the company has not discussed internally.
 * Social feedback indicates a pain point missing from internal positioning.
 * Internal GTM assumptions conflict with observed market questions.
@@ -1094,8 +1040,7 @@ Each topic cluster should include:
   "representative_evidence": [],
   "all_evidence": [],
   "related_competitors": [],
-  "related_keywords": [],
-  "related_internal_sources": []
+  "related_keywords": []
 }
 ```
 
@@ -1594,9 +1539,6 @@ Expected behavior:
 
 * Product is internal-facing.
 * Report is intended for CEO/admin users.
-* Slack and Notion sources are explicitly configured.
-* All configured internal sources are allowed for use in the CEO report.
-* No granular Slack/Notion permission modeling is required in V1.
 
 ## Raw payload visibility
 
@@ -1669,7 +1611,6 @@ V1 is acceptable when:
 * provider and source are stored distinctly
 * search results are stored separately
 * callbacks can write raw payloads
-* Slack and Notion configured sources can be ingested
 * Visualping/Distill-style text diffs can be stored
 * system works when some providers are not configured
 
@@ -1760,8 +1701,6 @@ Build:
 
 * Exa daily keyword search
 * Apify LinkedIn monitoring
-* Slack configured channel ingestion
-* Notion configured page ingestion
 * source storage
 * search result storage
 * basic LLM weekly report generation
@@ -1776,7 +1715,6 @@ Why these first:
 
 * Exa gives broad market narrative discovery.
 * Apify LinkedIn gives social/account monitoring.
-* Slack/Notion create internal/external contradiction value.
 * The CEO gets useful report content without waiting for every provider.
 
 Launch-quality output:
@@ -2013,7 +1951,6 @@ Potential V3 capabilities:
 * create draft tasks
 * assign owners
 * create Linear/Jira/Asana tasks
-* generate Slack summaries for teams
 * draft outreach for possible leads
 * send urgent alerts outside the weekly report
 * recommend marketing experiments
@@ -2035,12 +1972,11 @@ The highest-value quick hits are:
 2. **Permanent source storage**
 3. **Exa daily keyword search**
 4. **Apify LinkedIn monitoring**
-5. **Slack/Notion evidence**
-6. **LLM topic clustering**
-7. **Contradictions section**
-8. **Source drilldown**
-9. **Competitor Watch**
-10. **Feedback recording**
+5. **LLM topic clustering**
+6. **Contradictions section**
+7. **Source drilldown**
+8. **Competitor Watch**
+9. **Feedback recording**
 
 The most expensive or risky work to defer:
 

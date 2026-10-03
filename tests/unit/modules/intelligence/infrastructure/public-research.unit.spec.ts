@@ -14,18 +14,8 @@ const publicSource = {
   contentText: 'Captured public evidence',
 };
 describe('Public newsletter evidence boundary', () => {
-  it('excludes internal providers and private captures even when URLs look public', () => {
+  it('excludes private captures even when URLs look public', () => {
     expect(isPublicResearchSource(publicSource)).toBe(true);
-    expect(
-      isPublicResearchSource({ ...publicSource, providerName: 'slack' })
-    ).toBe(false);
-    expect(
-      isPublicResearchSource({
-        ...publicSource,
-        providerName: 'notion',
-        metadata: { visibility: 'public' },
-      })
-    ).toBe(false);
     expect(
       isPublicResearchSource({
         ...publicSource,
@@ -33,7 +23,10 @@ describe('Public newsletter evidence boundary', () => {
       })
     ).toBe(false);
     expect(
-      isPublicResearchSource({ ...publicSource, sourceType: 'internal_note' })
+      isPublicResearchSource({
+        ...publicSource,
+        sourceType: 'private_document',
+      })
     ).toBe(false);
   });
   it.each([

@@ -164,7 +164,7 @@ it.each(['token_revoked', 'token_expired'])(
   (code) => {
     const details = safeFailureDiagnostics({
       error: { code },
-      provider: 'slack',
+      provider: 'apify',
       stage: 'http',
       durationMs: 1,
     });

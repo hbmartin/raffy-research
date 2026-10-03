@@ -1,6 +1,6 @@
 {
-  "id": "8ed84987-1486-44fb-882f-672c327f29cc",
-  "prevId": "38b15f1b-14e6-481d-abe5-cb436f656941",
+  "id": "a57cd056-3585-4757-9901-0a46465d356c",
+  "prevId": "8ed84987-1486-44fb-882f-672c327f29cc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -843,97 +843,6 @@
           "columnsFrom": ["scheduledJobRunId"],
           "columnsTo": ["id"],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.internalNoteConfig": {
-      "name": "internalNoteConfig",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp (3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp (3)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "workspaceId": {
-          "name": "workspaceId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sourceSystem": {
-          "name": "sourceSystem",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sourceRef": {
-          "name": "sourceRef",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        }
-      },
-      "indexes": {
-        "internalNoteConfig_workspaceId_idx": {
-          "name": "internalNoteConfig_workspaceId_idx",
-          "columns": [
-            {
-              "expression": "workspaceId",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "internalNoteConfig_workspaceId_workspace_id_fk": {
-          "name": "internalNoteConfig_workspaceId_workspace_id_fk",
-          "tableFrom": "internalNoteConfig",
-          "tableTo": "workspace",
-          "columnsFrom": ["workspaceId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

@@ -78,7 +78,6 @@ export function isPublicResearchSource(
   >
 ): boolean {
   if (
-    ['slack', 'notion'].includes(source.providerName) ||
     /internal|private|note/i.test(
       `${source.sourceType} ${source.sourceSubtype ?? ''}`
     ) ||

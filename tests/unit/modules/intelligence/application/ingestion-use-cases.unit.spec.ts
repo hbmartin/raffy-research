@@ -130,7 +130,6 @@ function makeDeps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       listKeywords: vi.fn(async () => Result.Ok([])),
       listCompetitors: vi.fn(async () => Result.Ok([])),
       listSocialAccounts: vi.fn(async () => Result.Ok([])),
-      listInternalNoteConfigs: vi.fn(async () => Result.Ok([])),
       getProviderConfig: vi.fn(async () =>
         Result.Ok({ type: 'provider_config_not_found' as const })
       ),

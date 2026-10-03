@@ -1,5 +1,4 @@
 import type {
-  InternalNoteConfigId,
   ProviderConfigId,
   WorkspaceId,
 } from '@/modules/kernel/domain/ids';
@@ -16,8 +15,6 @@ export const PROVIDER_NAMES = [
   'distill',
   'semrush',
   'ahrefs',
-  'slack',
-  'notion',
 ] as const;
 
 export type ProviderName = (typeof PROVIDER_NAMES)[number];
@@ -32,10 +29,6 @@ export const WEBPAGE_MONITOR_PROVIDERS: readonly ProviderName[] = [
   'distill',
 ];
 export const SEO_PROVIDERS: readonly ProviderName[] = ['semrush', 'ahrefs'];
-export const INTERNAL_NOTE_PROVIDERS: readonly ProviderName[] = [
-  'slack',
-  'notion',
-];
 
 export type ProviderConfig = {
   id: ProviderConfigId;
@@ -54,16 +47,4 @@ export type ProviderConfigWriteInput = {
   enabled: boolean;
   credentialsRef?: string | null;
   config?: JsonObject | null;
-};
-
-export type InternalNoteSystem = 'slack' | 'notion';
-
-export type InternalNoteConfig = {
-  id: InternalNoteConfigId;
-  workspaceId: WorkspaceId;
-  sourceSystem: InternalNoteSystem;
-  sourceRef: string;
-  enabled: boolean;
-  createdAt: Date;
-  updatedAt: Date;
 };

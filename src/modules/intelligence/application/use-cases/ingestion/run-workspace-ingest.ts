@@ -69,20 +69,15 @@ export async function runWorkspaceIngest(
   }
   const workspace = workspaceOutcome.workspace;
 
-  const [keywords, competitors, social, notes, providerConfigs] =
-    await Promise.all([
-      deps.workspaceRepository.listKeywords(workspace.id, { activeOnly: true }),
-      deps.workspaceRepository.listCompetitors(workspace.id),
-      deps.workspaceRepository.listSocialAccounts(workspace.id),
-      deps.workspaceRepository.listInternalNoteConfigs(workspace.id, {
-        enabledOnly: true,
-      }),
-      deps.workspaceRepository.listProviderConfigs(workspace.id),
-    ]);
+  const [keywords, competitors, social, providerConfigs] = await Promise.all([
+    deps.workspaceRepository.listKeywords(workspace.id, { activeOnly: true }),
+    deps.workspaceRepository.listCompetitors(workspace.id),
+    deps.workspaceRepository.listSocialAccounts(workspace.id),
+    deps.workspaceRepository.listProviderConfigs(workspace.id),
+  ]);
   if (keywords.isError()) return Result.Error(keywords.getError());
   if (competitors.isError()) return Result.Error(competitors.getError());
   if (social.isError()) return Result.Error(social.getError());
-  if (notes.isError()) return Result.Error(notes.getError());
   if (providerConfigs.isError())
     return Result.Error(providerConfigs.getError());
 
@@ -146,7 +141,6 @@ export async function runWorkspaceIngest(
       keywords: keywords.get(),
       competitors: competitors.get(),
       socialAccounts: social.get(),
-      internalNoteConfigs: notes.get(),
       config,
       credential,
       now,

@@ -113,8 +113,7 @@
             "source_title": "AI Medical Scheduling",
             "provider_name": "ollama"
           }
-        ],
-        "related_internal_sources": []
+        ]
       },
       {
         "id": "digital_dentistry_training",
@@ -171,8 +170,7 @@
             "source_title": "Digital Implant Planning Training",
             "provider_name": "ollama"
           }
-        ],
-        "related_internal_sources": []
+        ]
       }
     ],
     "competitor_watch": [

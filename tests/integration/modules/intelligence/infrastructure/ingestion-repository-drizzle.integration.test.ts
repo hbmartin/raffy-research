@@ -96,7 +96,7 @@ describe('ingestion repository: last successful daily run', () => {
       },
       {
         workspaceId,
-        providerName: 'slack',
+        providerName: 'semrush',
         runType: 'daily',
         status: 'succeeded',
         startedAt: at('2026-06-03T10:00:00.000Z'),
