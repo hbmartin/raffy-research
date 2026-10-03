@@ -36,7 +36,7 @@ describe('Public newsletter evidence boundary', () => {
     'http://[::1]/study',
     'http://[fd12:3456::1]/study',
     'http://[fe80::1]/study',
-    'https://reader:password@example.org/private',
+    'https://reader:password@example.org/private', // pragma: allowlist secret
   ])('excludes nonpublic or credentialed URL %s', (externalUrl) => {
     expect(isPublicResearchSource({ ...publicSource, externalUrl })).toBe(
       false
@@ -60,7 +60,7 @@ describe('Public newsletter evidence boundary', () => {
 });
 
 describe('Public capture identities', () => {
-  it('retains historical dates and raw captures while grouping repeated and syndicated pages', () => {
+  it('retains historical dates and raw captures while keeping material revisions separate', () => {
     const copies = deduplicatePublicCaptures([
       {
         ...sourceFixture,
@@ -84,9 +84,9 @@ describe('Public capture identities', () => {
       },
     ]);
     expect(copies).toHaveLength(3);
-    expect(new Set(copies.map((s) => s.identity)).size).toBe(1);
+    expect(new Set(copies.map((s) => s.identity)).size).toBe(2);
     expect(new Set(copies.map((s) => s.publishedAt))).toEqual(
-      new Set([sourceFixture.publishedAt])
+      new Set([sourceFixture.publishedAt, copies[1]!.publishedAt])
     );
   });
 });

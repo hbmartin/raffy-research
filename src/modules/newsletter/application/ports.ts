@@ -8,19 +8,76 @@ import type {
   Runtime,
 } from '../domain/newsletter';
 
-export type Mutation<T> = { value: T; jobs?: NewsletterJob[] };
+export type Mutation<T> = {
+  value: T;
+  jobs?: NewsletterJob[];
+  alreadyPresent?: T;
+};
+export type NewsletterHistoryEntry = {
+  id: string;
+  kind: 'draft' | 'offer' | 'failure' | 'attempt' | 'retired';
+  createdAt: string;
+  reportId: string | null;
+  selectionId: string | null;
+  jobId: string;
+  summary: string;
+};
 export interface NewsletterRepository {
-  read(workspaceId: string): Promise<ApplicationResult<NewsletterState>>;
+  read(
+    workspaceId: string,
+    options?: { content?: boolean; drafts?: boolean }
+  ): Promise<ApplicationResult<NewsletterState>>;
+  getJob(
+    workspaceId: string,
+    jobId: string
+  ): Promise<
+    ApplicationResult<
+      { type: 'job_found'; job: NewsletterJob } | { type: 'not_found' }
+    >
+  >;
+  history(
+    workspaceId: string,
+    before?: string
+  ): Promise<
+    ApplicationResult<{
+      type: 'history_found';
+      entries: NewsletterHistoryEntry[];
+      nextCursor: string | null;
+    }>
+  >;
+  detail(
+    workspaceId: string,
+    id: string
+  ): Promise<
+    ApplicationResult<
+      { type: 'detail_found'; payload: unknown } | { type: 'not_found' }
+    >
+  >;
+  recordFailure(
+    job: NewsletterJob,
+    unit: string,
+    failure: string,
+    payload: unknown,
+    leaseToken: string
+  ): Promise<ApplicationResult<{ type: 'recorded' } | { type: 'lease_lost' }>>;
+  pendingPublications(
+    workspaceId?: string
+  ): Promise<ApplicationResult<{ workspaceId: string; reportId: string }[]>>;
   mutate<T>(
     workspaceId: string,
     work: (state: NewsletterState) => ApplicationResult<Mutation<T>>,
-    lease?: { jobId: string; leaseToken: string }
+    lease?: { jobId: string; leaseToken: string },
+    options?: { content?: boolean; drafts?: boolean }
   ): Promise<ApplicationResult<T>>;
-  listJobs(workspaceId: string): Promise<ApplicationResult<NewsletterJob[]>>;
+  listJobs(
+    workspaceId: string,
+    options?: { summaries?: boolean }
+  ): Promise<ApplicationResult<NewsletterJob[]>>;
   claim(
     mode: Runtime['mode'],
     now: Date,
-    token: string
+    token: string,
+    localOperatorId?: string
   ): Promise<
     ApplicationResult<
       { type: 'job_claimed'; job: NewsletterJob } | { type: 'queue_empty' }
@@ -41,8 +98,39 @@ export interface NewsletterRepository {
   enabledWorkspaces(): Promise<ApplicationResult<string[]>>;
 }
 export interface ResearchArchive {
+  equivalenceReviews?(
+    workspaceId: string,
+    before?: string
+  ): Promise<
+    ApplicationResult<{
+      type: 'reviews_found';
+      reviews: {
+        id: string;
+        leftSourceId: string;
+        rightSourceId: string;
+        leftTitle: string;
+        rightTitle: string;
+        status: 'suggested' | 'confirmed' | 'separate';
+      }[];
+      nextCursor: string | null;
+    }>
+  >;
+  decideEquivalence?(input: {
+    workspaceId: string;
+    reviewId: string;
+    actorId: string;
+    action: 'confirm' | 'separate';
+  }): Promise<ApplicationResult<{ type: 'saved' | 'not_found' }>>;
   read(
-    workspaceId: string
+    workspaceId: string,
+    options?: {
+      sourceIds?: string[];
+      reportIds?: string[];
+      content?: boolean;
+      now?: Date;
+      jobId?: string;
+      onlySourceIds?: boolean;
+    }
   ): Promise<ApplicationResult<Archive | { type: 'workspace_not_found' }>>;
   research(input: {
     workspaceId: string;
@@ -50,6 +138,8 @@ export interface ResearchArchive {
     queries: string[];
     pages: number;
     timeoutMs: number;
+    signal?: AbortSignal;
+    deadline?: Date;
   }): Promise<ApplicationResult<EvidenceSource[]>>;
 }
 export interface NewsletterModel {
@@ -58,5 +148,8 @@ export interface NewsletterModel {
     prompt: string;
     jobId: string;
     stage: string;
+    signal?: AbortSignal;
+    deadline?: Date;
+    contextBudget?: number;
   }): Promise<ApplicationResult<string>>;
 }

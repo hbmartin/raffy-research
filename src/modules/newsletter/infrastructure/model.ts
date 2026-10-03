@@ -10,7 +10,7 @@ export function createHostedNewsletterModel(input: {
   apiKey: () => string | undefined;
 }): NewsletterModel {
   return {
-    async generate({ runtime, prompt }) {
+    async generate({ runtime, prompt, signal, deadline }) {
       try {
         const key = input.apiKey();
         if (!key)
@@ -25,7 +25,20 @@ export function createHostedNewsletterModel(input: {
         const result = await generateText({
           model: createOpenAI({ apiKey: key })(runtime.model),
           prompt,
-          abortSignal: AbortSignal.timeout(100_000),
+          maxRetries: 0,
+          maxOutputTokens: 4096,
+          abortSignal: AbortSignal.any([
+            AbortSignal.timeout(
+              Math.max(
+                1,
+                Math.min(
+                  100_000,
+                  deadline ? deadline.getTime() - Date.now() : Infinity
+                )
+              )
+            ),
+            ...(signal ? [signal] : []),
+          ]),
         });
         return Result.Ok(result.text);
       } catch (cause) {

@@ -13,6 +13,7 @@ import {
   angleEligible,
   type Audit,
   DAY_MS,
+  type DraftVersion,
   exportDraft,
   hasStyle,
   type NewsletterJob,
@@ -21,7 +22,9 @@ import {
   rankThemes,
   sourceWarnings,
   type Theme,
+  zArticle,
 } from './domain/newsletter';
+import { resolveContextBudget, resolveTopicRoot } from './domain/processing';
 
 type Deps = {
   repository: NewsletterRepository;
@@ -29,6 +32,13 @@ type Deps = {
   permissionChecker: PermissionChecker;
   clock: Clock;
   idGenerator: IdGenerator;
+  discoverContextBudget?: (
+    runtime: NewsletterProfile['runtime']
+  ) => Promise<
+    ApplicationResult<
+      { type: 'context_found'; tokens: number } | { type: 'context_unknown' }
+    >
+  >;
 };
 export type NewsletterView = {
   type: 'newsletter_found';
@@ -56,7 +66,8 @@ type Outcome =
   | { type: 'angle_unavailable' }
   | { type: 'override_required' }
   | { type: 'not_found' }
-  | { type: 'invalid_correction' };
+  | { type: 'invalid_correction' }
+  | { type: 'context_required' };
 const currentAssignments = (
   state: NewsletterState,
   sourceIds: string[],
@@ -66,6 +77,16 @@ const currentAssignments = (
   for (const id of sourceIds) state.assignments[id] = topicId;
 };
 export function createNewsletterUseCases(deps: Deps) {
+  const mutate = <T>(
+    workspaceId: string,
+    work: (
+      state: NewsletterState
+    ) => ApplicationResult<import('./application/ports').Mutation<T>>
+  ) =>
+    deps.repository.mutate(workspaceId, work, undefined, {
+      content: false,
+      drafts: false,
+    });
   const makeJob = (
     workspaceId: string,
     state: NewsletterState,
@@ -78,7 +99,15 @@ export function createNewsletterUseCases(deps: Deps) {
     workspaceId,
     kind,
     key,
-    runtime: state.profile!.runtime,
+    runtime: structuredClone(state.profile!.runtime),
+    contextBudget: resolveContextBudget(state.profile!.runtime),
+    localOperatorId: state.profile!.runtime.localOperatorId ?? null,
+    initiatingActorId:
+      state.selections.find((s) => s.id === selectionId)?.selectedBy ??
+      state.profile!.runtime.localOperatorId ??
+      null,
+    targetReportId:
+      state.selections.find((s) => s.id === selectionId)?.reportId ?? null,
     selectionId,
     feedback,
     status: 'queued',
@@ -86,10 +115,12 @@ export function createNewsletterUseCases(deps: Deps) {
     checkpoint: {
       profile: structuredClone(state.profile!),
       angle: structuredClone(
-        state.angles.find(
-          (a) =>
-            a.id === state.selections.find((v) => v.id === selectionId)?.angleId
-        )
+        state.selections.find((v) => v.id === selectionId)?.angleSnapshot ??
+          state.angles.find(
+            (a) =>
+              a.id ===
+              state.selections.find((v) => v.id === selectionId)?.angleId
+          )
       ),
     },
     leaseToken: null,
@@ -118,13 +149,24 @@ export function createNewsletterUseCases(deps: Deps) {
       workspaceId: string;
     }): Promise<ApplicationResult<GetOutcome | { type: 'forbidden' }>> {
       return authorized<GetOutcome>(input.userId, async () => {
-        const archive = await deps.archive.read(input.workspaceId);
+        const stored = await deps.repository.read(input.workspaceId, {
+          content: false,
+        });
+        if (stored.isError()) return Result.Error(stored.getError());
+        const archive = await deps.archive.read(input.workspaceId, {
+          content: false,
+          sourceIds: [
+            ...stored.get().sources.map((s) => s.id),
+            ...stored.get().drafts.flatMap((d) => d.sources.map((s) => s.id)),
+          ],
+          now: deps.clock.now(),
+        });
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        const stored = await deps.repository.read(input.workspaceId);
-        if (stored.isError()) return Result.Error(stored.getError());
-        const jobs = await deps.repository.listJobs(input.workspaceId);
+        const jobs = await deps.repository.listJobs(input.workspaceId, {
+          summaries: true,
+        });
         if (jobs.isError()) return Result.Error(jobs.getError());
         const state = stored.get();
         const current = state.sources.map((s) => {
@@ -173,25 +215,247 @@ export function createNewsletterUseCases(deps: Deps) {
       profile: NewsletterProfile;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, async () => {
-        const archive = await deps.archive.read(input.workspaceId);
+        const archive = await deps.archive.read(input.workspaceId, {
+          content: false,
+          now: deps.clock.now(),
+        });
         if (archive.isError()) return Result.Error(archive.getError());
         if ('type' in archive.get())
           return Result.Ok({ type: 'workspace_not_found' });
-        return deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
-          state.profile = input.profile;
-          const jobs = input.profile.enabled
-            ? [
-                makeJob(
-                  input.workspaceId,
-                  state,
-                  'prepare',
-                  `prepare:${input.workspaceId}:${state.revision + 1}`
-                ),
-              ]
+        let tokens = resolveContextBudget(input.profile.runtime);
+        if (!tokens && deps.discoverContextBudget) {
+          const discovery = await deps.discoverContextBudget(
+            input.profile.runtime
+          );
+          if (discovery.isError()) return Result.Error(discovery.getError());
+          const discovered = discovery.get();
+          if (discovered.type === 'context_found') tokens = discovered.tokens;
+        }
+        if (!tokens) return Result.Ok({ type: 'context_required' });
+        const data = archive.get();
+        if ('type' in data) return Result.Ok(data);
+        return mutate<Outcome>(input.workspaceId, (state) => {
+          const firstEnable = input.profile.enabled && !state.profile?.enabled;
+          state.profile = {
+            ...input.profile,
+            runtime: {
+              ...input.profile.runtime,
+              contextWindowTokens: tokens,
+              localOperatorId:
+                input.profile.runtime.mode === 'local'
+                  ? input.userId
+                  : undefined,
+            },
+          };
+          const jobs = firstEnable
+            ? data.reports
+                .filter((r) => !state.processedReports.includes(r.id))
+                .map((report) => ({
+                  ...makeJob(
+                    input.workspaceId,
+                    state,
+                    'prepare',
+                    `publication:${input.workspaceId}:${report.id}`
+                  ),
+                  initiatingActorId: input.userId,
+                  targetReportId: report.id,
+                }))
             : [];
           return Result.Ok({ value: { type: 'saved' as const }, jobs });
         });
       });
+    },
+    async prepareThemes(input: {
+      userId: UserId;
+      workspaceId: string;
+    }): Promise<ApplicationResult<Outcome>> {
+      return authorized<Outcome>(input.userId, async () => {
+        const archive = await deps.archive.read(input.workspaceId, {
+          content: false,
+          now: deps.clock.now(),
+        });
+        if (archive.isError()) return Result.Error(archive.getError());
+        if ('type' in archive.get())
+          return Result.Ok({ type: 'workspace_not_found' });
+        return mutate<Outcome>(input.workspaceId, (state) => {
+          if (!state.profile)
+            return Result.Ok({ value: { type: 'style_required' } });
+          if (!resolveContextBudget(state.profile.runtime))
+            return Result.Ok({ value: { type: 'context_required' } });
+          const job = makeJob(
+            input.workspaceId,
+            state,
+            'prepare',
+            `manual:${input.workspaceId}:${deps.idGenerator.createId()}`
+          );
+          job.initiatingActorId = input.userId;
+          return Result.Ok({ value: { type: 'queued' }, jobs: [job] });
+        });
+      });
+    },
+    async retry(input: {
+      userId: UserId;
+      workspaceId: string;
+      jobId: string;
+    }): Promise<ApplicationResult<Outcome>> {
+      return authorized<Outcome>(input.userId, async () => {
+        const previous = await deps.repository.getJob(
+          input.workspaceId,
+          input.jobId
+        );
+        if (previous.isError()) return Result.Error(previous.getError());
+        const found = previous.get();
+        if (found.type === 'not_found') return Result.Ok(found);
+        const parent = found.job;
+        if (parent.status !== 'failed')
+          return Result.Ok({ type: 'selection_conflict' });
+        const archive = await deps.archive.read(input.workspaceId, {
+          reportIds: parent.targetReportId
+            ? [parent.targetReportId]
+            : undefined,
+          sourceIds: parent.checkpoint.angle?.sourceIds,
+          now: deps.clock.now(),
+        });
+        if (archive.isError()) return Result.Error(archive.getError());
+        const data = archive.get();
+        if ('type' in data) return Result.Ok(data);
+        return mutate<Outcome>(input.workspaceId, (state) => {
+          if (
+            !state.profile ||
+            (parent.kind === 'draft' && !hasStyle(state.profile))
+          )
+            return Result.Ok({ value: { type: 'style_required' } });
+          if (!resolveContextBudget(state.profile.runtime))
+            return Result.Ok({ value: { type: 'context_required' } });
+          const selection = state.selections.find(
+            (s) => s.id === parent.selectionId
+          );
+          if (
+            parent.kind === 'draft' &&
+            (!selection ||
+              selection.status === 'abandoned' ||
+              state.selections.some(
+                (s) =>
+                  s.id !== selection.id &&
+                  s.reportId === selection.reportId &&
+                  (s.status === 'pending' || s.status === 'ready')
+              ))
+          )
+            return Result.Ok({ value: { type: 'selection_conflict' } });
+          const job = makeJob(
+            input.workspaceId,
+            state,
+            parent.kind,
+            `retry:${parent.id}`,
+            parent.selectionId,
+            parent.feedback
+          );
+          job.parentAttemptId = parent.id;
+          job.targetReportId =
+            parent.targetReportId ?? selection?.reportId ?? null;
+          job.initiatingActorId = input.userId;
+          if (selection) selection.status = 'pending';
+          return Result.Ok({
+            value: { type: 'queued' },
+            alreadyPresent: { type: 'selection_conflict' },
+            jobs: [job],
+          });
+        });
+      });
+    },
+    async history(input: {
+      userId: UserId;
+      workspaceId: string;
+      before?: string;
+    }) {
+      return authorized(input.userId, () =>
+        deps.repository.history(input.workspaceId, input.before)
+      );
+    },
+    async detail(input: { userId: UserId; workspaceId: string; id: string }) {
+      return authorized<
+        | { type: 'not_found' }
+        | { type: 'detail_found'; payloadJson: string; warnings: string[] }
+      >(input.userId, async () => {
+        const detail = await deps.repository.detail(
+          input.workspaceId,
+          input.id
+        );
+        if (detail.isError()) return Result.Error(detail.getError());
+        const outcome = detail.get();
+        if (outcome.type === 'not_found') return Result.Ok(outcome);
+        const saved = zArticle.safeParse(outcome.payload);
+        let warnings: string[] = [];
+        if (
+          saved.success &&
+          typeof outcome.payload === 'object' &&
+          outcome.payload &&
+          'sources' in outcome.payload &&
+          Array.isArray(outcome.payload.sources)
+        ) {
+          const draft = outcome.payload as DraftVersion;
+          const live = await deps.archive.read(input.workspaceId, {
+            sourceIds: draft.sources.map((s) => s.id),
+            onlySourceIds: true,
+            content: false,
+          });
+          if (live.isError()) return Result.Error(live.getError());
+          const data = live.get();
+          warnings = sourceWarnings(draft, 'type' in data ? [] : data.sources);
+        }
+        return Result.Ok({
+          type: 'detail_found' as const,
+          payloadJson: JSON.stringify(outcome.payload),
+          warnings,
+        });
+      });
+    },
+    async evidenceDetails(input: {
+      userId: UserId;
+      workspaceId: string;
+      sourceIds: string[];
+    }) {
+      return authorized(input.userId, async () =>
+        (
+          await deps.archive.read(input.workspaceId, {
+            sourceIds: input.sourceIds,
+            onlySourceIds: true,
+          })
+        ).map((data) =>
+          'type' in data
+            ? data
+            : { type: 'evidence_found' as const, sources: data.sources }
+        )
+      );
+    },
+    async equivalenceReviews(input: {
+      userId: UserId;
+      workspaceId: string;
+      before?: string;
+    }) {
+      return authorized(input.userId, () =>
+        deps.archive.equivalenceReviews
+          ? deps.archive.equivalenceReviews(input.workspaceId, input.before)
+          : Promise.resolve(
+              Result.Ok({
+                type: 'reviews_found' as const,
+                reviews: [],
+                nextCursor: null,
+              })
+            )
+      );
+    },
+    async decideEquivalence(input: {
+      userId: UserId;
+      workspaceId: string;
+      reviewId: string;
+      action: 'confirm' | 'separate';
+    }): Promise<ApplicationResult<Outcome>> {
+      return authorized<Outcome>(input.userId, () =>
+        deps.archive.decideEquivalence
+          ? deps.archive.decideEquivalence({ ...input, actorId: input.userId })
+          : Promise.resolve(Result.Ok({ type: 'not_found' as const }))
+      );
     },
     async select(input: {
       userId: UserId;
@@ -202,15 +466,20 @@ export function createNewsletterUseCases(deps: Deps) {
       replace?: boolean;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, async () => {
-        const archive = await deps.archive.read(input.workspaceId);
+        const archive = await deps.archive.read(input.workspaceId, {
+          content: false,
+          now: deps.clock.now(),
+        });
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
         if (data.reports.at(-1)?.id !== input.reportId)
           return Result.Ok({ type: 'latest_report_required' });
-        return deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
-          if (!state.profile?.enabled || !hasStyle(state.profile))
+        return mutate<Outcome>(input.workspaceId, (state) => {
+          if (!state.profile || !hasStyle(state.profile))
             return Result.Ok({ value: { type: 'style_required' as const } });
+          if (!resolveContextBudget(state.profile.runtime))
+            return Result.Ok({ value: { type: 'context_required' as const } });
           const active = state.selections.find(
             (s) =>
               s.reportId === input.reportId &&
@@ -281,13 +550,16 @@ export function createNewsletterUseCases(deps: Deps) {
       skip: boolean;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, async () => {
-        const archive = await deps.archive.read(input.workspaceId);
+        const archive = await deps.archive.read(input.workspaceId, {
+          content: false,
+          now: deps.clock.now(),
+        });
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
         if (data.reports.at(-1)?.id !== input.reportId)
           return Result.Ok({ type: 'latest_report_required' });
-        return deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
+        return mutate<Outcome>(input.workspaceId, (state) => {
           if (
             state.selections.some(
               (s) =>
@@ -310,7 +582,7 @@ export function createNewsletterUseCases(deps: Deps) {
       selectionId: string;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
+        mutate<Outcome>(input.workspaceId, (state) => {
           const s = state.selections.find((v) => v.id === input.selectionId);
           if (!s) return Result.Ok({ value: { type: 'not_found' as const } });
           s.status = 'abandoned';
@@ -325,7 +597,7 @@ export function createNewsletterUseCases(deps: Deps) {
       feedback: string;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
+        mutate<Outcome>(input.workspaceId, (state) => {
           const s = state.selections.find(
             (v) => v.id === input.selectionId && v.status === 'ready'
           );
@@ -333,6 +605,8 @@ export function createNewsletterUseCases(deps: Deps) {
             return Result.Ok({ value: { type: 'not_found' as const } });
           if (!hasStyle(state.profile))
             return Result.Ok({ value: { type: 'style_required' as const } });
+          if (!resolveContextBudget(state.profile.runtime))
+            return Result.Ok({ value: { type: 'context_required' as const } });
           return Result.Ok({
             value: { type: 'queued' as const },
             jobs: [
@@ -359,7 +633,7 @@ export function createNewsletterUseCases(deps: Deps) {
       sourceIds?: string[];
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        deps.repository.mutate<Outcome>(input.workspaceId, (state) => {
+        mutate<Outcome>(input.workspaceId, (state) => {
           const topic = state.topics.find(
             (t) => t.id === input.topicId && !t.mergedInto
           );
@@ -379,7 +653,11 @@ export function createNewsletterUseCases(deps: Deps) {
               });
             topic.title = input.title.trim();
           } else if (input.action === 'merge') {
-            if (!target || target.id === topic.id)
+            if (
+              !target ||
+              target.id === topic.id ||
+              resolveTopicRoot(state.topics, target.id) === topic.id
+            )
               return Result.Ok({
                 value: { type: 'invalid_correction' as const },
               });
@@ -452,20 +730,36 @@ export function createNewsletterUseCases(deps: Deps) {
       format: 'markdown' | 'text';
     }): Promise<ApplicationResult<ExportOutcome | { type: 'forbidden' }>> {
       return authorized<ExportOutcome>(input.userId, async () => {
-        const state = await deps.repository.read(input.workspaceId);
+        const state = await deps.repository.read(input.workspaceId, {
+          content: false,
+          drafts: false,
+        });
         if (state.isError()) return Result.Error(state.getError());
-        const draft = state.get().drafts.find((d) => d.id === input.draftId);
-        if (!draft) return Result.Ok({ type: 'not_found' as const });
-        const archive = await deps.archive.read(input.workspaceId);
+        const detail = await deps.repository.detail(
+          input.workspaceId,
+          input.draftId
+        );
+        if (detail.isError()) return Result.Error(detail.getError());
+        const found = detail.get();
+        const draft =
+          found.type === 'detail_found'
+            ? (found.payload as DraftVersion)
+            : state.get().drafts.find((d) => d.id === input.draftId);
+        if (
+          !draft ||
+          !zArticle.safeParse(draft).success ||
+          !Array.isArray(draft.sources)
+        )
+          return Result.Ok({ type: 'not_found' as const });
+        const archive = await deps.archive.read(input.workspaceId, {
+          sourceIds: draft.sources.map((s) => s.id),
+          content: false,
+          now: deps.clock.now(),
+        });
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        const live = state
-          .get()
-          .sources.map(
-            (s) =>
-              data.sources.find((v) => v.id === s.id) ?? { ...s, junk: true }
-          );
+        const live = data.sources;
         return Result.Ok({
           type: 'draft_exported' as const,
           text: exportDraft(draft, input.format),

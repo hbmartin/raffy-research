@@ -6,12 +6,19 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 
 import { createFixtureSupervisor } from './fixture-supervisor.mjs';
+import { disposablePostgres } from '../tests/server/disposable-postgres.ts';
 
 process.env.VITE_ENV_NAME = 'tests';
 process.env.AUTH_SECRET = randomBytes(32).toString('hex');
 process.env.NODE_ENV = 'development';
-process.env.DATABASE_URL =
-  'postgresql://postgres:postgres@127.0.0.1:54329/postgres';
+if (!process.env.E2E_DATABASE_URL)
+  throw new Error(
+    'E2E_DATABASE_URL must be supplied by the fixture environment'
+  );
+const fixtureDatabaseUrl = new URL(process.env.E2E_DATABASE_URL);
+if (!['localhost', '127.0.0.1', '[::1]'].includes(fixtureDatabaseUrl.hostname))
+  throw new Error('E2E database must be local');
+process.env.DATABASE_URL = process.env.E2E_DATABASE_URL;
 process.env.DATABASE_MIGRATION_URL = process.env.DATABASE_URL;
 process.env.DATABASE_DRIVER = 'node-pg';
 process.env.DATABASE_MIGRATION_DRIVER = 'node-pg';
@@ -21,21 +28,31 @@ const vite = resolve(
   dirname(require.resolve('vite/package.json')),
   'bin/vite.js'
 );
-const database = new PGlite('memory://', { extensions: { pgcrypto } });
-const socket = new PGLiteSocketServer({
-  db: database,
-  host: '127.0.0.1',
-  port: 54329,
-  maxConnections: 16,
+const postgres = await disposablePostgres('', {
+  port: Number(fixtureDatabaseUrl.port),
+  username: decodeURIComponent(fixtureDatabaseUrl.username) || 'postgres',
+  database:
+    decodeURIComponent(fixtureDatabaseUrl.pathname.slice(1)) || 'postgres',
 });
+const database = postgres
+  ? undefined
+  : new PGlite('memory://', { extensions: { pgcrypto } });
+const socket = database
+  ? new PGLiteSocketServer({
+      db: database,
+      host: '127.0.0.1',
+      port: Number(fixtureDatabaseUrl.port),
+      maxConnections: 16,
+    })
+  : undefined;
 const run = (path) => supervisor.runNode(['./run-jiti', path]);
 await supervisor.run(
   async () => {
-    await database.waitReady;
+    await database?.waitReady;
     supervisor.checkpoint();
-    await database.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
+    await database?.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
     supervisor.checkpoint();
-    await socket.start();
+    await socket?.start();
     await Promise.all([
       (async () => {
         await run('./src/modules/kernel/infrastructure/db/migrate-cli.ts');
@@ -46,13 +63,14 @@ await supervisor.run(
       run('./src/app/build-info/infrastructure/generate-build-info.ts'),
     ]);
     supervisor.checkpoint();
-    await supervisor.runNode([vite, '--host', '127.0.0.1']);
+    await supervisor.runNode([vite, '--host', '0.0.0.0']);
   },
   async () => {
     try {
-      await socket.stop();
+      await socket?.stop();
     } finally {
-      await database.close();
+      await database?.close();
+      await postgres?.close();
     }
   }
 );

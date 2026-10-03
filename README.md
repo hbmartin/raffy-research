@@ -60,7 +60,7 @@ flowchart LR
     EVAL -. informs next iteration .-> GEN
 ```
 
-* **Acquisition.** External providers push results through authenticated webhook callbacks; scheduled cron jobs trigger pull-based ingestion. Every payload is normalized into a `sourceRecord` — duplicates intentionally allowed, raw payloads preserved for audit.
+* **Acquisition.** External providers push results through authenticated webhook callbacks; scheduled cron jobs trigger pull-based ingestion. Exact page versions reuse a permanent `sourceRecord`, while every search and callback observation retains its provenance. Changed pages and per-run metric snapshots remain separate captures.
 * **Synthesis.** Once a week (or on demand), the system gathers a workspace's period sources, configured keywords/competitors/social accounts, prior reports, and optional per-source summaries, builds a versioned prompt, and generates a structured JSON report. Output is schema-validated with a single bounded repair pass; published reports are frozen and append-versioned.
 * **Judgment.** The analyst scores each report on a three-dimension rubric, labels sources keep/junk (junk is excluded from future generation), and can run an adversarial LLM judge in the local quality lab that checks every report claim against the underlying sources.
 
@@ -572,25 +572,7 @@ Iterating on synthesis quality is token-hungry. A single full-workflow run (summ
 
 ### Environment layering
 
-Evidence mode is plain dotenv layering, loaded by `dotenv-cli`:
-
-```
-.env  →  .env.local (pulled from Vercel production)  →  .env.ai.local (your overrides)
-```
-
-> [!IMPORTANT]
-> `dotenv-cli` keeps the **first** value it sees for a key, so the file listed first on
-> the command line wins. The evidence scripts list `-e .env -e .env.local -e .env.ai.local`,
-> which means `.env.ai.local` can only *add* keys that the earlier files leave undefined —
-> it cannot override one they already set.
->
-> This matters most for `DATABASE_DRIVER`, which `.env` defines as `node-pg`: setting
-> `DATABASE_DRIVER="neon-http"` in `.env.ai.local` has no effect, and the run silently
-> stays on local Docker Postgres instead of production Neon. `LOCAL_AI_*`, `OLLAMA_BASE_URL`
-> and `PHOENIX_*` are unaffected, because `.env` does not define them.
->
-> To override a key the earlier layers already set, either edit it in the file that owns it
-> or reorder the `-e` flags so the override layer comes first.
+Evidence mode loads `.env.ai.local`, then `.env.local`, then `.env`. `dotenv-cli` keeps the first value for each key, so personal overrides take precedence over downloaded production settings and defaults. Existing shell variables have the highest precedence. The same ordering is used by `dev:evidence`, `db:migrate:evidence`, `auth:set-credential`, `eval:phoenix`, and `db:migrate:workflows`.
 
 `.env.ai.example` documents the override file:
 
@@ -700,7 +682,7 @@ Expected outcomes:
 
 ### Stack
 
-[Node.js 24](https://nodejs.org) · [TypeScript](https://www.typescriptlang.org/) · [React](https://react.dev/) · [TanStack Start](https://tanstack.com/start) (+ Router/Query) · [Tailwind CSS](https://tailwindcss.com/) · [shadcn/ui](https://ui.shadcn.com/) · [Drizzle ORM](https://orm.drizzle.team/) on [Neon](https://neon.tech) Postgres · [Better Auth](https://www.better-auth.com/) · [Vitest](https://vitest.dev/) · [Playwright](https://playwright.dev/) · [ai-sdk](https://sdk.vercel.ai/) with `ai-sdk-provider-codex-cli` and `ai-sdk-provider-claude-code`
+[Node.js 24](https://nodejs.org) · [TypeScript](https://www.typescriptlang.org/) · [React](https://react.dev/) · [TanStack Start](https://tanstack.com/start) (+ Router/Query) · [Tailwind CSS](https://tailwindcss.com/) · [shadcn/ui](https://ui.shadcn.com/) · [Drizzle ORM](https://orm.drizzle.team/) on [Neon](https://neon.tech) Postgres · [Better Auth](https://www.better-auth.com/) · [Vitest](https://vitest.dev/) · [Playwright](https://playwright.dev/) · [ai-sdk](https://sdk.vercel.ai/) for hosted/Ollama generation and isolated native Codex/Claude CLI adapters
 
 Built on the [Start UI [web]](https://docs.web.start-ui.com) starter by [BearStudio](https://www.bearstudio.fr/team); its conventions (and `AGENTS.md`) remain the authoritative architecture reference.
 

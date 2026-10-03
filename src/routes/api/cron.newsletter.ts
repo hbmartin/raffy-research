@@ -17,8 +17,8 @@ export const Route = createFileRoute('/api/cron/newsletter')({
           !timingSafeEqual(digest(provided), digest(`Bearer ${secret}`))
         )
           return new Response('Unauthorized', { status: 401 });
-        await drainNewsletterQueue('hosted', 1);
-        return Response.json({ status: 'processed' });
+        const outcome = await drainNewsletterQueue('hosted');
+        return Response.json(outcome);
       },
     },
   },

@@ -13,14 +13,17 @@ import {
   type NewsletterModel,
 } from '@/modules/newsletter';
 import {
+  createContextDiscovery,
   createHostedNewsletterModel,
   createNewsletterRepository,
 } from '@/modules/newsletter/backend';
 import { envClient } from '@/platform/env/client';
 
 import { getKernel } from './kernel';
+import { newsletterExecutionConfig } from './newsletter-config';
+import { createCachedFactory } from './shared/singleton';
 
-export function getNewsletterRuntime() {
+function buildNewsletterRuntime() {
   const kernel = getKernel();
   const repository = createNewsletterRepository(kernel.db);
   const archive = createPublicResearchArchive(kernel.db);
@@ -50,8 +53,21 @@ export function getNewsletterRuntime() {
           runId: input.jobId,
           rawOutputDir: config.rawOutputDir,
           ollamaBaseUrl: config.ollamaBaseUrl,
-          ollamaNumCtx: config.ollamaNumCtx,
-          abortSignal: AbortSignal.timeout(config.timeoutMs),
+          ollamaNumCtx: input.contextBudget ?? config.ollamaNumCtx,
+          abortSignal: AbortSignal.any([
+            AbortSignal.timeout(
+              Math.max(
+                1,
+                Math.min(
+                  config.timeoutMs,
+                  input.deadline
+                    ? input.deadline.getTime() - Date.now()
+                    : Infinity
+                )
+              )
+            ),
+            ...(input.signal ? [input.signal] : []),
+          ]),
         });
         return Result.Ok(output.text);
       } catch (cause) {
@@ -73,16 +89,23 @@ export function getNewsletterRuntime() {
     model,
     clock: kernel.clock,
     idGenerator: kernel.idGenerator,
+    localOperatorId: newsletterExecutionConfig().operatorId,
   });
   const useCases = createNewsletterUseCases({
     repository,
     archive,
+    discoverContextBudget: createContextDiscovery({
+      ollamaBaseUrl: () => getLocalAiConfig().ollamaBaseUrl,
+    }),
     permissionChecker: kernel.permissionChecker,
     clock: kernel.clock,
     idGenerator: kernel.idGenerator,
   });
   return { repository, archive, worker, useCases };
 }
+
+const runtimeFactory = createCachedFactory(buildNewsletterRuntime);
+export const getNewsletterRuntime = () => runtimeFactory.get();
 
 let localDraining = false;
 export const newsletterPublicationNotifier = {
@@ -100,35 +123,53 @@ export const newsletterPublicationNotifier = {
 };
 export async function drainNewsletterQueue(
   mode: 'hosted' | 'local',
-  limit = 1
+  limit = Infinity
 ) {
-  if (mode === 'local' && (!envClient.DEV || localDraining)) return;
-  if (mode === 'local') localDraining = true;
+  const config = newsletterExecutionConfig();
+  if (config.paused) return { status: 'paused' as const, stages: 0 };
+  if (
+    mode === 'local' &&
+    (!envClient.DEV || localDraining || !config.operatorId)
+  )
+    return { status: 'idle' as const, stages: 0 };
+  if (mode === 'local') {
+    const permitted = await getKernel().permissionChecker.hasPermission(
+      config.operatorId as import('@/modules/kernel/domain/ids').UserId,
+      { report: ['read'] }
+    );
+    if (permitted.isError()) throw permitted.getError();
+    if (permitted.get().type !== 'permission_granted')
+      throw new AppError({
+        code: 'LOCAL_NEWSLETTER_OPERATOR_INVALID',
+        category: 'system',
+        status: 403,
+        message: 'Configure a local operator with report access',
+      });
+    localDraining = true;
+  }
+  const deadline = new Date(Date.now() + config.durationSeconds * 800);
+  let stages = 0;
   try {
     const { repository, worker } = getNewsletterRuntime();
-    const workspaces = await repository.enabledWorkspaces();
-    if (workspaces.isError()) throw workspaces.getError();
-    for (const workspaceId of workspaces.get()) {
-      const r = await worker.reconcile(workspaceId);
-      if (r.isError())
+    const publications = await repository.pendingPublications();
+    if (publications.isError()) throw publications.getError();
+    for (const workspaceId of new Set(
+      publications.get().map((p) => p.workspaceId)
+    )) {
+      const reconciled = await worker.reconcile(workspaceId);
+      if (reconciled.isError())
         getKernel().logger.warn({
           event: 'newsletter.reconcile.failed',
-          details: { workspaceId, code: r.getError().code },
+          details: { workspaceId, code: reconciled.getError().code },
         });
     }
-    for (let i = 0; i < limit; i++) {
-      const result = await worker.runNext(mode);
+    while (stages < limit && Date.now() < deadline.getTime()) {
+      const result = await worker.runNext(mode, { deadline });
       if (result.isError()) throw result.getError();
       if (result.get().type === 'queue_empty') break;
+      stages++;
     }
-  } catch (error) {
-    getKernel().logger.warn({
-      event: 'newsletter.worker.failed',
-      details: {
-        message:
-          error instanceof Error ? error.message : 'Unknown worker failure',
-      },
-    });
+    return { status: 'processed' as const, stages };
   } finally {
     if (mode === 'local') localDraining = false;
   }

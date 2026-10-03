@@ -1,19 +1,26 @@
 import { Result } from '@swan-io/boxed';
-import { and, asc, eq, sql } from 'drizzle-orm';
-import { createHash } from 'node:crypto';
+import { and, asc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
+import { toWorkspaceId } from '@/modules/kernel/domain/ids';
 import type { Database } from '@/modules/kernel/infrastructure/db/types';
 
+import { captureFingerprints, fingerprint } from './capture-fingerprints';
+import { effectiveEvidenceLabel } from './effective-evidence';
 import {
+  captureObservation,
+  evidenceEquivalenceDecision,
+  evidenceEquivalenceReview,
+  evidenceGroup,
   providerConfig,
   sourceRecord,
   weeklyReport,
   weeklyReportSource,
   workspace,
 } from './schema';
+import { SourceRepositoryDrizzle } from './source-repository-drizzle';
 import { getProviderCredential } from '../config/runtime';
-import { collectCitedSourceIds } from '../../domain/report-data';
+import type { SourceRecord } from '../../domain/source';
 import { normalizeHttpUrl } from '../../domain/url';
 
 const publicProviders = new Set([
@@ -55,16 +62,6 @@ const isPublicEvidenceUrl = (value: string): boolean => {
     !/^(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):/i.test(host)
   );
 };
-const canonicalEvidenceUrl = (value: string): string => {
-  const url = new URL(normalizeHttpUrl(value)!);
-  url.hash = '';
-  const trackingKeys = Array.from(url.searchParams.keys()).filter((key) =>
-    /^utm_|^(?:fbclid|gclid|msclkid)$/i.test(key)
-  );
-  for (const key of trackingKeys) url.searchParams.delete(key);
-  url.searchParams.sort();
-  return url.toString();
-};
 type SourceRow = typeof sourceRecord.$inferSelect;
 export function isPublicResearchSource(
   source: Pick<
@@ -92,11 +89,7 @@ export function isPublicResearchSource(
     source.contentText?.trim()
   );
 }
-const evidenceIdentity = (url: string, content: string) =>
-  `body:${createHash('sha256')
-    .update(content.trim().toLowerCase().replace(/\s+/g, ' ') || url)
-    .digest('hex')}`;
-// Preserve raw captures; scoring shares an identity for one page or syndicated body.
+/** Compatibility helper for fixtures; production identities are persisted on insert. */
 export function deduplicatePublicCaptures<
   T extends {
     identity: string;
@@ -105,49 +98,15 @@ export function deduplicatePublicCaptures<
     publishedAt: string;
   },
 >(captures: T[]): T[] {
-  const parent = captures.map((_, i) => i);
-  const root = (i: number): number =>
-    parent[i] === i ? i : (parent[i] = root(parent[i]!));
-  const urls = new Map<string, number>();
-  const bodies = new Map<string, number>();
-  const shingles = captures.map((s) => {
-    const words = s.content
-      .toLowerCase()
-      .replace(/[^a-z0-9 ]/g, ' ')
-      .split(/\s+/)
-      .filter(Boolean);
-    return words.length < 40
-      ? new Set<string>()
-      : new Set(
-          words.slice(0, -4).map((_, i) => words.slice(i, i + 5).join(' '))
-        );
-  });
-  captures.forEach((s, i) => {
-    const canonicalUrl = canonicalEvidenceUrl(s.url);
-    for (const old of [urls.get(canonicalUrl), bodies.get(s.identity)])
-      if (old !== undefined) parent[root(i)] = root(old);
-    urls.set(canonicalUrl, i);
-    bodies.set(s.identity, i);
-    if (shingles[i]!.size)
-      for (let j = 0; j < i; j++) {
-        if (!shingles[j]!.size || root(i) === root(j)) continue;
-        const intersection = [...shingles[i]!].filter((word) =>
-          shingles[j]!.has(word)
-        ).length;
-        const union = shingles[i]!.size + shingles[j]!.size - intersection;
-        if (intersection / union >= 0.9) parent[root(i)] = root(j);
-      }
-  });
-  const dates = new Map<number, string>();
-  captures.forEach((s, i) => {
-    const group = root(i);
-    const date = dates.get(group);
-    if (!date || s.publishedAt < date) dates.set(group, s.publishedAt);
-  });
-  return captures.map((s, i) => ({
-    ...s,
-    identity: `origin:${canonicalEvidenceUrl(captures[root(i)]!.url)}`,
-    publishedAt: dates.get(root(i))!,
+  const dates = new Map<string, string>();
+  for (const source of captures) {
+    const old = dates.get(source.identity);
+    if (!old || source.publishedAt < old)
+      dates.set(source.identity, source.publishedAt);
+  }
+  return captures.map((source) => ({
+    ...source,
+    publishedAt: dates.get(source.identity)!,
   }));
 }
 export function createPublicResearchArchive(db: Database) {
@@ -159,9 +118,28 @@ export function createPublicResearchArchive(db: Database) {
       message: 'Public research evidence could not be loaded',
       cause,
     });
-  const mapSource = (s: SourceRow, reportIds: string[] = []) => ({
+  const repository = new SourceRepositoryDrizzle(db);
+  const mapSource = (
+    s:
+      | Pick<
+          SourceRow,
+          | 'id'
+          | 'evidenceIdentity'
+          | 'contentFingerprint'
+          | 'externalUrl'
+          | 'contentText'
+          | 'title'
+          | 'publishedAt'
+          | 'capturedAt'
+          | 'metadata'
+          | 'relevanceLabel'
+        >
+      | SourceRecord,
+    reportIds: string[] = []
+  ) => ({
     id: s.id,
-    identity: evidenceIdentity(s.externalUrl!, s.contentText!),
+    identity: s.evidenceIdentity ?? `capture:${s.id}`,
+    contentFingerprint: s.contentFingerprint ?? undefined,
     url: normalizeHttpUrl(s.externalUrl)!,
     title: s.title ?? s.externalUrl!,
     content: s.contentText!,
@@ -184,75 +162,348 @@ export function createPublicResearchArchive(db: Database) {
       id: string;
       publishedAt: string;
       periodStart: string;
+      periodEnd: string;
       sourceIds: string[];
     }[];
-    sources: ReturnType<typeof mapSource>[];
+    sources: (ReturnType<typeof mapSource> & {
+      contentLength?: number;
+      originPublishedAt?: string;
+    })[];
   };
   return {
     async read(
-      workspaceId: string
+      workspaceId: string,
+      options: {
+        sourceIds?: string[];
+        reportIds?: string[];
+        content?: boolean;
+        now?: Date;
+        jobId?: string;
+        onlySourceIds?: boolean;
+      } = {}
     ): Promise<
       Result<ArchiveData | { type: 'workspace_not_found' }, AppError>
     > {
       try {
-        const [workspaces, reports, captures, associations] = await Promise.all(
-          [
-            db.select().from(workspace).where(eq(workspace.id, workspaceId)),
-            db
-              .select()
-              .from(weeklyReport)
-              .where(
-                and(
-                  eq(weeklyReport.workspaceId, workspaceId),
-                  eq(weeklyReport.status, 'published')
+        const cutoff = new Date(
+          (options.now ?? new Date()).getTime() - 180 * 86_400_000
+        );
+        const [workspaces, reports] = await Promise.all([
+          db
+            .select({
+              id: workspace.id,
+              subcategory: workspace.subcategory,
+              icp: workspace.icp,
+            })
+            .from(workspace)
+            .where(eq(workspace.id, workspaceId)),
+          db
+            .select({
+              id: weeklyReport.id,
+              publishedAt: weeklyReport.publishedAt,
+              createdAt: weeklyReport.createdAt,
+              periodStart: weeklyReport.periodStart,
+              periodEnd: weeklyReport.periodEnd,
+              sourceIds: sql<
+                string[]
+              >`coalesce(jsonb_path_query_array(${weeklyReport.reportData}, '$.**.source_id'), '[]'::jsonb) || coalesce(jsonb_path_query_array(${weeklyReport.reportData}, '$.**.source_ids[*]'), '[]'::jsonb)`,
+            })
+            .from(weeklyReport)
+            .where(
+              and(
+                eq(weeklyReport.workspaceId, workspaceId),
+                eq(weeklyReport.status, 'published'),
+                or(
+                  and(
+                    gte(weeklyReport.periodEnd, cutoff),
+                    lte(weeklyReport.periodStart, options.now ?? new Date())
+                  ),
+                  inArray(
+                    weeklyReport.id,
+                    options.reportIds?.length ? options.reportIds : ['']
+                  )
                 )
               )
-              .orderBy(
-                asc(weeklyReport.periodStart),
-                asc(weeklyReport.publishedAt)
-              ),
-            db
-              .select()
-              .from(sourceRecord)
-              .where(eq(sourceRecord.workspaceId, workspaceId))
-              .orderBy(asc(sourceRecord.capturedAt), asc(sourceRecord.id)),
-            db
-              .select()
-              .from(weeklyReportSource)
-              .where(eq(weeklyReportSource.workspaceId, workspaceId)),
-          ]
-        );
+            )
+            .orderBy(
+              asc(weeklyReport.periodStart),
+              asc(weeklyReport.publishedAt)
+            ),
+        ]);
         const ws = workspaces[0];
         if (!ws) return Result.Ok({ type: 'workspace_not_found' as const });
+        const associations = reports.length
+          ? await db
+              .select({
+                reportId: weeklyReportSource.reportId,
+                sourceRecordId: weeklyReportSource.sourceRecordId,
+              })
+              .from(weeklyReportSource)
+              .where(
+                and(
+                  eq(weeklyReportSource.workspaceId, workspaceId),
+                  inArray(
+                    weeklyReportSource.reportId,
+                    reports.map((r) => r.id)
+                  )
+                )
+              )
+          : [];
         const records = reports.map((r) => ({
           id: r.id,
           publishedAt: (r.publishedAt ?? r.createdAt).toISOString(),
           periodStart: r.periodStart.toISOString(),
+          periodEnd: r.periodEnd.toISOString(),
           sourceIds: [
             ...new Set([
-              ...collectCitedSourceIds(r.reportData),
-              ...(r.reportData?.source_library.map((s) => s.source_id) ?? []),
+              ...r.sourceIds.filter(
+                (id): id is string => typeof id === 'string'
+              ),
               ...associations
                 .filter((a) => a.reportId === r.id)
                 .map((a) => a.sourceRecordId),
             ]),
           ],
         }));
+        const ids = options.onlySourceIds
+          ? (options.sourceIds ?? [])
+          : [
+              ...new Set([
+                ...records.flatMap((r) => r.sourceIds),
+                ...(options.sourceIds ?? []),
+              ]),
+            ];
+        const captures = await db
+          .select({
+            id: sourceRecord.id,
+            evidenceIdentity: sourceRecord.evidenceIdentity,
+            contentFingerprint: sourceRecord.contentFingerprint,
+            externalUrl: sourceRecord.externalUrl,
+            contentText:
+              options.content === false
+                ? sql<string>`''`
+                : sourceRecord.contentText,
+            hasContent: sql<boolean>`"sourceRecord"."normalizedFingerprint" is not null or ("sourceRecord"."contentLength" is null and length(trim(coalesce("sourceRecord"."contentText", ''))) > 0)`,
+            title: sourceRecord.title,
+            publishedAt: sourceRecord.publishedAt,
+            contentLength: sql<number>`coalesce("sourceRecord"."contentLength", length(coalesce("sourceRecord"."contentText", '')))`,
+            originPublishedAt: sql<string>`(select g."publicationDate" from "evidenceGroup" g where g."workspaceId" = "sourceRecord"."workspaceId" and g.identity = "sourceRecord"."evidenceIdentity")`,
+            capturedAt: sourceRecord.capturedAt,
+            metadata: sql<
+              SourceRow['metadata']
+            >`${sourceRecord.metadata} || jsonb_build_object('newsletterResearch', exists (select 1 from "captureObservation" o where o."sourceRecordId" = "sourceRecord".id and o.kind = 'research'), 'newsletterJobId', case when exists (select 1 from "captureObservation" o where o."sourceRecordId" = "sourceRecord".id and o."jobId" = ${options.jobId ?? null}) then ${options.jobId ?? null} else "sourceRecord".metadata->>'newsletterJobId' end)`,
+            relevanceLabel: effectiveEvidenceLabel,
+            providerName: sourceRecord.providerName,
+            sourceType: sourceRecord.sourceType,
+            sourceSubtype: sourceRecord.sourceSubtype,
+          })
+          .from(sourceRecord)
+          .where(
+            and(
+              eq(sourceRecord.workspaceId, workspaceId),
+              or(
+                options.onlySourceIds
+                  ? undefined
+                  : gte(sourceRecord.capturedAt, cutoff),
+                inArray(sourceRecord.id, ids.length ? ids : ['']),
+                options.onlySourceIds
+                  ? undefined
+                  : sql`exists (select 1 from "captureObservation" o where o."sourceRecordId" = ${sourceRecord.id} and o."observedAt" >= ${cutoff.toISOString()}::timestamptz and o."kind" = 'research')`,
+                options.jobId
+                  ? sql`exists (select 1 from "captureObservation" o where o."sourceRecordId" = ${sourceRecord.id} and o."jobId" = ${options.jobId})`
+                  : undefined
+              )
+            )
+          )
+          .orderBy(asc(sourceRecord.capturedAt), asc(sourceRecord.id));
         return Result.Ok({
           workspaceId,
           audienceSuggestion: `Busy ${ws.subcategory} industry insiders${ws.icp ? `, including ${ws.icp}` : ''}, seeking useful synthesis of conversations, innovations, and their practical implications.`,
           reports: records,
-          sources: deduplicatePublicCaptures(
-            captures.filter(isPublicResearchSource).map((s) =>
-              mapSource(
-                s,
+          sources: captures
+            .filter((s) =>
+              isPublicResearchSource({
+                ...s,
+                contentText: s.hasContent ? 'present' : '',
+              })
+            )
+            .map((s) => ({
+              ...mapSource(
+                options.content === false ? { ...s, contentText: '' } : s,
                 records
                   .filter((r) => r.sourceIds.includes(s.id))
                   .map((r) => r.id)
-              )
-            )
-          ),
+              ),
+              contentLength: s.contentLength,
+              originPublishedAt: s.originPublishedAt
+                ? new Date(s.originPublishedAt).toISOString()
+                : undefined,
+            })),
         });
+      } catch (cause) {
+        return Result.Error(error(cause));
+      }
+    },
+    async equivalenceReviews(workspaceId: string, before?: string) {
+      try {
+        const rows = await db
+          .select({
+            id: evidenceEquivalenceReview.id,
+            leftSourceId: evidenceEquivalenceReview.leftSourceId,
+            rightSourceId: evidenceEquivalenceReview.rightSourceId,
+            status: evidenceEquivalenceReview.status,
+            leftTitle: sql<string>`coalesce((select title from "sourceRecord" where id = ${evidenceEquivalenceReview.leftSourceId}), 'Source')`,
+            rightTitle: sql<string>`coalesce((select title from "sourceRecord" where id = ${evidenceEquivalenceReview.rightSourceId}), 'Source')`,
+          })
+          .from(evidenceEquivalenceReview)
+          .where(
+            and(
+              eq(evidenceEquivalenceReview.workspaceId, workspaceId),
+              before
+                ? sql`${evidenceEquivalenceReview.id} > ${before}`
+                : undefined
+            )
+          )
+          .orderBy(asc(evidenceEquivalenceReview.id))
+          .limit(21);
+        return Result.Ok({
+          type: 'reviews_found' as const,
+          reviews: rows.slice(0, 20),
+          nextCursor: rows.length > 20 ? rows[19]!.id : null,
+        });
+      } catch (cause) {
+        return Result.Error(error(cause));
+      }
+    },
+    async decideEquivalence(input: {
+      workspaceId: string;
+      reviewId: string;
+      actorId: string;
+      action: 'confirm' | 'separate';
+    }): Promise<Result<{ type: 'saved' | 'not_found' }, AppError>> {
+      try {
+        if (!db.$runInTransaction)
+          return Result.Error(error('Transactional database required'));
+        return Result.Ok(
+          await db.$runInTransaction(async (tx) => {
+            await tx
+              .select({ id: workspace.id })
+              .from(workspace)
+              .where(eq(workspace.id, input.workspaceId))
+              .for('update');
+            const [review] = await tx
+              .select()
+              .from(evidenceEquivalenceReview)
+              .where(
+                and(
+                  eq(evidenceEquivalenceReview.workspaceId, input.workspaceId),
+                  eq(evidenceEquivalenceReview.id, input.reviewId)
+                )
+              )
+              .for('update');
+            if (!review) return { type: 'not_found' as const };
+            const members = await tx
+              .select()
+              .from(sourceRecord)
+              .where(
+                and(
+                  eq(sourceRecord.workspaceId, input.workspaceId),
+                  inArray(sourceRecord.id, [
+                    review.leftSourceId,
+                    review.rightSourceId,
+                  ])
+                )
+              );
+            const left = members.find((s) => s.id === review.leftSourceId),
+              right = members.find((s) => s.id === review.rightSourceId);
+            if (!left || !right) return { type: 'not_found' as const };
+            const identity =
+              input.action === 'confirm'
+                ? (left.evidenceIdentity ?? `capture:${left.id}`)
+                : `separate:${right.id}`;
+            await tx
+              .update(sourceRecord)
+              .set({ evidenceIdentity: identity })
+              .where(
+                and(
+                  eq(sourceRecord.workspaceId, input.workspaceId),
+                  input.action === 'confirm' && right.evidenceIdentity
+                    ? eq(sourceRecord.evidenceIdentity, right.evidenceIdentity)
+                    : eq(sourceRecord.id, right.id)
+                )
+              );
+            const affectedIdentities = new Set([
+              identity,
+              left.evidenceIdentity,
+              right.evidenceIdentity,
+            ]);
+            for (const groupIdentity of affectedIdentities) {
+              if (!groupIdentity) continue;
+              const grouped = await tx
+                .select({
+                  id: sourceRecord.id,
+                  contentLength: sql<number>`length(coalesce(${sourceRecord.contentText}, ''))`,
+                  date: sql<Date>`coalesce(${sourceRecord.publishedAt}, ${sourceRecord.capturedAt}) at time zone 'UTC'`,
+                })
+                .from(sourceRecord)
+                .where(
+                  and(
+                    eq(sourceRecord.workspaceId, input.workspaceId),
+                    eq(sourceRecord.evidenceIdentity, groupIdentity)
+                  )
+                );
+              if (!grouped.length) {
+                await tx
+                  .delete(evidenceGroup)
+                  .where(
+                    and(
+                      eq(evidenceGroup.workspaceId, input.workspaceId),
+                      eq(evidenceGroup.identity, groupIdentity)
+                    )
+                  );
+                continue;
+              }
+              const representative = grouped.sort(
+                (a, b) =>
+                  b.contentLength - a.contentLength || a.id.localeCompare(b.id)
+              )[0]!;
+              const date = grouped
+                .map((s) => new Date(s.date))
+                .sort((a, b) => a.getTime() - b.getTime())[0]!;
+              await tx
+                .insert(evidenceGroup)
+                .values({
+                  id: `${input.workspaceId}:${groupIdentity}`,
+                  workspaceId: input.workspaceId,
+                  identity: groupIdentity,
+                  representativeId: representative.id,
+                  publicationDate: date,
+                })
+                .onConflictDoUpdate({
+                  target: evidenceGroup.id,
+                  set: {
+                    representativeId: representative.id,
+                    publicationDate: date,
+                  },
+                });
+            }
+            await tx
+              .update(evidenceEquivalenceReview)
+              .set({
+                status: input.action === 'confirm' ? 'confirmed' : 'separate',
+                actorId: input.actorId,
+                decidedAt: new Date(),
+              })
+              .where(eq(evidenceEquivalenceReview.id, review.id));
+            await tx.insert(evidenceEquivalenceDecision).values({
+              workspaceId: input.workspaceId,
+              reviewId: review.id,
+              actorId: input.actorId,
+              action: input.action,
+            });
+            return { type: 'saved' as const };
+          })
+        );
       } catch (cause) {
         return Result.Error(error(cause));
       }
@@ -263,6 +514,8 @@ export function createPublicResearchArchive(db: Database) {
       queries: string[];
       pages: number;
       timeoutMs: number;
+      signal?: AbortSignal;
+      deadline?: Date;
     }): Promise<Result<ReturnType<typeof mapSource>[], AppError>> {
       try {
         const configs = await db
@@ -288,19 +541,42 @@ export function createPublicResearchArchive(db: Database) {
                 'Enable and configure Exa public research for this Workspace',
             })
           );
-        const signal = AbortSignal.timeout(Math.max(1, input.timeoutMs));
+        const timeout = AbortSignal.timeout(
+          Math.max(
+            1,
+            Math.min(
+              input.timeoutMs,
+              input.deadline ? input.deadline.getTime() - Date.now() : Infinity
+            )
+          )
+        );
+        const signal = input.signal
+          ? AbortSignal.any([input.signal, timeout])
+          : timeout;
         const prior = await db
-          .select()
-          .from(sourceRecord)
+          .select({ source: sourceRecord })
+          .from(captureObservation)
+          .innerJoin(
+            sourceRecord,
+            eq(captureObservation.sourceRecordId, sourceRecord.id)
+          )
           .where(
             and(
               eq(sourceRecord.workspaceId, input.workspaceId),
-              sql`${sourceRecord.metadata}->>'newsletterJobId' = ${input.jobId}`
+              eq(captureObservation.jobId, input.jobId)
             )
           );
-        const sources: ReturnType<typeof mapSource>[] = prior
+        const priorSources = prior
+          .map((row) => row.source)
           .filter(isPublicResearchSource)
-          .map((s) => mapSource(s));
+          .map((source) => mapSource(source));
+        const sources: ReturnType<typeof mapSource>[] = [
+          ...new Map(
+            priorSources
+              .sort((a, b) => a.content.length - b.content.length)
+              .map((source) => [source.identity, source])
+          ).values(),
+        ];
         const identities = new Set(sources.map((s) => s.identity));
         for (const query of input.queries.slice(0, 3)) {
           if (sources.length >= input.pages) break;
@@ -338,18 +614,21 @@ export function createPublicResearchArchive(db: Database) {
               sources.length >= input.pages
             )
               continue;
-            const identity = evidenceIdentity(result.url, result.text);
-            if (identities.has(identity)) continue;
-            identities.add(identity);
-            const rows = await db
-              .insert(sourceRecord)
-              .values({
-                workspaceId: input.workspaceId,
+            const hashes = captureFingerprints({
+              workspaceId: toWorkspaceId(input.workspaceId),
+              providerName: 'exa',
+              sourceType: 'web_page',
+              externalUrl: result.url,
+              contentText: result.text,
+            });
+            const captured = await repository.captureSourceRecord({
+              record: {
+                workspaceId: toWorkspaceId(input.workspaceId),
                 providerName: 'exa',
-                providerSourceId: result.id ?? null,
+                providerSourceId: result.id,
                 sourceType: 'web_page',
-                sourceUrl: normalizeHttpUrl(result.url),
-                externalUrl: normalizeHttpUrl(result.url),
+                sourceUrl: result.url,
+                externalUrl: result.url,
                 title: result.title ?? result.url,
                 contentText: result.text,
                 publishedAt:
@@ -364,12 +643,29 @@ export function createPublicResearchArchive(db: Database) {
                   query,
                 },
                 rawPayload: result,
-              })
-              .returning();
-            if (rows[0]) sources.push(mapSource(rows[0]));
+              },
+              observation: {
+                kind: 'research',
+                jobId: input.jobId,
+                observationKey: fingerprint(
+                  JSON.stringify([input.jobId, query, hashes.versionKey])
+                ),
+                metadata: { query, newsletterResearch: true },
+              },
+            });
+            if (captured.isError()) return Result.Error(captured.getError());
+            const mapped = {
+              ...mapSource(captured.get().sourceRecord),
+              newsletterResearch: true,
+              researchJobId: input.jobId,
+            };
+            if (!identities.has(mapped.identity)) {
+              identities.add(mapped.identity);
+              sources.push(mapped);
+            }
           }
         }
-        return Result.Ok(deduplicatePublicCaptures(sources));
+        return Result.Ok(sources);
       } catch (cause) {
         return Result.Error(error(cause));
       }

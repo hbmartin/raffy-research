@@ -155,8 +155,20 @@ function makeDeps(overrides: Partial<IngestionDeps> = {}): IngestionDeps {
       createSearchResult: vi.fn(async () => {
         throw new Error('not expected');
       }),
-      createCallbackArtifacts: vi.fn(async () =>
-        Result.Ok({ sourceRecords: [], searchResults: [] })
+      createCallbackArtifacts: vi.fn(
+        async (
+          input: Parameters<
+            IngestionDeps['sourceRepository']['createCallbackArtifacts']
+          >[0]
+        ) =>
+          Result.Ok({
+            sourceRecords: input.sourceRecords.map(() => sourceRecord),
+            searchResults: [],
+            createdCaptures: input.sourceRecords.length,
+            reusedCaptures: 0,
+            observations:
+              input.sourceRecords.length + (input.searchResults?.length ?? 0),
+          })
       ),
     },
     ingestionRepository: {
@@ -237,7 +249,13 @@ describe('ingestion use cases', () => {
 
   it('writes normalized callback artifacts through the atomic repository method', async () => {
     const createCallbackArtifacts = vi.fn(async () =>
-      Result.Ok({ sourceRecords: [sourceRecord], searchResults: [] })
+      Result.Ok({
+        sourceRecords: [sourceRecord],
+        searchResults: [],
+        createdCaptures: 1,
+        reusedCaptures: 0,
+        observations: 1,
+      })
     );
     const deps = makeDeps({
       sourceRepository: {
@@ -283,6 +301,11 @@ describe('ingestion use cases', () => {
         },
       ],
       searchResults: [],
+      observation: {
+        kind: 'callback',
+        callbackId: callbackEvent.id,
+        observedAt: now,
+      },
     });
   });
 
@@ -429,7 +452,7 @@ describe('ingestion use cases', () => {
     const deps = makeDeps({
       sourceRepository: {
         ...makeDeps().sourceRepository,
-        createSourceRecord: vi.fn(async () =>
+        createCallbackArtifacts: vi.fn(async () =>
           Result.Error(appError('SOURCE_WRITE_FAILED'))
         ),
       },
@@ -459,7 +482,7 @@ describe('ingestion use cases', () => {
       expect.objectContaining({
         event: 'intelligence.ingestion.persistence_failed',
         details: expect.objectContaining({
-          stage: 'source_record',
+          stage: 'capture_batch',
           errorCode: 'SOURCE_WRITE_FAILED',
         }),
       })
@@ -480,7 +503,7 @@ describe('ingestion use cases', () => {
       requestsFailed: 0,
     });
   });
-  it('retains partial persisted work and continues to the next provider', async () => {
+  it('rolls back a failed capture batch and continues to the next provider', async () => {
     const deps = makeDeps();
     const configs =
       await deps.workspaceRepository.listProviderConfigs(workspaceId);
@@ -488,10 +511,18 @@ describe('ingestion use cases', () => {
     deps.workspaceRepository.listProviderConfigs = vi.fn(async () =>
       Result.Ok([...configs.get(), ...configs.get()])
     );
-    deps.sourceRepository.createSourceRecord = vi
+    deps.sourceRepository.createCallbackArtifacts = vi
       .fn()
-      .mockResolvedValueOnce(Result.Ok(sourceRecord))
-      .mockResolvedValueOnce(Result.Error(appError('SOURCE_WRITE_FAILED')));
+      .mockResolvedValueOnce(Result.Error(appError('SOURCE_WRITE_FAILED')))
+      .mockResolvedValueOnce(
+        Result.Ok({
+          sourceRecords: [sourceRecord],
+          searchResults: [],
+          createdCaptures: 1,
+          reusedCaptures: 0,
+          observations: 1,
+        })
+      );
     const ingest = vi
       .fn()
       .mockResolvedValueOnce(
@@ -518,9 +549,9 @@ describe('ingestion use cases', () => {
     const result = await runWorkspaceIngest(deps, { workspaceId, now });
     if (result.isError()) throw result.getError();
     expect(result.get()).toMatchObject({
-      providersPartial: 1,
+      providersPartial: 0,
       providersRun: 1,
-      providersFailed: 0,
+      providersFailed: 1,
       sourceRecords: 1,
       requestsSucceeded: 2,
       requestsFailed: 0,
@@ -528,7 +559,7 @@ describe('ingestion use cases', () => {
     expect(deps.ingestionRepository.finishRun).toHaveBeenNthCalledWith(
       1,
       ingestionRun.id,
-      expect.objectContaining({ status: 'partial', itemsIngested: 1 })
+      expect.objectContaining({ status: 'failed', itemsIngested: 0 })
     );
     expect(ingest).toHaveBeenCalledTimes(2);
   });
@@ -589,7 +620,7 @@ describe('ingestion use cases', () => {
       );
     });
 
-    it('returns watermark lookup errors before starting a run', async () => {
+    it('records watermark lookup errors in a started run', async () => {
       const deps = makeDeps({
         ingestionRepository: {
           ...makeDeps().ingestionRepository,
@@ -607,95 +638,88 @@ describe('ingestion use cases', () => {
         },
       });
       const result = await runWorkspaceIngest(deps, { workspaceId, now });
-      expectErrorCode(result, 'INGESTION_RUN_LAST_SUCCESS_ERROR');
-      expect(deps.ingestionRepository.startRun).not.toHaveBeenCalled();
+      if (result.isError()) throw result.getError();
+      expect(result.get()).toMatchObject({ providersFailed: 1 });
+      expect(deps.ingestionRepository.startRun).toHaveBeenCalledOnce();
+      expect(
+        vi.mocked(deps.ingestionRepository.startRun).mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        vi.mocked(deps.ingestionRepository.getLastSuccessfulDailyRun).mock
+          .invocationCallOrder[0]!
+      );
+      expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
+        ingestionRun.id,
+        expect.objectContaining({
+          status: 'failed',
+          metadata: {
+            stage: 'watermark',
+            errorCode: 'INGESTION_RUN_LAST_SUCCESS_ERROR',
+          },
+        })
+      );
     });
   });
 
   describe('overlapping window', () => {
     const lookbackMs = 3 * 24 * 60 * 60 * 1000;
-    const storedPage = { ...sourceRecord, externalUrl: 'https://a.example/1' };
-    const newPage = { ...sourceRecord, externalUrl: 'https://a.example/2' };
-
-    function makeOverlapDeps(
-      excludeStoredCopies: IngestionDeps['sourceRepository']['excludeStoredCopies']
-    ) {
+    it('uses execution time and atomically records created captures, reuse and observations', async () => {
+      const deps = makeDeps();
       const contexts: ProviderDailyContext[] = [];
-      const deps = makeDeps({
-        sourceRepository: {
-          ...makeDeps().sourceRepository,
-          excludeStoredCopies,
-          createSourceRecord: vi.fn(async () => Result.Ok(sourceRecord)),
+      deps.registry.get = vi.fn(() => ({
+        name: 'exa' as const,
+        isConfigured: () => true,
+        overlappingWindow: { lookbackMs },
+        async runDailyIngest(context: ProviderDailyContext) {
+          contexts.push(context);
+          return Result.Ok({
+            sourceRecords: [sourceRecord, sourceRecord],
+            searchResults: [],
+          });
         },
-        registry: {
-          get: vi.fn(() => ({
-            name: 'exa' as const,
-            isConfigured: () => true,
-            overlappingWindow: { lookbackMs },
-            runDailyIngest: async (ctx: ProviderDailyContext) => {
-              contexts.push(ctx);
-              return Result.Ok({
-                sourceRecords: [storedPage, newPage],
-                searchResults: [],
-              });
-            },
-          })),
-          all: vi.fn(() => []),
-        },
-      });
-      return { deps, contexts };
-    }
-
-    it('reaches back the full lookback and writes only records not already stored', async () => {
-      const excludeStoredCopies = vi.fn(async () =>
-        Result.Ok({ fresh: [newPage], storedCopies: 1 })
+      }));
+      deps.sourceRepository.createCallbackArtifacts = vi.fn(async () =>
+        Result.Ok({
+          sourceRecords: [sourceRecord, sourceRecord],
+          searchResults: [],
+          createdCaptures: 1,
+          reusedCaptures: 1,
+          observations: 2,
+        })
       );
-      const { deps, contexts } = makeOverlapDeps(excludeStoredCopies);
-
-      const result = await runWorkspaceIngest(deps, { workspaceId, now });
+      const result = await runWorkspaceIngest(deps, {
+        workspaceId,
+        now: new Date('2030-01-01'),
+      });
       if (result.isError()) throw result.getError();
-
-      const periodStart = new Date(now.getTime() - lookbackMs);
-      expect(contexts[0]?.periodStart).toEqual(periodStart);
+      expect(contexts[0]?.now).toEqual(now);
+      expect(contexts[0]?.periodStart).toEqual(
+        new Date(now.getTime() - lookbackMs)
+      );
       expect(
         deps.ingestionRepository.getLastSuccessfulDailyRun
       ).not.toHaveBeenCalled();
-      expect(excludeStoredCopies).toHaveBeenCalledWith({
-        workspaceId,
-        providerName: 'awario',
-        capturedSince: periodStart,
-        records: [storedPage, newPage],
+      expect(
+        deps.sourceRepository.createCallbackArtifacts
+      ).toHaveBeenCalledWith({
+        sourceRecords: [sourceRecord, sourceRecord],
+        searchResults: [],
+        observation: { kind: 'pull', runId: ingestionRun.id, observedAt: now },
       });
-      expect(deps.sourceRepository.createSourceRecord).toHaveBeenCalledOnce();
-      expect(deps.sourceRepository.createSourceRecord).toHaveBeenCalledWith(
-        newPage
-      );
-      expect(result.get()).toMatchObject({ sourceRecords: 1, providersRun: 1 });
+      expect(result.get()).toMatchObject({
+        sourceRecords: 1,
+        reusedCaptures: 1,
+        observations: 2,
+        providersRun: 1,
+      });
       expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
         ingestionRun.id,
         expect.objectContaining({
-          status: 'succeeded',
           itemsIngested: 1,
-          metadata: expect.objectContaining({ storedCopiesSkipped: 1 }),
-        })
-      );
-    });
-
-    it('fails the provider run without writing when the stored-copy lookup fails', async () => {
-      const { deps } = makeOverlapDeps(
-        vi.fn(async () => Result.Error(appError('SOURCE_STORED_COPIES_ERROR')))
-      );
-
-      const result = await runWorkspaceIngest(deps, { workspaceId, now });
-      if (result.isError()) throw result.getError();
-
-      expect(result.get()).toMatchObject({ providersFailed: 1 });
-      expect(deps.sourceRepository.createSourceRecord).not.toHaveBeenCalled();
-      expect(deps.ingestionRepository.finishRun).toHaveBeenCalledWith(
-        ingestionRun.id,
-        expect.objectContaining({
-          status: 'failed',
-          failureReason: 'Stored copy lookup failed',
+          metadata: expect.objectContaining({
+            createdCaptures: 1,
+            reusedCaptures: 1,
+            observations: 2,
+          }),
         })
       );
     });

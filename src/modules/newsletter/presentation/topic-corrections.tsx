@@ -30,6 +30,15 @@ export function TopicCorrections({
   const [selected, setSelected] = useState<string[]>([]);
   const active = topics.filter((t) => !t.mergedInto);
   const topic = active.find((t) => t.id === topicId);
+  const valid =
+    Boolean(topic) &&
+    ((action === 'rename' && Boolean(title.trim())) ||
+      (action === 'merge' && Boolean(targetId) && targetId !== topicId) ||
+      (action === 'split' &&
+        Boolean(title.trim()) &&
+        selected.length > 0 &&
+        selected.every((sourceId) => topic?.sourceIds.includes(sourceId))) ||
+      (action === 'assign' && selected.length > 0));
   return (
     <details>
       <summary className="cursor-pointer font-medium">
@@ -52,6 +61,7 @@ export function TopicCorrections({
             className="flex flex-col gap-3 rounded-md border p-3"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!valid) return;
               onCorrect({
                 topicId,
                 action,
@@ -99,6 +109,8 @@ export function TopicCorrections({
               <label className="text-sm">
                 Topic title
                 <Input
+                  required
+                  maxLength={500}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />
@@ -157,7 +169,7 @@ export function TopicCorrections({
             ) : null}
             <Button
               type="submit"
-              disabled={pending || !topic}
+              disabled={pending || !valid}
               className="self-start"
             >
               Apply topic correction

@@ -33,6 +33,7 @@ function providerOutcomeStatus(input: {
 
 export type RunWorkspaceIngestInput = {
   workspaceId: WorkspaceId;
+  /** Legacy callers may supply coverage dates; fetching always uses the clock. */
   now?: Date;
   scheduledJobRunId?: string;
 };
@@ -48,6 +49,8 @@ export type RunWorkspaceIngestOutcome =
       requestsFailed: number;
       sourceRecords: number;
       searchResults: number;
+      reusedCaptures: number;
+      observations: number;
     }
   | { type: 'workspace_not_found' };
 
@@ -56,8 +59,6 @@ export async function runWorkspaceIngest(
   deps: IngestionDeps,
   input: RunWorkspaceIngestInput
 ): Promise<ApplicationResult<RunWorkspaceIngestOutcome>> {
-  const now = input.now ?? deps.clock.now();
-
   const workspaceResult = await deps.workspaceRepository.getById(
     input.workspaceId
   );
@@ -89,8 +90,11 @@ export async function runWorkspaceIngest(
   let requestsFailed = 0;
   let sourceRecordCount = 0;
   let searchResultCount = 0;
+  let reusedCaptureCount = 0;
+  let observationCount = 0;
 
   for (const config of providerConfigs.get()) {
+    const now = deps.clock.now();
     if (!config.enabled) continue;
     const adapter = deps.registry.get(config.providerName);
     if (!adapter?.runDailyIngest) continue;
@@ -110,21 +114,6 @@ export async function runWorkspaceIngest(
       continue;
     }
 
-    // Read before this run's own row exists, so a watermark is the previous
-    // successful pull rather than this one.
-    const window = await resolvePeriodStart(deps, {
-      workspaceId: workspace.id,
-      providerName: config.providerName,
-      adapter,
-      now,
-    });
-    if (window.isError()) return Result.Error(window.getError());
-    const periodStart = window.get();
-    const windowMetadata = {
-      periodStart: periodStart.toISOString(),
-      periodEnd: now.toISOString(),
-    };
-
     const run = await deps.ingestionRepository.startRun({
       workspaceId: workspace.id,
       scheduledJobRunId: input.scheduledJobRunId,
@@ -135,6 +124,29 @@ export async function runWorkspaceIngest(
     });
     if (run.isError()) return Result.Error(run.getError());
     const runId = run.get().id;
+    // The lookup excludes started runs. Its own failure now has a durable record.
+    const window = await resolvePeriodStart(deps, {
+      workspaceId: workspace.id,
+      providerName: config.providerName,
+      adapter,
+      now,
+    });
+    if (window.isError()) {
+      const finished = await finishRun(deps, runId, {
+        status: 'failed',
+        failureReason: 'Provider watermark lookup failed',
+        metadata: { stage: 'watermark', errorCode: window.getError().code },
+        finishedAt: deps.clock.now(),
+      });
+      if (finished.isError()) return Result.Error(finished.getError());
+      providersFailed++;
+      continue;
+    }
+    const periodStart = window.get();
+    const windowMetadata = {
+      periodStart: periodStart.toISOString(),
+      periodEnd: now.toISOString(),
+    };
 
     const context: ProviderDailyContext = {
       workspace,
@@ -148,7 +160,7 @@ export async function runWorkspaceIngest(
       logger: deps.logger,
     };
 
-    const pulled = await pullProvider(deps, {
+    const pulled = await pullProvider({
       workspaceId: workspace.id,
       providerName: config.providerName,
       adapter,
@@ -168,53 +180,41 @@ export async function runWorkspaceIngest(
       continue;
     }
 
-    const { ingest, sourceRecords, storedCopies } = pulled;
-    const { searchResults } = ingest;
+    const { ingest, sourceRecords } = pulled;
     const providerRequestsSucceeded = ingest.requestsSucceeded ?? 1;
     const providerRequestsFailed = ingest.requestsFailed ?? 0;
     requestsSucceeded += providerRequestsSucceeded;
     requestsFailed += providerRequestsFailed;
-    let ingested = 0;
-    let persistenceFailed = false;
-    for (const record of sourceRecords) {
-      const created = await deps.sourceRepository.createSourceRecord(record);
-      if (created.isError()) {
-        deps.logger.error({
-          event: 'intelligence.ingestion.persistence_failed',
-          details: {
-            workspaceId: workspace.id,
-            provider: config.providerName,
-            runId,
-            stage: 'source_record',
-            errorCode: created.getError().code,
-          },
-        });
-        persistenceFailed = true;
-        break;
-      }
-      sourceRecordCount += 1;
-      ingested += 1;
-    }
-    for (const searchResult of persistenceFailed ? [] : searchResults) {
-      const created =
-        await deps.sourceRepository.createSearchResult(searchResult);
-      if (created.isError()) {
-        deps.logger.error({
-          event: 'intelligence.ingestion.persistence_failed',
-          details: {
-            workspaceId: workspace.id,
-            provider: config.providerName,
-            runId,
-            stage: 'search_result',
-            errorCode: created.getError().code,
-          },
-        });
-        persistenceFailed = true;
-        break;
-      }
-      searchResultCount += 1;
-      ingested += 1;
-    }
+    const persisted = await deps.sourceRepository.createCallbackArtifacts({
+      sourceRecords,
+      searchResults: ingest.searchResults,
+      observation: { kind: 'pull', runId, observedAt: now },
+    });
+    const persistenceFailed = persisted.isError();
+    const counts = persisted.isOk()
+      ? persisted.get()
+      : {
+          createdCaptures: 0,
+          reusedCaptures: 0,
+          observations: 0,
+          searchResults: [],
+        };
+    const ingested = counts.createdCaptures;
+    sourceRecordCount += counts.createdCaptures;
+    reusedCaptureCount += counts.reusedCaptures;
+    observationCount += counts.observations;
+    searchResultCount += counts.searchResults.length;
+    if (persisted.isError())
+      deps.logger.error({
+        event: 'intelligence.ingestion.persistence_failed',
+        details: {
+          workspaceId: workspace.id,
+          provider: config.providerName,
+          runId,
+          stage: 'capture_batch',
+          errorCode: persisted.getError().code,
+        },
+      });
 
     const providerStatus = providerOutcomeStatus({
       persistenceFailed,
@@ -232,7 +232,10 @@ export async function runWorkspaceIngest(
           : null,
       metadata: {
         ...windowMetadata,
-        storedCopiesSkipped: storedCopies,
+        createdCaptures: counts.createdCaptures,
+        reusedCaptures: counts.reusedCaptures,
+        observations: counts.observations,
+        searchResults: counts.searchResults.length,
         requestsSucceeded: providerRequestsSucceeded,
         requestsFailed: providerRequestsFailed,
       },
@@ -254,6 +257,8 @@ export async function runWorkspaceIngest(
     requestsFailed,
     sourceRecords: sourceRecordCount,
     searchResults: searchResultCount,
+    reusedCaptures: reusedCaptureCount,
+    observations: observationCount,
   });
 }
 
@@ -309,7 +314,6 @@ type PullOutcome =
  * and new versions of known pages are kept.
  */
 async function pullProvider(
-  deps: IngestionDeps,
   input: WindowInput & {
     context: ProviderDailyContext;
     runId: IngestionRun['id'];
@@ -323,44 +327,11 @@ async function pullProvider(
       requestsFailed: 1,
     };
   }
-  const records = ingest.get().sourceRecords;
-  if (!input.adapter.overlappingWindow) {
-    return {
-      type: 'pulled',
-      ingest: ingest.get(),
-      sourceRecords: records,
-      storedCopies: 0,
-    };
-  }
-
-  const excluded = await deps.sourceRepository.excludeStoredCopies({
-    workspaceId: input.workspaceId,
-    providerName: input.providerName,
-    capturedSince: input.context.periodStart,
-    records,
-  });
-  if (excluded.isError()) {
-    deps.logger.error({
-      event: 'intelligence.ingestion.persistence_failed',
-      details: {
-        workspaceId: input.workspaceId,
-        provider: input.providerName,
-        runId: input.runId,
-        stage: 'stored_copies',
-        errorCode: excluded.getError().code,
-      },
-    });
-    return {
-      type: 'pull_failed',
-      failureReason: 'Stored copy lookup failed',
-      requestsFailed: 0,
-    };
-  }
   return {
     type: 'pulled',
     ingest: ingest.get(),
-    sourceRecords: excluded.get().fresh,
-    storedCopies: excluded.get().storedCopies,
+    sourceRecords: ingest.get().sourceRecords,
+    storedCopies: 0,
   };
 }
 

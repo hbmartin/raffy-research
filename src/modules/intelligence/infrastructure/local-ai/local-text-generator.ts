@@ -1,6 +1,4 @@
 import { streamText } from 'ai';
-import { createClaudeCode } from 'ai-sdk-provider-claude-code';
-import { createCodexCli } from 'ai-sdk-provider-codex-cli';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,8 +7,8 @@ import { createOllama } from 'ollama-ai-provider-v2';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
+import { generateNativeCliText } from './native-cli';
 import type {
-  LocalAiProviderName,
   LocalTextGenerationInput,
   LocalTextGenerationResult,
 } from '../../domain/local-ai';
@@ -36,58 +34,6 @@ function toJsonObject(value: unknown): JsonObject {
   return json && typeof json === 'object' && !Array.isArray(json)
     ? json
     : { value: json };
-}
-
-function createModel(
-  provider: LocalAiProviderName,
-  model: string,
-  options?: { ollamaBaseUrl?: string }
-) {
-  if (provider === 'codex-cli') {
-    const codex = createCodexCli({
-      defaultSettings: {
-        approvalMode: 'never',
-        sandboxMode: 'read-only',
-        skipGitRepoCheck: true,
-        allowNpx: false,
-        cwd: process.cwd(),
-        logger: false,
-      },
-    });
-    return codex(model);
-  }
-
-  if (provider === 'ollama') {
-    const ollama = createOllama({
-      baseURL: options?.ollamaBaseUrl ?? 'http://localhost:11434/api',
-    });
-    return ollama(model);
-  }
-
-  const claude = createClaudeCode({
-    defaultSettings: {
-      allowedTools: [],
-      disallowedTools: [
-        'Bash',
-        'Edit',
-        'Glob',
-        'Grep',
-        'LS',
-        'MultiEdit',
-        'NotebookEdit',
-        'Read',
-        'WebFetch',
-        'WebSearch',
-        'Write',
-      ],
-      permissionMode: 'dontAsk',
-      settingSources: [],
-      cwd: process.cwd(),
-      logger: false,
-      streamingInput: 'auto',
-    },
-  });
-  return claude(model);
 }
 
 async function writeRawOutput(input: {
@@ -173,70 +119,80 @@ export async function generateLocalText(
 
     throwIfAborted(input.abortSignal);
 
-    const result = streamText({
-      model: createModel(input.provider, input.model, {
-        ollamaBaseUrl: input.ollamaBaseUrl,
-      }),
-      prompt: input.prompt,
-      ...(input.temperature === undefined
-        ? {}
-        : { temperature: input.temperature }),
-      abortSignal: input.abortSignal,
-      include: {
-        rawChunks: true,
-      },
-      experimental_telemetry: { isEnabled: true },
-      ...ollamaProviderOptions(input),
-    });
+    if (input.provider !== 'ollama') {
+      text = await generateNativeCliText({
+        provider: input.provider,
+        model: input.model,
+        prompt: input.prompt,
+        signal: input.abortSignal,
+      });
+    } else {
+      const result = streamText({
+        model: createOllama({
+          baseURL: input.ollamaBaseUrl ?? 'http://localhost:11434/api',
+        })(input.model),
+        prompt: input.prompt,
+        maxRetries: 0,
+        ...(input.temperature === undefined
+          ? {}
+          : { temperature: input.temperature }),
+        abortSignal: input.abortSignal,
+        include: {
+          rawChunks: true,
+        },
+        experimental_telemetry: { isEnabled: true },
+        ...ollamaProviderOptions(input),
+      });
 
-    for await (const part of result.stream) {
-      throwIfAborted(input.abortSignal);
-      rawEvents.push(toJsonValue(part));
+      for await (const part of result.stream) {
+        throwIfAborted(input.abortSignal);
+        rawEvents.push(toJsonValue(part));
 
-      if (part.type === 'text-delta') {
-        text += part.text;
-        continue;
-      }
+        if (part.type === 'text-delta') {
+          text += part.text;
+          continue;
+        }
 
-      if (part.type === 'start-step' || part.type === 'finish-step') {
-        await input.onEvent?.({
-          type: 'step',
-          runId: input.runId,
-          action: input.action,
-          label: input.label,
-          message: part.type,
-          at: nowIso(),
-          data: toJsonObject(part),
-        });
-        continue;
-      }
+        if (part.type === 'start-step' || part.type === 'finish-step') {
+          await input.onEvent?.({
+            type: 'step',
+            runId: input.runId,
+            action: input.action,
+            label: input.label,
+            message: part.type,
+            at: nowIso(),
+            data: toJsonObject(part),
+          });
+          continue;
+        }
 
-      if (
-        part.type === 'tool-input-start' ||
-        part.type === 'tool-input-delta' ||
-        part.type === 'tool-input-end' ||
-        part.type === 'tool-call' ||
-        part.type === 'tool-result' ||
-        part.type === 'tool-error' ||
-        part.type === 'tool-output-denied' ||
-        part.type === 'source' ||
-        part.type === 'raw'
-      ) {
-        const event = toJsonObject(part);
-        toolEvents.push(event);
-        await input.onEvent?.({
-          type: 'tool_event',
-          runId: input.runId,
-          action: input.action,
-          label: input.label,
-          event,
-          at: nowIso(),
-        });
-        continue;
-      }
+        if (
+          part.type === 'tool-input-start' ||
+          part.type === 'tool-input-delta' ||
+          part.type === 'tool-input-end' ||
+          part.type === 'tool-call' ||
+          part.type === 'tool-result' ||
+          part.type === 'tool-error' ||
+          part.type === 'tool-output-denied' ||
+          part.type === 'source' ||
+          part.type === 'raw'
+        ) {
+          const event = toJsonObject(part);
+          toolEvents.push(event);
+          await input.onEvent?.({
+            type: 'tool_event',
+            runId: input.runId,
+            action: input.action,
+            label: input.label,
+            event,
+            at: nowIso(),
+          });
+          continue;
+        }
 
-      if (part.type === 'error') {
-        throw part.error;
+        if (part.type === 'error') {
+          throw part.error;
+        }
       }
     }
 

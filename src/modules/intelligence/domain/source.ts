@@ -40,6 +40,20 @@ export type SourceRecord = {
   labeledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  canonicalUrl?: string | null;
+  contentFingerprint?: string | null;
+  normalizedFingerprint?: string | null;
+  evidenceIdentity?: string | null;
+};
+
+export type CaptureObservationInput = {
+  kind: 'pull' | 'callback' | 'research' | 'direct' | 'backfill';
+  runId?: string;
+  callbackId?: string;
+  jobId?: string;
+  observationKey?: string;
+  observedAt?: Date;
+  metadata?: JsonObject;
 };
 
 export type SourceRecordWriteInput = {
