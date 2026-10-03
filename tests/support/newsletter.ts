@@ -1,6 +1,7 @@
 import { Result } from '@swan-io/boxed';
 
 import type { ApplicationResult } from '@/modules/kernel/application/result';
+import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { GeneratedId } from '@/modules/kernel/domain/ids';
 import type {
   Mutation,
@@ -28,7 +29,13 @@ export const newsletterProfile: NewsletterProfile = {
   halfLifeDays: 90,
   researchMinutes: 5,
   researchPages: 10,
-  runtime: { mode: 'local', provider: 'codex-cli', model: 'fixture-model' },
+  runtime: {
+    mode: 'local',
+    provider: 'codex-cli',
+    model: 'fixture-model',
+    contextWindowTokens: 128000,
+    localOperatorId: 'reader',
+  },
 };
 export const sourceFixture: EvidenceSource = {
   id: 'source-1',
@@ -134,17 +141,57 @@ export const archiveFixture: ResearchArchive = {
 export function memoryRepository(initial = stateFixture()) {
   let state = structuredClone(initial);
   const jobs: NewsletterJob[] = [];
+  const failures: {
+    id: string;
+    payload: unknown;
+    summary: string;
+    createdAt: string;
+    kind: 'failure';
+    jobId: string;
+    reportId: string | null;
+    selectionId: string | null;
+  }[] = [];
+  let databaseNow = newsletterNow;
   const repository: NewsletterRepository = {
     async read() {
       return Result.Ok(structuredClone(state));
     },
     async mutate<T>(
       _workspaceId: string,
-      work: (state: NewsletterState) => ApplicationResult<Mutation<T>>
+      work: (state: NewsletterState) => ApplicationResult<Mutation<T>>,
+      lease?: { jobId: string; leaseToken: string }
     ) {
+      if (
+        lease &&
+        !jobs.some(
+          (j) =>
+            j.workspaceId === _workspaceId &&
+            j.id === lease.jobId &&
+            j.leaseToken === lease.leaseToken &&
+            j.status === 'running' &&
+            j.leaseUntil &&
+            j.leaseUntil > databaseNow
+        )
+      )
+        return Result.Error(
+          new AppError({
+            code: 'NEWSLETTER_LEASE_LOST',
+            category: 'system',
+            status: 409,
+            message: 'Lease lost',
+          })
+        );
       const next = structuredClone(state);
       const result = work(next);
       if (result.isError()) return Result.Error(result.getError());
+      if (
+        result.get().jobs?.length &&
+        result
+          .get()
+          .jobs!.every((job) => jobs.some((j) => j.key === job.key)) &&
+        result.get().alreadyPresent !== undefined
+      )
+        return Result.Ok(result.get().alreadyPresent!);
       state = next;
       state.revision++;
       for (const job of result.get().jobs ?? [])
@@ -155,13 +202,87 @@ export function memoryRepository(initial = stateFixture()) {
     async listJobs() {
       return Result.Ok(structuredClone(jobs));
     },
+    async getJob(workspaceId, jobId) {
+      const job = jobs.find(
+        (j) => j.workspaceId === workspaceId && j.id === jobId
+      );
+      return Result.Ok(
+        job
+          ? { type: 'job_found' as const, job: structuredClone(job) }
+          : { type: 'not_found' as const }
+      );
+    },
+    async pendingPublications() {
+      return Result.Ok(
+        state.profile?.enabled &&
+          !jobs.some((j) => j.key === 'publication:ws-1:report-1')
+          ? [{ workspaceId: 'ws-1', reportId: 'report-1' }]
+          : []
+      );
+    },
+    async history() {
+      return Result.Ok({
+        type: 'history_found' as const,
+        entries: failures
+          .map(({ payload: _payload, ...entry }) => entry)
+          .slice(0, 20),
+        nextCursor: null,
+      });
+    },
+    async detail(_workspaceId, id) {
+      const payload =
+        state.drafts.find((d) => d.id === id) ??
+        failures.find((f) => f.id === id)?.payload;
+      return Result.Ok(
+        payload
+          ? { type: 'detail_found' as const, payload }
+          : { type: 'not_found' as const }
+      );
+    },
+    async recordFailure(job, unit, failure, payload, token) {
+      if (
+        !jobs.some(
+          (j) =>
+            j.id === job.id &&
+            j.workspaceId === job.workspaceId &&
+            j.leaseToken === token &&
+            j.status === 'running' &&
+            j.leaseUntil &&
+            j.leaseUntil > databaseNow
+        )
+      )
+        return Result.Ok({ type: 'lease_lost' as const });
+      failures.push({
+        id: `${job.id}:${unit}:${failures.length}`,
+        payload,
+        summary: failure,
+        createdAt: databaseNow.toISOString(),
+        kind: 'failure',
+        jobId: job.id,
+        reportId: job.targetReportId ?? null,
+        selectionId: job.selectionId,
+      });
+      return Result.Ok({ type: 'recorded' as const });
+    },
     async enabledWorkspaces() {
       return Result.Ok(state.profile?.enabled ? ['ws-1'] : []);
     },
-    async claim(mode, now, token) {
+    async claim(mode, now, token, localOperatorId) {
+      databaseNow = now;
+      if (mode === 'local' && !localOperatorId)
+        return Result.Ok({ type: 'queue_empty' as const });
       const job = jobs.find(
         (j) =>
           j.runtime.mode === mode &&
+          (mode !== 'local' || j.localOperatorId === localOperatorId) &&
+          !jobs.some(
+            (other) =>
+              other.id !== j.id &&
+              other.workspaceId === j.workspaceId &&
+              other.status === 'running' &&
+              other.leaseUntil &&
+              other.leaseUntil > now
+          ) &&
           (j.status === 'queued' ||
             (j.status === 'running' && j.leaseUntil && j.leaseUntil < now))
       );
@@ -179,10 +300,20 @@ export function memoryRepository(initial = stateFixture()) {
     async checkpoint(job, values, token) {
       const live = jobs.find(
         (j) =>
-          j.id === job.id && j.leaseToken === token && j.status === 'running'
+          j.id === job.id &&
+          j.workspaceId === job.workspaceId &&
+          j.leaseToken === token &&
+          j.status === 'running' &&
+          j.leaseUntil &&
+          j.leaseUntil > databaseNow
       );
       if (!live) return Result.Ok({ type: 'lease_lost' as const });
-      Object.assign(live, values);
+      Object.assign(live, values, {
+        leaseUntil:
+          values.status && values.status !== 'running'
+            ? null
+            : new Date(databaseNow.getTime() + 120000),
+      });
       return Result.Ok({ type: 'job_updated' as const });
     },
   };
@@ -190,6 +321,7 @@ export function memoryRepository(initial = stateFixture()) {
     repository,
     getState: () => structuredClone(state),
     getJobs: () => structuredClone(jobs),
+    getFailures: () => structuredClone(failures),
   };
 }
 export function newsletterIds() {

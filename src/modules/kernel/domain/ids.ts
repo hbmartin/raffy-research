@@ -37,8 +37,6 @@ export const zSocialAccountIdSchema =
 export const zCompetitorIdSchema = zBrandedNonEmptyString<'CompetitorId'>();
 export const zProviderConfigIdSchema =
   zBrandedNonEmptyString<'ProviderConfigId'>();
-export const zInternalNoteConfigIdSchema =
-  zBrandedNonEmptyString<'InternalNoteConfigId'>();
 export const zSourceRecordIdSchema = zBrandedNonEmptyString<'SourceRecordId'>();
 export const zSearchResultIdSchema = zBrandedNonEmptyString<'SearchResultId'>();
 export const zSourceSummaryIdSchema =
@@ -70,7 +68,6 @@ export type KeywordId = z.infer<typeof zKeywordIdSchema>;
 export type SocialAccountId = z.infer<typeof zSocialAccountIdSchema>;
 export type CompetitorId = z.infer<typeof zCompetitorIdSchema>;
 export type ProviderConfigId = z.infer<typeof zProviderConfigIdSchema>;
-export type InternalNoteConfigId = z.infer<typeof zInternalNoteConfigIdSchema>;
 export type SourceRecordId = z.infer<typeof zSourceRecordIdSchema>;
 export type SearchResultId = z.infer<typeof zSearchResultIdSchema>;
 export type SourceSummaryId = z.infer<typeof zSourceSummaryIdSchema>;
@@ -152,12 +149,6 @@ export const toCompetitorId = (value: string): CompetitorId =>
   parseBrandedString(zCompetitorIdSchema, value, 'CompetitorId');
 export const toProviderConfigId = (value: string): ProviderConfigId =>
   parseBrandedString(zProviderConfigIdSchema, value, 'ProviderConfigId');
-export const toInternalNoteConfigId = (value: string): InternalNoteConfigId =>
-  parseBrandedString(
-    zInternalNoteConfigIdSchema,
-    value,
-    'InternalNoteConfigId'
-  );
 export const toSourceRecordId = (value: string): SourceRecordId =>
   parseBrandedString(zSourceRecordIdSchema, value, 'SourceRecordId');
 export const toSearchResultId = (value: string): SearchResultId =>
@@ -207,7 +198,6 @@ export const zKeywordId = () => zKeywordIdSchema;
 export const zSocialAccountId = () => zSocialAccountIdSchema;
 export const zCompetitorId = () => zCompetitorIdSchema;
 export const zProviderConfigId = () => zProviderConfigIdSchema;
-export const zInternalNoteConfigId = () => zInternalNoteConfigIdSchema;
 export const zSourceRecordId = () => zSourceRecordIdSchema;
 export const zSearchResultId = () => zSearchResultIdSchema;
 export const zSourceSummaryId = () => zSourceSummaryIdSchema;

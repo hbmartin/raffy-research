@@ -157,4 +157,90 @@ export const newsletterSkip = createServerFn({ method: 'POST' })
     )
   );
 
-export type NewsletterServerFunctions = { newsletterGet: typeof newsletterGet };
+export const newsletterPrepareThemes = createServerFn({ method: 'POST' })
+  .validator(workspaceInput)
+  .handler(async ({ data }) =>
+    runMutation.withOperation('newsletter.prepareThemes')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(await useCases.prepareThemes({ ...input, userId: ctx.user.id }))
+    )
+  );
+export const newsletterRetry = createServerFn({ method: 'POST' })
+  .validator(workspaceInput.extend({ jobId: z.string().min(1).max(200) }))
+  .handler(async ({ data }) =>
+    runMutation.withOperation('newsletter.retry')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(await useCases.retry({ ...input, userId: ctx.user.id }))
+    )
+  );
+export const newsletterHistory = createServerFn({ method: 'GET' })
+  .validator(workspaceInput.extend({ before: z.string().max(300).optional() }))
+  .handler(async ({ data }) =>
+    runProtected.withOperation('newsletter.history')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(await useCases.history({ ...input, userId: ctx.user.id }))
+    )
+  );
+export const newsletterDetail = createServerFn({ method: 'GET' })
+  .validator(workspaceInput.extend({ id: z.string().min(1).max(300) }))
+  .handler(async ({ data }) =>
+    runProtected.withOperation('newsletter.detail')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(await useCases.detail({ ...input, userId: ctx.user.id }))
+    )
+  );
+export const newsletterEquivalenceReviews = createServerFn({ method: 'GET' })
+  .validator(workspaceInput.extend({ before: z.string().max(300).optional() }))
+  .handler(async ({ data }) =>
+    runProtected.withOperation('newsletter.equivalenceReviews')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(
+          await useCases.equivalenceReviews({ ...input, userId: ctx.user.id })
+        )
+    )
+  );
+export const newsletterDecideEquivalence = createServerFn({ method: 'POST' })
+  .validator(
+    workspaceInput.extend({
+      reviewId: z.string().min(1).max(200),
+      action: z.enum(['confirm', 'separate']),
+    })
+  )
+  .handler(async ({ data }) =>
+    runMutation.withOperation('newsletter.decideEquivalence')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(
+          await useCases.decideEquivalence({ ...input, userId: ctx.user.id })
+        )
+    )
+  );
+
+export type NewsletterServerFunctions = {
+  newsletterGet: typeof newsletterGet;
+  newsletterHistory: typeof newsletterHistory;
+  newsletterDetail: typeof newsletterDetail;
+  newsletterEvidenceDetails: typeof newsletterEvidenceDetails;
+  newsletterEquivalenceReviews: typeof newsletterEquivalenceReviews;
+};
+
+export const newsletterEvidenceDetails = createServerFn({ method: 'GET' })
+  .validator(
+    workspaceInput.extend({
+      sourceIds: z.array(z.string().min(1).max(200)).min(1).max(2),
+    })
+  )
+  .handler(async ({ data }) =>
+    runProtected.withOperation('newsletter.evidenceDetails')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(
+          await useCases.evidenceDetails({ ...input, userId: ctx.user.id })
+        )
+    )
+  );

@@ -58,12 +58,8 @@ A public profile selected for monitoring within a Workspace.
 _Avoid_: User Account
 
 **Provider**:
-An external or internal service through which market material is acquired. A Provider is a capture channel, not the original Source.
+An external service through which market material is acquired. A Provider is a capture channel, not the original Source.
 _Avoid_: Source, Data Source
-
-**Internal Note Source**:
-A private team location intentionally selected as eligible market context for a Workspace. Material captured from it becomes a Source like externally captured material.
-_Avoid_: Provider
 
 ### Evidence
 
@@ -72,7 +68,7 @@ The acquisition of material through Providers and its conversion into Source Rec
 _Avoid_: Synthesis
 
 **Source**:
-The original item being referenced, such as a post, discussion, webpage, report, note, or change event. It exists independently of the Provider that captured it.
+The original item being referenced, such as a post, discussion, webpage, report, or change event. It exists independently of the Provider that captured it.
 _Avoid_: Provider, Source Record, Evidence Item
 
 **Source Record**:

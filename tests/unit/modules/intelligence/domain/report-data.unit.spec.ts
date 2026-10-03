@@ -69,6 +69,9 @@ describe('report data validation', () => {
     expect(data.what_looks_most_interesting).toEqual([]);
     expect(data.source_library).toEqual([]);
     expect(data.topic_clusters[0]?.all_evidence).toEqual([]);
+    expect(data.topic_clusters[0]).not.toHaveProperty(
+      'related_internal_sources'
+    );
   });
 
   it('requires exactly 3 executive summary bullets', () => {

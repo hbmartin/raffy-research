@@ -3,14 +3,12 @@ import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type {
   CompetitorId,
-  InternalNoteConfigId,
   KeywordId,
   ProviderConfigId,
   WorkspaceId,
 } from '@/modules/kernel/domain/ids';
 import {
   toCompetitorId,
-  toInternalNoteConfigId,
   toKeywordId,
   toProviderConfigId,
   toSocialAccountId,
@@ -24,7 +22,6 @@ import {
   mapIntelligenceDbError,
 } from './map-db-error';
 import {
-  internalNoteConfig as internalNoteConfigTable,
   providerConfig as providerConfigTable,
   workspace as workspaceTable,
   workspaceCompetitor as competitorTable,
@@ -33,8 +30,6 @@ import {
 } from './schema';
 import type { WorkspaceRepository } from '../../application/ports/workspace-repository';
 import type {
-  InternalNoteConfig,
-  InternalNoteSystem,
   ProviderConfig,
   ProviderConfigWriteInput,
   ProviderName,
@@ -54,7 +49,6 @@ type KeywordRow = typeof keywordTable.$inferSelect;
 type SocialRow = typeof socialAccountTable.$inferSelect;
 type CompetitorRow = typeof competitorTable.$inferSelect;
 type ProviderConfigRow = typeof providerConfigTable.$inferSelect;
-type InternalNoteRow = typeof internalNoteConfigTable.$inferSelect;
 
 const toWorkspace = (row: WorkspaceRow): Workspace => ({
   id: toWorkspaceId(row.id),
@@ -109,16 +103,6 @@ const toProviderConfig = (row: ProviderConfigRow): ProviderConfig => ({
   enabled: row.enabled,
   credentialsRef: row.credentialsRef,
   config: row.config ?? null,
-  createdAt: row.createdAt,
-  updatedAt: row.updatedAt,
-});
-
-const toInternalNoteConfig = (row: InternalNoteRow): InternalNoteConfig => ({
-  id: toInternalNoteConfigId(row.id),
-  workspaceId: toWorkspaceId(row.workspaceId),
-  sourceSystem: row.sourceSystem,
-  sourceRef: row.sourceRef,
-  enabled: row.enabled,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
@@ -520,89 +504,6 @@ export class WorkspaceRepositoryDrizzle implements WorkspaceRepository {
     } catch (error) {
       return Result.Error(
         mapIntelligenceDbError(error, 'PROVIDER_CONFIG_DELETE_ERROR')
-      );
-    }
-  }
-
-  async listInternalNoteConfigs(
-    workspaceId: WorkspaceId,
-    options?: { enabledOnly?: boolean }
-  ) {
-    try {
-      const where = options?.enabledOnly
-        ? and(
-            eq(internalNoteConfigTable.workspaceId, workspaceId),
-            eq(internalNoteConfigTable.enabled, true)
-          )
-        : eq(internalNoteConfigTable.workspaceId, workspaceId);
-      const rows = await this.db
-        .select()
-        .from(internalNoteConfigTable)
-        .where(where)
-        .orderBy(asc(internalNoteConfigTable.createdAt));
-      return Result.Ok(rows.map(toInternalNoteConfig));
-    } catch (error) {
-      return Result.Error(
-        mapIntelligenceDbError(error, 'INTERNAL_NOTE_LIST_ERROR')
-      );
-    }
-  }
-
-  async createInternalNoteConfig(input: {
-    workspaceId: WorkspaceId;
-    sourceSystem: InternalNoteSystem;
-    sourceRef: string;
-    enabled?: boolean;
-  }) {
-    try {
-      const [created] = await this.db
-        .insert(internalNoteConfigTable)
-        .values({
-          workspaceId: input.workspaceId,
-          sourceSystem: input.sourceSystem,
-          sourceRef: input.sourceRef.trim(),
-          enabled: input.enabled ?? true,
-          metadata: {},
-        })
-        .returning();
-      if (!created) {
-        return Result.Error(
-          intelligenceInvariantError(
-            'INTERNAL_NOTE_CREATE_EMPTY',
-            'internal note insert returned no row'
-          )
-        );
-      }
-      return Result.Ok(toInternalNoteConfig(created));
-    } catch (error) {
-      return Result.Error(
-        mapIntelligenceDbError(error, 'INTERNAL_NOTE_CREATE_ERROR')
-      );
-    }
-  }
-
-  async deleteInternalNoteConfig(
-    workspaceId: WorkspaceId,
-    id: InternalNoteConfigId
-  ) {
-    try {
-      const [deleted] = await this.db
-        .delete(internalNoteConfigTable)
-        .where(
-          and(
-            eq(internalNoteConfigTable.id, id),
-            eq(internalNoteConfigTable.workspaceId, workspaceId)
-          )
-        )
-        .returning({ id: internalNoteConfigTable.id });
-      return Result.Ok(
-        deleted
-          ? ({ type: 'internal_note_deleted' } as const)
-          : ({ type: 'internal_note_not_found' } as const)
-      );
-    } catch (error) {
-      return Result.Error(
-        mapIntelligenceDbError(error, 'INTERNAL_NOTE_DELETE_ERROR')
       );
     }
   }

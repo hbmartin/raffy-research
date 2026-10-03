@@ -35,7 +35,10 @@ export const zPrepared = z.object({
 });
 export function parseModel<T>(text: string, schema: z.ZodType<T>) {
   const decoded = Result.fromExecution(
-    () => JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')) as unknown
+    () =>
+      JSON.parse(
+        text.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')
+      ) as unknown
   );
   if (decoded.isError())
     return { type: 'model_invalid' as const, issues: ['Invalid JSON'] };
@@ -44,6 +47,8 @@ export function parseModel<T>(text: string, schema: z.ZodType<T>) {
     ? { type: 'model_parsed' as const, value: result.data }
     : {
         type: 'model_invalid' as const,
-        issues: result.error.issues.map((i) => i.message),
+        issues: result.error.issues.map(
+          (i) => `${i.path.join('.')}: ${i.message}`
+        ),
       };
 }

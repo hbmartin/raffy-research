@@ -17,6 +17,12 @@ import { toUserId } from '@/modules/kernel';
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { NewsletterModel } from '@/modules/newsletter';
 import {
+  auditSignature,
+  inputBudget,
+  processingSignature,
+  promptSize,
+} from '@/modules/newsletter/domain/processing';
+import {
   createNewsletterUseCases,
   createNewsletterWorker,
 } from '@/modules/newsletter/testing';
@@ -41,6 +47,393 @@ function setup(initial = stateFixture()) {
   return { ...memory, useCases, idGenerator, clock };
 }
 describe('Newsletter shared workflow', () => {
+  it('loads scoped text for preparation and preserves unchanged verification on a later attempt', async () => {
+    const initial = stateFixture();
+    initial.sources[0]!.contentFingerprint = processingSignature(
+      initial.sources[0]!.content
+    );
+    initial.sources[0]!.contentLength = initial.sources[0]!.content.length;
+    initial.angles[0]!.supportAudit = auditFixture;
+    initial.angles[0]!.auditSignature = auditSignature(
+      initial.angles[0]!,
+      initial.sources,
+      initial.profile!.audience
+    );
+    const s = setup(initial);
+    const reads: Parameters<typeof archiveFixture.read>[1][] = [];
+    const archive = {
+      ...archiveFixture,
+      async read(
+        workspaceId: string,
+        options: Parameters<typeof archiveFixture.read>[1]
+      ) {
+        reads.push(options);
+        const value = requireOk(await archiveFixture.read(workspaceId));
+        if ('type' in value) return Result.Ok(value);
+        return Result.Ok({
+          ...value,
+          sources: initial.sources
+            .filter(
+              (source) =>
+                !options?.onlySourceIds ||
+                options.sourceIds?.includes(source.id)
+            )
+            .map((source) => ({
+              ...source,
+              content: options?.content === false ? '' : source.content,
+            })),
+        });
+      },
+    };
+    const stages: string[] = [];
+    const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
+      repository: s.repository,
+      archive,
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      model: {
+        async generate({ stage }) {
+          stages.push(stage);
+          return Result.Ok(
+            JSON.stringify({
+              topics: initial.topics,
+              angles: initial.angles,
+              sourceAssessments: [],
+            })
+          );
+        },
+      },
+    });
+    await worker.reconcile('ws-1');
+    await finishNewsletter(worker);
+    requireOk(await s.useCases.prepareThemes(actor));
+    await finishNewsletter(worker);
+    expect(stages).toEqual(['tracking', 'tracking']);
+    expect(reads.some((options) => options?.content === false)).toBe(true);
+    expect(
+      reads
+        .filter((options) => options?.content !== false)
+        .every(
+          (options) => options?.onlySourceIds && options.sourceIds?.length === 1
+        )
+    ).toBe(true);
+    expect(s.getState().angles[0]!.verified).toBe(true);
+  });
+  it('resumes bounded evidence and style processing without losing original passages or sample parts', async () => {
+    const initial = stateFixture();
+    initial.profile!.runtime.contextWindowTokens = 16384;
+    initial.profile!.guidance = 'Preserve this explicit house rule.';
+    initial.profile!.samples = [
+      'first sample '.repeat(450),
+      'last sample '.repeat(450),
+    ];
+    initial.sources[0]!.content +=
+      ' Additional untrusted evidence text.'.repeat(300);
+    const s = setup(initial);
+    const archive = {
+      ...archiveFixture,
+      async read() {
+        const value = requireOk(await archiveFixture.read('ws-1'));
+        if ('type' in value) return Result.Ok(value);
+        return Result.Ok({ ...value, sources: initial.sources });
+      },
+    };
+    requireOk(
+      await s.useCases.select({
+        ...actor,
+        reportId: 'report-1',
+        angleId: 'angle-1',
+      })
+    );
+    const styleParts: string[] = [],
+      evidenceParts: string[] = [];
+    let draftingPrompt = '';
+    const model: NewsletterModel = {
+      async generate({ stage, prompt, contextBudget }) {
+        expect(promptSize(prompt)).toBeLessThanOrEqual(
+          inputBudget(contextBudget!)
+        );
+        if (stage === 'style-processing') {
+          styleParts.push(prompt);
+          return Result.Ok(
+            JSON.stringify({
+              notes: `Style part ${styleParts.length}: clear sentences.`,
+            })
+          );
+        }
+        if (stage === 'evidence-processing') {
+          const pieces = JSON.parse(
+            prompt.split('Sources: ')[1]!.split('. Repair feedback:')[0]!
+          ) as { id: string; content: string }[];
+          evidenceParts.push(...pieces.map((piece) => piece.content));
+          return Result.Ok(
+            JSON.stringify({
+              notes: pieces.map((piece) => ({
+                sourceId: piece.id,
+                passage: piece.content.slice(0, 80),
+                authority: 1,
+                explanation: 'Read this original passage.',
+                counterevidence: [],
+              })),
+            })
+          );
+        }
+        if (stage === 'drafting') draftingPrompt = prompt;
+        return Result.Ok(
+          JSON.stringify(stage === 'audit' ? auditFixture : articleFixture)
+        );
+      },
+    };
+    const makeWorker = () =>
+      createNewsletterWorker({
+        localOperatorId: 'reader',
+        repository: s.repository,
+        archive,
+        clock: s.clock,
+        idGenerator: s.idGenerator,
+        model,
+      });
+    requireOk(await makeWorker().runNext('local'));
+    const firstCheckpoint = s.getJobs()[0]!.checkpoint;
+    expect(firstCheckpoint.styleCursor).toBe(1);
+    const resumed = makeWorker();
+    for (let step = 0; step < 150; step++) {
+      if (requireOk(await resumed.runNext('local')).type === 'queue_empty')
+        break;
+    }
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(
+      styleParts.filter((prompt) => prompt.includes('part 1/'))
+    ).toHaveLength(1);
+    expect(styleParts.join('\n')).toContain('first sample');
+    expect(styleParts.join('\n')).toContain('last sample');
+    expect(evidenceParts.join('')).toContain(
+      'Additional untrusted evidence text.'
+    );
+    expect(draftingPrompt).toContain(initial.profile!.guidance);
+    expect(draftingPrompt).toContain(`Style part ${styleParts.length}`);
+    expect(s.getState().drafts[0]!.sources[0]!.content).toBe(
+      initial.sources[0]!.content
+    );
+    expect(s.getState().drafts[0]!.profile.samples).toEqual(
+      initial.profile!.samples
+    );
+  });
+  it('prepares only on first enable, finishes queued work after disable, and exposes manual preparation', async () => {
+    const initial = stateFixture();
+    initial.profile!.enabled = false;
+    initial.processedReports = [];
+    const s = setup(initial);
+    requireOk(
+      await s.useCases.saveProfile({
+        ...actor,
+        profile: { ...initial.profile!, enabled: true },
+      })
+    );
+    expect(s.getJobs()).toHaveLength(1);
+    requireOk(
+      await s.useCases.saveProfile({
+        ...actor,
+        profile: {
+          ...initial.profile!,
+          enabled: true,
+          guidance: 'Updated style',
+        },
+      })
+    );
+    expect(s.getJobs()).toHaveLength(1);
+    requireOk(
+      await s.useCases.saveProfile({
+        ...actor,
+        profile: { ...initial.profile!, enabled: false },
+      })
+    );
+    const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
+      repository: s.repository,
+      archive: archiveFixture,
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      model: {
+        async generate({ stage }) {
+          return Result.Ok(
+            JSON.stringify(
+              stage === 'theme-audit'
+                ? auditFixture
+                : {
+                    topics: initial.topics,
+                    angles: initial.angles,
+                    sourceAssessments: [],
+                  }
+            )
+          );
+        },
+      },
+    });
+    await finishNewsletter(worker);
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(requireOk(await worker.reconcile('ws-1')).type).toBe('up_to_date');
+    expect(requireOk(await s.useCases.prepareThemes(actor)).type).toBe(
+      'queued'
+    );
+  });
+  it('retries with current settings and a linked fresh attempt while retaining the original selection and failure', async () => {
+    const s = setup();
+    requireOk(
+      await s.useCases.select({
+        ...actor,
+        reportId: 'report-1',
+        angleId: 'angle-1',
+      })
+    );
+    const failedWorker = createNewsletterWorker({
+      localOperatorId: 'reader',
+      repository: s.repository,
+      archive: archiveFixture,
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      model: {
+        async generate() {
+          return Result.Ok('malformed output');
+        },
+      },
+    });
+    await finishNewsletter(failedWorker);
+    const parent = s.getJobs()[0]!;
+    expect(parent.status).toBe('failed');
+    expect(parent.checkpoint.repairs).toBe(2);
+    const newProfile = {
+      ...s.getState().profile!,
+      enabled: false,
+      guidance: 'New house style',
+      runtime: {
+        mode: 'hosted' as const,
+        provider: 'openai' as const,
+        model: 'custom-hosted',
+        contextWindowTokens: 64000,
+      },
+    };
+    requireOk(await s.useCases.saveProfile({ ...actor, profile: newProfile }));
+    expect(
+      requireOk(await s.useCases.retry({ ...actor, jobId: parent.id })).type
+    ).toBe('queued');
+    const child = s.getJobs()[1]!;
+    expect(child).toMatchObject({
+      parentAttemptId: parent.id,
+      selectionId: parent.selectionId,
+      targetReportId: parent.targetReportId,
+      contextBudget: 64000,
+      checkpoint: { profile: newProfile },
+    });
+    expect(child.checkpoint.repairs).toBeUndefined();
+    expect(s.getJobs()[0]!.failure).toBe(parent.failure);
+    expect(
+      requireOk(await s.useCases.retry({ ...actor, jobId: parent.id })).type
+    ).toBe('selection_conflict');
+    await s.useCases.abandon({ ...actor, selectionId: child.selectionId! });
+    expect(
+      requireOk(await s.useCases.retry({ ...actor, jobId: parent.id })).type
+    ).toBe('selection_conflict');
+  });
+  it('records malformed candidate audits and excludes only the exhausted candidate', async () => {
+    const initial = stateFixture();
+    initial.processedReports = [];
+    initial.angles.push({
+      ...initial.angles[0]!,
+      id: 'usable-angle',
+      title: 'Usable theme',
+      takeaway: 'A different supported mechanism',
+    });
+    const s = setup(initial);
+    const stages: string[] = [];
+    const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
+      repository: s.repository,
+      archive: archiveFixture,
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      model: {
+        async generate({ stage, prompt }) {
+          stages.push(stage);
+          if (stage === 'theme-audit')
+            return Result.Ok(
+              prompt.includes('A different supported mechanism')
+                ? JSON.stringify(auditFixture)
+                : 'invalid JSON'
+            );
+          return Result.Ok(
+            JSON.stringify({
+              topics: initial.topics,
+              angles: initial.angles,
+              sourceAssessments: [],
+            })
+          );
+        },
+      },
+    });
+    await worker.reconcile('ws-1');
+    await finishNewsletter(worker);
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(s.getState().angles.find((a) => a.id === 'angle-1')!.failed).toBe(
+      true
+    );
+    expect(s.getState().offers.map((a) => a.id)).toEqual(['usable-angle']);
+    expect(stages.filter((stage) => stage === 'theme-audit')).toHaveLength(4);
+    expect(
+      s
+        .getFailures()
+        .filter((failure) => failure.summary.includes('Invalid JSON'))
+    ).toHaveLength(3);
+  });
+  it('passes the rejected article, failing claim checks and local citation failures into repairs', async () => {
+    const s = setup();
+    await s.useCases.select({
+      ...actor,
+      reportId: 'report-1',
+      angleId: 'angle-1',
+    });
+    const badArticle = {
+      ...articleFixture,
+      markdown: 'Rejected prose [invented](https://invented.example/claim)',
+    };
+    const prompts: string[] = [];
+    const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
+      repository: s.repository,
+      archive: archiveFixture,
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      model: {
+        async generate({ stage, prompt }) {
+          if (stage === 'repair') prompts.push(prompt);
+          return Result.Ok(
+            JSON.stringify(
+              stage === 'audit'
+                ? {
+                    ...auditFixture,
+                    issues: [],
+                    supported: false,
+                    claimChecks: auditFixture.claimChecks.map((c) => ({
+                      ...c,
+                      supported: false,
+                      explanation: 'Primary evidence contradicts this claim',
+                    })),
+                  }
+                : badArticle
+            )
+          );
+        },
+      },
+    });
+    await finishNewsletter(worker);
+    expect(prompts).toHaveLength(2);
+    for (const prompt of prompts) {
+      expect(prompt).toContain('Rejected prose');
+      expect(prompt).toContain('Primary evidence contradicts this claim');
+      expect(prompt).toContain('Citation is outside allowed source URLs');
+    }
+  });
   it('gives one reader the shared selection and pins its local runtime', async () => {
     const s = setup();
     const results = await Promise.all([
@@ -128,6 +521,7 @@ describe('Newsletter shared workflow', () => {
         )
       );
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: archiveFixture,
       clock: s.clock,
@@ -175,6 +569,7 @@ describe('Newsletter shared workflow', () => {
         )
       );
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: archiveFixture,
       clock: s.clock,
@@ -204,6 +599,7 @@ describe('Newsletter shared workflow', () => {
     });
     let fail = false;
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: archiveFixture,
       clock: s.clock,
@@ -252,6 +648,7 @@ describe('Newsletter shared workflow', () => {
       .fn<typeof archiveFixture.research>()
       .mockResolvedValue(Result.Ok([]));
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: { ...archiveFixture, research },
       clock: s.clock,
@@ -315,6 +712,24 @@ describe('Newsletter shared workflow', () => {
 });
 
 describe('Newsletter runtime and history guarantees', () => {
+  it('rejects a non-draft history entry when exporting a saved version', async () => {
+    const s = setup();
+    vi.spyOn(s.repository, 'detail').mockResolvedValue(
+      Result.Ok({
+        type: 'detail_found',
+        payload: { unit: 'tracking', failure: 'Invalid model output' },
+      })
+    );
+    expect(
+      requireOk(
+        await s.useCases.export({
+          ...actor,
+          draftId: 'failure-history-entry',
+          format: 'markdown',
+        })
+      )
+    ).toEqual({ type: 'not_found' });
+  });
   it('retains captured research in the topic library when acquisition stops with a provider error', async () => {
     const initial = stateFixture();
     initial.angles[0]!.verified = false;
@@ -352,6 +767,7 @@ describe('Newsletter runtime and history guarantees', () => {
       },
     };
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive,
       clock: s.clock,
@@ -378,7 +794,7 @@ describe('Newsletter runtime and history guarantees', () => {
       })
     );
     const claimed = requireOk(
-      await s.repository.claim('local', newsletterNow, 'interrupted')
+      await s.repository.claim('local', newsletterNow, 'interrupted', 'reader')
     );
     if (claimed.type !== 'job_claimed') throw new Error('Expected claimed job');
     requireOk(
@@ -393,6 +809,7 @@ describe('Newsletter runtime and history guarantees', () => {
     );
     const generate = vi.fn<NewsletterModel['generate']>();
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: archiveFixture,
       clock: s.clock,
@@ -454,12 +871,18 @@ describe('Newsletter runtime and history guarantees', () => {
     let researched = false;
     const archive = {
       ...archiveFixture,
-      async read() {
+      async read(
+        _workspaceId: string,
+        options?: Parameters<typeof archiveFixture.read>[1]
+      ) {
         const data = requireOk(await archiveFixture.read('ws-1'));
         if ('type' in data) return Result.Ok(data);
+        const sources = researched ? [...data.sources, captured] : data.sources;
         return Result.Ok({
           ...data,
-          sources: researched ? [...data.sources, captured] : data.sources,
+          sources: options?.onlySourceIds
+            ? sources.filter((source) => options.sourceIds?.includes(source.id))
+            : sources,
         });
       },
       async research() {
@@ -469,6 +892,7 @@ describe('Newsletter runtime and history guarantees', () => {
     };
     const stages: string[] = [];
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive,
       clock: s.clock,
@@ -527,8 +951,19 @@ describe('Newsletter runtime and history guarantees', () => {
       const state = stateFixture();
       state.profile!.runtime =
         mode === 'local'
-          ? { mode, provider: 'claude-code', model: 'fixture-model' }
-          : { mode, provider: 'openai', model: 'fixture-model' };
+          ? {
+              mode,
+              provider: 'claude-code',
+              model: 'fixture-model',
+              contextWindowTokens: 128000,
+              localOperatorId: 'reader',
+            }
+          : {
+              mode,
+              provider: 'openai',
+              model: 'fixture-model',
+              contextWindowTokens: 128000,
+            };
       const s = setup(state);
       requireOk(
         await s.useCases.select({
@@ -546,6 +981,7 @@ describe('Newsletter runtime and history guarantees', () => {
       );
       const calls: string[] = [];
       const worker = createNewsletterWorker({
+        localOperatorId: 'reader',
         repository: s.repository,
         archive: archiveFixture,
         clock: s.clock,
@@ -566,6 +1002,7 @@ describe('Newsletter runtime and history guarantees', () => {
       expect(s.getJobs()[0]!.checkpoint.article).toEqual(articleFixture);
       // A new worker has no in-memory article or browser state.
       const resumed = createNewsletterWorker({
+        localOperatorId: 'reader',
         repository: s.repository,
         archive: archiveFixture,
         clock: s.clock,
@@ -617,6 +1054,7 @@ describe('Newsletter runtime and history guarantees', () => {
         )
       );
     const worker = createNewsletterWorker({
+      localOperatorId: 'reader',
       repository: s.repository,
       archive: archiveFixture,
       clock: s.clock,

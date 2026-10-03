@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { markdownText } from './markdown';
+
 export const DAY_MS = 86_400_000;
 export const SCORING_POLICY = 'verified-support-momentum-v1';
 export const zRuntime = z
@@ -7,6 +9,8 @@ export const zRuntime = z
     mode: z.enum(['hosted', 'local']),
     provider: z.enum(['openai', 'codex-cli', 'claude-code', 'ollama']),
     model: z.string().trim().min(1).max(200),
+    contextWindowTokens: z.number().int().min(8192).max(2_000_000).optional(),
+    localOperatorId: z.string().min(1).optional(),
   })
   .refine(
     (v) =>
@@ -36,6 +40,9 @@ export type EvidenceSource = {
   reportIds: string[];
   authority: number;
   authorityExplanation?: string;
+  contentLength?: number;
+  contentFingerprint?: string;
+  originPublishedAt?: string;
   newsletterResearch?: boolean;
   researchJobId?: string;
   junk: boolean;
@@ -48,6 +55,7 @@ export type Archive = {
     id: string;
     publishedAt: string;
     periodStart: string;
+    periodEnd?: string;
     sourceIds: string[];
   }[];
   sources: EvidenceSource[];
@@ -82,6 +90,8 @@ export type EditorialAngle = {
   verified: boolean;
   evidenceSignature: string;
   supportAudit?: Audit;
+  auditSignature?: string;
+  failed?: boolean;
 };
 export type Theme = EditorialAngle & {
   support: number;
@@ -154,7 +164,13 @@ export type DraftVersion = Article & {
   sources: EvidenceSource[];
   jobId: string;
 };
+export type RetiredWorkingRecord = {
+  entity: 'source' | 'topic' | 'angle';
+  id: string;
+  value: EvidenceSource | TrackedTopic | EditorialAngle;
+};
 export type NewsletterState = {
+  retired?: RetiredWorkingRecord[];
   profile: NewsletterProfile | null;
   topics: TrackedTopic[];
   angles: EditorialAngle[];
@@ -208,12 +224,39 @@ export type NewsletterJob = {
     article?: Article;
     sources?: EvidenceSource[];
     researchStartedAt?: string;
+    researchElapsedMs?: number;
+    styleNotesReady?: boolean;
+    evidencePrepared?: boolean;
+    evidenceSlices?: import('./processing').ProcessingSlice[][];
     repairs?: number;
+    unitRepairs?: Record<string, number>;
+    unitFailures?: Record<string, string[]>;
+    rejectedArticle?: Article;
+    batchCursor?: number;
+    processingBatches?: import('./processing').ProcessingBatch[];
+    preparationSourceIds?: string[];
+    preparedReportIds?: string[];
+    styleCursor?: number;
+    styleNotes?: string[];
+    evidenceCursor?: number;
+    evidenceInputSignature?: string;
+    evidenceNotes?: {
+      sourceId: string;
+      passage: string;
+      authority: number;
+      explanation: string;
+      counterevidence: string[];
+    }[];
   };
   leaseToken: string | null;
   leaseUntil: Date | null;
   failure: string | null;
   createdAt: Date;
+  targetReportId?: string | null;
+  parentAttemptId?: string | null;
+  initiatingActorId?: string | null;
+  localOperatorId?: string | null;
+  contextBudget?: number | null;
 };
 export const hasStyle = (profile: NewsletterProfile) =>
   Boolean(profile.guidance.trim() || profile.samples.length);
@@ -296,12 +339,21 @@ export function rankThemes(
 ): Theme[] {
   const halfLife = state.profile?.halfLifeDays ?? 90;
   const candidates = state.angles
+    .filter((a) => !a.failed)
     .filter((a) => includeSnoozed || angleEligible(state, a, now))
     .map((angle): Theme => {
       const seen = new Set<string>();
-      const available = state.sources.filter(
-        (s) => angle.sourceIds.includes(s.id) && !s.junk && !s.retracted
-      );
+      const available = state.sources
+        .filter(
+          (s) => angle.sourceIds.includes(s.id) && !s.junk && !s.retracted
+        )
+        .sort(
+          (a, b) =>
+            (b.contentLength ?? b.content.length) -
+              (a.contentLength ?? a.content.length) ||
+            a.publishedAt.localeCompare(b.publishedAt) ||
+            a.id.localeCompare(b.id)
+        );
       const sources = available.filter(
         (s) =>
           angle.sourceIds.includes(s.id) &&
@@ -317,7 +369,9 @@ export function rankThemes(
             2 **
               (-Math.max(
                 0,
-                (now.getTime() - new Date(s.publishedAt).getTime()) / DAY_MS
+                (now.getTime() -
+                  new Date(s.originPublishedAt ?? s.publishedAt).getTime()) /
+                  DAY_MS
               ) /
                 halfLife),
         0
@@ -334,19 +388,35 @@ export function rankThemes(
       );
       const recent = topicSources.filter(
         (s) =>
-          now.getTime() - new Date(s.publishedAt).getTime() >= 0 &&
-          now.getTime() - new Date(s.publishedAt).getTime() < 14 * DAY_MS
+          now.getTime() -
+            new Date(s.originPublishedAt ?? s.publishedAt).getTime() >=
+            0 &&
+          now.getTime() -
+            new Date(s.originPublishedAt ?? s.publishedAt).getTime() <
+            14 * DAY_MS
       ).length;
       const previous = topicSources.filter(
         (s) =>
-          now.getTime() - new Date(s.publishedAt).getTime() >= 14 * DAY_MS &&
-          now.getTime() - new Date(s.publishedAt).getTime() < 28 * DAY_MS
+          now.getTime() -
+            new Date(s.originPublishedAt ?? s.publishedAt).getTime() >=
+            14 * DAY_MS &&
+          now.getTime() -
+            new Date(s.originPublishedAt ?? s.publishedAt).getTime() <
+            28 * DAY_MS
       ).length;
       const momentum = (recent - previous) / Math.max(1, previous);
       const strong =
         angle.verified &&
         angle.gaps.length === 0 &&
-        claimReferencesValid(angle.claims, available) &&
+        (available.every((s) => !s.content)
+          ? angle.claims.every(
+              (c) =>
+                c.sourceIds.every((id) => available.some((s) => s.id === id)) &&
+                c.excerpts.every((e) =>
+                  available.some((s) => s.id === e.sourceId)
+                )
+            )
+          : claimReferencesValid(angle.claims, available)) &&
         available.length > 0;
       return {
         ...angle,
@@ -401,13 +471,7 @@ export function exportDraft(
   format: 'markdown' | 'text'
 ): string {
   const article =
-    format === 'markdown'
-      ? draft.markdown
-      : draft.markdown
-          .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1 ($2)')
-          .replace(/^#{1,6}\s+/gm, '')
-          .replace(/\*\*([^*]+)\*\*/g, '$1')
-          .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1');
+    format === 'markdown' ? draft.markdown : markdownText(draft.markdown);
   return `Subject: ${draft.subject}\nPreview: ${draft.preview}\n\n${article}`;
 }
 
@@ -417,9 +481,9 @@ export function sourceWarnings(
 ): string[] {
   return draft.sources.flatMap((source) => {
     const live = current.find((s) => s.id === source.id);
-    return live?.junk || live?.retracted
+    return !live || live.junk || live.retracted
       ? [
-          `${source.title}: ${live.retracted ? 'retracted' : 'marked Junk'} since this version was created.`,
+          `${source.title}: ${!live ? 'unavailable' : live.retracted ? 'retracted' : 'marked Junk'} since this version was created.`,
         ]
       : [];
   });

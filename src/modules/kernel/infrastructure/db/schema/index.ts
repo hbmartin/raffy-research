@@ -14,7 +14,6 @@ import {
 } from '@/modules/auth/infrastructure/drizzle/schema';
 import {
   ingestionRun,
-  internalNoteConfig,
   providerCallbackEvent,
   providerConfig,
   reportRubricScore,
@@ -55,8 +54,6 @@ export type WorkspaceCompetitor = typeof workspaceCompetitor.$inferSelect;
 export type NewWorkspaceCompetitor = typeof workspaceCompetitor.$inferInsert;
 export type ProviderConfig = typeof providerConfig.$inferSelect;
 export type NewProviderConfig = typeof providerConfig.$inferInsert;
-export type InternalNoteConfig = typeof internalNoteConfig.$inferSelect;
-export type NewInternalNoteConfig = typeof internalNoteConfig.$inferInsert;
 export type SourceRecord = typeof sourceRecord.$inferSelect;
 export type NewSourceRecord = typeof sourceRecord.$inferInsert;
 export type SearchResult = typeof searchResult.$inferSelect;

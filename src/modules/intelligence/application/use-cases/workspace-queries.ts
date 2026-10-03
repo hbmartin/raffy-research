@@ -5,7 +5,7 @@ import type { UserId, WorkspaceId } from '@/modules/kernel/domain/ids';
 
 import { isAllowed } from './permission';
 import type { ForbiddenOutcome, IntelligenceUseCaseDeps } from './types';
-import type { InternalNoteConfig, ProviderConfig } from '../../domain/provider';
+import type { ProviderConfig } from '../../domain/provider';
 import type {
   Competitor,
   Keyword,
@@ -40,7 +40,6 @@ export type WorkspaceConfig = {
   competitors: Competitor[];
   socialAccounts: SocialAccount[];
   providerConfigs: ProviderConfig[];
-  internalNoteConfigs: InternalNoteConfig[];
 };
 
 export type GetWorkspaceConfigOutcome =
@@ -72,19 +71,17 @@ export async function getWorkspaceConfig(
     return Result.Ok({ type: 'workspace_not_found' });
   }
 
-  const [keywords, competitors, social, providers, notes] = await Promise.all([
+  const [keywords, competitors, social, providers] = await Promise.all([
     deps.workspaceRepository.listKeywords(input.workspaceId),
     deps.workspaceRepository.listCompetitors(input.workspaceId),
     deps.workspaceRepository.listSocialAccounts(input.workspaceId),
     deps.workspaceRepository.listProviderConfigs(input.workspaceId),
-    deps.workspaceRepository.listInternalNoteConfigs(input.workspaceId),
   ]);
 
   if (keywords.isError()) return Result.Error(keywords.getError());
   if (competitors.isError()) return Result.Error(competitors.getError());
   if (social.isError()) return Result.Error(social.getError());
   if (providers.isError()) return Result.Error(providers.getError());
-  if (notes.isError()) return Result.Error(notes.getError());
 
   return Result.Ok({
     type: 'workspace_config',
@@ -94,7 +91,6 @@ export async function getWorkspaceConfig(
       competitors: competitors.get(),
       socialAccounts: social.get(),
       providerConfigs: providers.get(),
-      internalNoteConfigs: notes.get(),
     },
   });
 }

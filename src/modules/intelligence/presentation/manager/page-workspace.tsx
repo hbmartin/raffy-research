@@ -706,23 +706,6 @@ export const PageWorkspace = (props: { workspaceId: WorkspaceId }) => {
             )}
           </Section>
 
-          {config.internalNoteConfigs.length > 0 ? (
-            <Section
-              title={`Internal notes (${config.internalNoteConfigs.length})`}
-            >
-              <ul className="flex flex-col gap-1 text-sm">
-                {config.internalNoteConfigs.map((note) => (
-                  <li key={note.id}>
-                    <Badge variant="secondary" size="sm" className="mr-2">
-                      {note.sourceSystem}
-                    </Badge>
-                    {note.sourceRef}
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          ) : null}
-
           <Section title={`Reports (${reports.length})`}>
             {reports.length === 0 ? (
               <p className="text-sm text-muted-foreground">

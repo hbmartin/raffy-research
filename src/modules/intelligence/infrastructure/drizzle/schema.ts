@@ -122,25 +122,7 @@ export const providerConfig = pgTable(
   ]
 );
 
-/** Configured Slack channels / Notion pages eligible as internal evidence. */
-export const internalNoteConfig = pgTable(
-  'internalNoteConfig',
-  {
-    id: idColumn(),
-    createdAt: createdAtColumn(),
-    updatedAt: updatedAtColumn(),
-    workspaceId: text('workspaceId')
-      .notNull()
-      .references(() => workspace.id, { onDelete: 'cascade' }),
-    sourceSystem: text('sourceSystem').$type<'slack' | 'notion'>().notNull(),
-    sourceRef: text('sourceRef').notNull(),
-    enabled: boolean('enabled').notNull().default(true),
-    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
-  },
-  (table) => [index('internalNoteConfig_workspaceId_idx').on(table.workspaceId)]
-);
-
-/** Permanently stored captured source objects. Duplicates are intentionally allowed. */
+/** Immutable captures. Legacy duplicate rows and their citations remain intact. */
 export const sourceRecord = pgTable(
   'sourceRecord',
   {
@@ -171,12 +153,208 @@ export const sourceRecord = pgTable(
     metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
     relevanceLabel: text('relevanceLabel').$type<'keep' | 'junk'>(),
     labeledAt: timestamp('labeledAt', { precision: 3, mode: 'date' }),
+    canonicalUrl: text('canonicalUrl'),
+    contentFingerprint: text('contentFingerprint'),
+    contentLength: integer('contentLength'),
+    normalizedFingerprint: text('normalizedFingerprint'),
+    evidenceIdentity: text('evidenceIdentity'),
+    similarityBucket: text('similarityBucket'),
   },
   (table) => [
     index('sourceRecord_workspaceId_idx').on(table.workspaceId),
     index('sourceRecord_workspace_captured_idx').on(
       table.workspaceId,
       table.capturedAt
+    ),
+    index('sourceRecord_equivalence_idx').on(
+      table.workspaceId,
+      table.evidenceIdentity
+    ),
+    index('sourceRecord_normalized_idx').on(
+      table.workspaceId,
+      table.normalizedFingerprint
+    ),
+    index('sourceRecord_similarity_idx').on(
+      table.workspaceId,
+      table.similarityBucket
+    ),
+  ]
+);
+
+/** Reserving a version precedes capture insertion in the same transaction. */
+export const captureVersion = pgTable(
+  'captureVersion',
+  {
+    id: idColumn(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    providerName: text('providerName').notNull(),
+    versionKey: text('versionKey').notNull(),
+    sourceRecordId: text('sourceRecordId').references(() => sourceRecord.id, {
+      onDelete: 'restrict',
+    }),
+  },
+  (table) => [
+    uniqueIndex('captureVersion_identity_key').on(
+      table.workspaceId,
+      table.providerName,
+      table.versionKey
+    ),
+  ]
+);
+
+/** Every observation survives capture reuse; provider metric payloads are snapshots. */
+export const captureObservation = pgTable(
+  'captureObservation',
+  {
+    id: idColumn(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    providerName: text('providerName').notNull(),
+    sourceRecordId: text('sourceRecordId')
+      .notNull()
+      .references(() => sourceRecord.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    runId: text('runId'),
+    callbackId: text('callbackId'),
+    jobId: text('jobId'),
+    observationKey: text('observationKey'),
+    observedAt: timestamp('observedAt', {
+      withTimezone: true,
+      precision: 3,
+      mode: 'date',
+    })
+      .notNull()
+      .defaultNow(),
+    rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
+    metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
+  },
+  (table) => [
+    index('captureObservation_workspace_time_idx').on(
+      table.workspaceId,
+      table.observedAt
+    ),
+    index('captureObservation_job_idx').on(table.workspaceId, table.jobId),
+    index('captureObservation_source_idx').on(table.sourceRecordId),
+    uniqueIndex('captureObservation_key').on(
+      table.workspaceId,
+      table.observationKey
+    ),
+  ]
+);
+
+export const evidenceJudgment = pgTable(
+  'evidenceJudgment',
+  {
+    id: idColumn(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    sourceRecordId: text('sourceRecordId')
+      .notNull()
+      .references(() => sourceRecord.id, { onDelete: 'restrict' }),
+    label: text('label').$type<'keep' | 'junk'>(),
+    judgedAt: timestamp('judgedAt', {
+      withTimezone: true,
+      precision: 3,
+      mode: 'date',
+    }).notNull(),
+  },
+  (table) => [
+    index('evidenceJudgment_source_idx').on(
+      table.sourceRecordId,
+      table.judgedAt
+    ),
+  ]
+);
+
+/** Suggestions never affect eligibility until an editor confirms them. */
+export const evidenceEquivalenceReview = pgTable(
+  'evidenceEquivalenceReview',
+  {
+    id: idColumn(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    leftSourceId: text('leftSourceId')
+      .notNull()
+      .references(() => sourceRecord.id, { onDelete: 'restrict' }),
+    rightSourceId: text('rightSourceId')
+      .notNull()
+      .references(() => sourceRecord.id, { onDelete: 'restrict' }),
+    status: text('status')
+      .$type<'suggested' | 'confirmed' | 'separate'>()
+      .notNull()
+      .default('suggested'),
+    actorId: text('actorId'),
+    createdAt: createdAtColumn(),
+    decidedAt: timestamp('decidedAt', {
+      withTimezone: true,
+      precision: 3,
+      mode: 'date',
+    }),
+  },
+  (table) => [
+    index('evidenceEquivalenceReview_workspace_idx').on(
+      table.workspaceId,
+      table.status
+    ),
+    uniqueIndex('evidenceEquivalenceReview_pair_key').on(
+      table.workspaceId,
+      table.leftSourceId,
+      table.rightSourceId
+    ),
+  ]
+);
+
+export const evidenceEquivalenceDecision = pgTable(
+  'evidenceEquivalenceDecision',
+  {
+    id: idColumn(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    reviewId: text('reviewId')
+      .notNull()
+      .references(() => evidenceEquivalenceReview.id, { onDelete: 'restrict' }),
+    actorId: text('actorId').notNull(),
+    action: text('action').$type<'confirm' | 'separate'>().notNull(),
+    decidedAt: timestamp('decidedAt', {
+      withTimezone: true,
+      precision: 3,
+      mode: 'date',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('evidenceEquivalenceDecision_review_idx').on(table.reviewId),
+  ]
+);
+
+export const evidenceGroup = pgTable(
+  'evidenceGroup',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspaceId')
+      .notNull()
+      .references(() => workspace.id, { onDelete: 'cascade' }),
+    identity: text('identity').notNull(),
+    representativeId: text('representativeId')
+      .notNull()
+      .references(() => sourceRecord.id, { onDelete: 'restrict' }),
+    publicationDate: timestamp('publicationDate', {
+      withTimezone: true,
+      precision: 3,
+      mode: 'date',
+    }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('evidenceGroup_identity_key').on(
+      table.workspaceId,
+      table.identity
     ),
   ]
 );

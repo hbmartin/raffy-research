@@ -521,7 +521,6 @@ async function runAction(
     });
     const ingest = await runWorkspaceIngest(deps.buildIngestionDeps(), {
       workspaceId: input.data.workspaceId,
-      now: periodDate,
     });
     if (ingest.isError()) throw ingest.getError();
     await input.emit({

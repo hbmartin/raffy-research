@@ -10,6 +10,7 @@ export {
   getProviderWebhookSecret,
 } from './infrastructure/config/runtime';
 export { createIntelligenceRuntimeConfig } from './infrastructure/config/runtime';
+export { backfillCaptureHistory } from './infrastructure/drizzle/capture-backfill';
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';
 export { createPublicResearchArchive } from './infrastructure/drizzle/public-research-archive';
 export { createReportRepository } from './infrastructure/drizzle/report-repository-drizzle';

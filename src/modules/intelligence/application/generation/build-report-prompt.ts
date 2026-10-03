@@ -7,7 +7,7 @@ import type {
   Workspace,
 } from '../../domain/workspace';
 
-export const REPORT_PROMPT_VERSION = 'v1';
+export const REPORT_PROMPT_VERSION = 'v2';
 
 /**
  * The hard V1 boundary: surface evidence and questions, never advise. The
@@ -177,7 +177,7 @@ export function buildReportPrompt(input: BuildReportPromptInput): string {
     '  "topic_clusters": [{ "id", "title", "summary", "observation", "why_this_may_matter",',
     '     "labels": { "newness": "new_this_week|existing", "trend": "rising|stable|declining|unknown" },',
     '     "representative_evidence": [E], "all_evidence": [E], "related_competitors": [string],',
-    '     "related_keywords": [string], "related_internal_sources": [string] }],',
+    '     "related_keywords": [string] }],',
     '  "competitor_watch": [{ "id", "competitor_name", "domain", "change_type", "observation", "evidence": [E] }],',
     '  "suggested_competitors": [{ "id", "name", "domain", "why_suggested", "similarity", "related_keywords": [string], "evidence": [E] }],',
     '  "market_questions": [{ "id", "question", "source_type", "evidence": [E] }],',
