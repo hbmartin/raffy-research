@@ -5,9 +5,16 @@ import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { WorkspaceId } from '@/modules/kernel/domain/ids';
 
 import type { IngestionDeps } from './types';
-import type { ProviderDailyContext } from '../../ports/provider-adapter';
-
-const DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
+import {
+  type IngestionRun,
+  resolveIngestWindowStart,
+} from '../../../domain/ingestion';
+import type { SourceRecordWriteInput } from '../../../domain/source';
+import type {
+  NormalizedIngest,
+  ProviderAdapter,
+  ProviderDailyContext,
+} from '../../ports/provider-adapter';
 
 function providerOutcomeStatus(input: {
   persistenceFailed: boolean;
@@ -108,6 +115,21 @@ export async function runWorkspaceIngest(
       continue;
     }
 
+    // Read before this run's own row exists, so a watermark is the previous
+    // successful pull rather than this one.
+    const window = await resolvePeriodStart(deps, {
+      workspaceId: workspace.id,
+      providerName: config.providerName,
+      adapter,
+      now,
+    });
+    if (window.isError()) return Result.Error(window.getError());
+    const periodStart = window.get();
+    const windowMetadata = {
+      periodStart: periodStart.toISOString(),
+      periodEnd: now.toISOString(),
+    };
+
     const run = await deps.ingestionRepository.startRun({
       workspaceId: workspace.id,
       scheduledJobRunId: input.scheduledJobRunId,
@@ -128,26 +150,34 @@ export async function runWorkspaceIngest(
       config,
       credential,
       now,
-      periodStart: new Date(now.getTime() - DAILY_WINDOW_MS),
+      periodStart,
       logger: deps.logger,
     };
 
-    const ingest = await adapter.runDailyIngest(context);
-    if (ingest.isError()) {
+    const pulled = await pullProvider(deps, {
+      workspaceId: workspace.id,
+      providerName: config.providerName,
+      adapter,
+      context,
+      runId,
+    });
+    if (pulled.type === 'pull_failed') {
       providersFailed += 1;
-      requestsFailed += 1;
+      requestsFailed += pulled.requestsFailed;
       const finished = await finishRun(deps, runId, {
         status: 'failed',
-        failureReason: 'Provider ingestion failed',
+        failureReason: pulled.failureReason,
+        metadata: windowMetadata,
         finishedAt: deps.clock.now(),
       });
       if (finished.isError()) return Result.Error(finished.getError());
       continue;
     }
 
-    const { sourceRecords, searchResults } = ingest.get();
-    const providerRequestsSucceeded = ingest.get().requestsSucceeded ?? 1;
-    const providerRequestsFailed = ingest.get().requestsFailed ?? 0;
+    const { ingest, sourceRecords, storedCopies } = pulled;
+    const { searchResults } = ingest;
+    const providerRequestsSucceeded = ingest.requestsSucceeded ?? 1;
+    const providerRequestsFailed = ingest.requestsFailed ?? 0;
     requestsSucceeded += providerRequestsSucceeded;
     requestsFailed += providerRequestsFailed;
     let ingested = 0;
@@ -207,6 +237,8 @@ export async function runWorkspaceIngest(
           ? 'Provider requests failed'
           : null,
       metadata: {
+        ...windowMetadata,
+        storedCopiesSkipped: storedCopies,
         requestsSucceeded: providerRequestsSucceeded,
         requestsFailed: providerRequestsFailed,
       },
@@ -229,6 +261,113 @@ export async function runWorkspaceIngest(
     sourceRecords: sourceRecordCount,
     searchResults: searchResultCount,
   });
+}
+
+type WindowInput = {
+  workspaceId: WorkspaceId;
+  providerName: string;
+  adapter: ProviderAdapter;
+};
+
+/**
+ * Where this pull's window starts. Two strategies; docs/ingestion-window.md
+ * explains both with examples.
+ */
+async function resolvePeriodStart(
+  deps: IngestionDeps,
+  input: WindowInput & { now: Date }
+): Promise<ApplicationResult<Date>> {
+  if (input.adapter.overlappingWindow) {
+    return Result.Ok(
+      new Date(input.now.getTime() - input.adapter.overlappingWindow.lookbackMs)
+    );
+  }
+  // Only `succeeded` advances the watermark: after a partial or failed pull
+  // the next run re-covers the window rather than leaving a gap.
+  const lastSuccessfulRun =
+    await deps.ingestionRepository.getLastSuccessfulDailyRun({
+      workspaceId: input.workspaceId,
+      providerName: input.providerName,
+    });
+  if (lastSuccessfulRun.isError())
+    return Result.Error(lastSuccessfulRun.getError());
+  return Result.Ok(
+    resolveIngestWindowStart({
+      now: input.now,
+      lastSuccessfulRun: lastSuccessfulRun.get(),
+    })
+  );
+}
+
+type PullOutcome =
+  | {
+      type: 'pulled';
+      ingest: NormalizedIngest;
+      /** The records to write: all of them, or only the new ones. */
+      sourceRecords: SourceRecordWriteInput[];
+      storedCopies: number;
+    }
+  | { type: 'pull_failed'; failureReason: string; requestsFailed: number };
+
+/**
+ * Run the provider's pull and decide which records to write. An overlapping
+ * window returns mostly what earlier pulls already stored, so only new pages
+ * and new versions of known pages are kept.
+ */
+async function pullProvider(
+  deps: IngestionDeps,
+  input: WindowInput & {
+    context: ProviderDailyContext;
+    runId: IngestionRun['id'];
+  }
+): Promise<PullOutcome> {
+  const ingest = await input.adapter.runDailyIngest?.(input.context);
+  if (!ingest || ingest.isError()) {
+    return {
+      type: 'pull_failed',
+      failureReason: 'Provider ingestion failed',
+      requestsFailed: 1,
+    };
+  }
+  const records = ingest.get().sourceRecords;
+  if (!input.adapter.overlappingWindow) {
+    return {
+      type: 'pulled',
+      ingest: ingest.get(),
+      sourceRecords: records,
+      storedCopies: 0,
+    };
+  }
+
+  const excluded = await deps.sourceRepository.excludeStoredCopies({
+    workspaceId: input.workspaceId,
+    providerName: input.providerName,
+    capturedSince: input.context.periodStart,
+    records,
+  });
+  if (excluded.isError()) {
+    deps.logger.error({
+      event: 'intelligence.ingestion.persistence_failed',
+      details: {
+        workspaceId: input.workspaceId,
+        provider: input.providerName,
+        runId: input.runId,
+        stage: 'stored_copies',
+        errorCode: excluded.getError().code,
+      },
+    });
+    return {
+      type: 'pull_failed',
+      failureReason: 'Stored copy lookup failed',
+      requestsFailed: 0,
+    };
+  }
+  return {
+    type: 'pulled',
+    ingest: ingest.get(),
+    sourceRecords: excluded.get().fresh,
+    storedCopies: excluded.get().storedCopies,
+  };
 }
 
 type FinishRunInput = Parameters<

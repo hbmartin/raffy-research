@@ -429,6 +429,11 @@ export const ingestionRun = pgTable(
   (table) => [
     index('ingestionRun_workspaceId_idx').on(table.workspaceId),
     index('ingestionRun_scheduledJobRunId_idx').on(table.scheduledJobRunId),
+    index('ingestionRun_workspace_provider_started_idx').on(
+      table.workspaceId,
+      table.providerName,
+      table.startedAt
+    ),
   ]
 );
 

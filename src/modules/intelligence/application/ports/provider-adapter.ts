@@ -65,6 +65,16 @@ export interface ProviderAdapter {
     config: ProviderConfig | null;
     credential: string | undefined;
   }): boolean;
+  /**
+   * Opt out of the "since the last successful pull" window. Every pull instead
+   * reaches `lookbackMs` back, overlapping earlier pulls, and results that are
+   * exact copies of stored records are dropped before they are written.
+   *
+   * For providers whose dates cannot be trusted to place an item inside a
+   * narrow window, such as Exa recording day-only publish dates and indexing
+   * pages hours or days after publication.
+   */
+  readonly overlappingWindow?: { lookbackMs: number };
   /** Scheduled pull (e.g. daily web search, polling an API). */
   runDailyIngest?(
     ctx: ProviderDailyContext

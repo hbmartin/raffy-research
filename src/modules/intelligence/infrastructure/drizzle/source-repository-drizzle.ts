@@ -1,5 +1,6 @@
 import { Result } from '@swan-io/boxed';
-import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
@@ -34,7 +35,21 @@ import type {
   SourceRelevanceLabel,
   SourceSummary,
 } from '../../domain/source';
-import { normalizeHttpUrl } from '../../domain/url';
+import { canonicalizeSourceUrl, normalizeHttpUrl } from '../../domain/url';
+
+const contentHash = (text: string | null | undefined): string =>
+  createHash('md5')
+    .update(text ?? '', 'utf8')
+    .digest('hex');
+
+/** Same page and same text; `null` when the URL cannot identify a page. */
+const captureKey = (
+  externalUrl: string | null | undefined,
+  hash: string
+): string | null => {
+  const canonicalUrl = canonicalizeSourceUrl(externalUrl);
+  return canonicalUrl === null ? null : `${canonicalUrl}\n${hash}`;
+};
 
 type SourceRow = typeof sourceRecordTable.$inferSelect;
 type SearchRow = typeof searchResultTable.$inferSelect;
@@ -265,6 +280,53 @@ export class SourceRepositoryDrizzle implements SourceRepository {
       return Result.Ok(await this.insertSourceRecord(this.db, input));
     } catch (error) {
       return Result.Error(mapIntelligenceDbError(error, 'SOURCE_CREATE_ERROR'));
+    }
+  }
+
+  async excludeStoredCopies(input: {
+    workspaceId: WorkspaceId;
+    providerName: string;
+    capturedSince: Date;
+    records: SourceRecordWriteInput[];
+  }) {
+    try {
+      if (input.records.length === 0) {
+        return Result.Ok({ fresh: [], storedCopies: 0 });
+      }
+      // Hash in the database so page text never leaves it; Postgres `md5`
+      // hashes the UTF-8 bytes, matching `contentHash` below.
+      const rows = await this.db
+        .select({
+          externalUrl: sourceRecordTable.externalUrl,
+          contentHash: sql<string>`md5(coalesce(${sourceRecordTable.contentText}, ''))`,
+        })
+        .from(sourceRecordTable)
+        .where(
+          and(
+            eq(sourceRecordTable.workspaceId, input.workspaceId),
+            eq(sourceRecordTable.providerName, input.providerName),
+            gte(sourceRecordTable.capturedAt, input.capturedSince)
+          )
+        );
+      const stored = new Set(
+        rows.map((row) => captureKey(row.externalUrl, row.contentHash))
+      );
+
+      const fresh = input.records.filter((record) => {
+        const key = captureKey(
+          record.externalUrl,
+          contentHash(record.contentText)
+        );
+        return key === null || !stored.has(key);
+      });
+      return Result.Ok({
+        fresh,
+        storedCopies: input.records.length - fresh.length,
+      });
+    } catch (error) {
+      return Result.Error(
+        mapIntelligenceDbError(error, 'SOURCE_STORED_COPIES_ERROR')
+      );
     }
   }
 

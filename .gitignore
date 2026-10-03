@@ -83,6 +83,7 @@ docs/*
 docs/adr/*
 !docs/adr/*.md
 !docs/ai-sdk-v7-opportunities.md
+!docs/ingestion-window.md
 *.pptx
 *.zip
 audio_docs/

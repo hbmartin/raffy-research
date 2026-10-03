@@ -141,6 +141,36 @@ export class IngestionRepositoryDrizzle implements IngestionRepository {
     }
   }
 
+  async getLastSuccessfulDailyRun(input: {
+    workspaceId: WorkspaceId;
+    providerName: string;
+  }) {
+    try {
+      const [row] = await this.db
+        .select({ startedAt: ingestionRunTable.startedAt })
+        .from(ingestionRunTable)
+        .where(
+          and(
+            eq(ingestionRunTable.workspaceId, input.workspaceId),
+            eq(ingestionRunTable.providerName, input.providerName),
+            eq(ingestionRunTable.runType, 'daily'),
+            eq(ingestionRunTable.status, 'succeeded')
+          )
+        )
+        .orderBy(desc(ingestionRunTable.startedAt))
+        .limit(1);
+      return Result.Ok(
+        row
+          ? ({ type: 'last_run_found', startedAt: row.startedAt } as const)
+          : ({ type: 'no_previous_run' } as const)
+      );
+    } catch (error) {
+      return Result.Error(
+        mapIntelligenceDbError(error, 'INGESTION_RUN_LAST_SUCCESS_ERROR')
+      );
+    }
+  }
+
   async recordCallbackEvent(input: ProviderCallbackEventWriteInput) {
     try {
       const [created] = await this.db

@@ -32,10 +32,13 @@ export const slackAdapter: ProviderAdapter = {
     let requestsSucceeded = 0;
     let requestsFailed = 0;
 
+    // Slack timestamps are epoch seconds. `oldest` limits each pull to messages
+    // posted since the last successful one instead of the latest 50 every run.
+    const oldest = (ctx.periodStart.getTime() / 1000).toFixed(6);
     for (const note of notesFor(ctx, 'slack')) {
       const response = await fetchJson(
         'slack',
-        `https://slack.com/api/conversations.history?channel=${encodeURIComponent(note.sourceRef)}&limit=50`,
+        `https://slack.com/api/conversations.history?channel=${encodeURIComponent(note.sourceRef)}&oldest=${oldest}&limit=50`,
         { headers: { Authorization: `Bearer ${ctx.credential}` } }
       );
       if (response.isError()) {
@@ -113,16 +116,42 @@ export const notionAdapter: ProviderAdapter = {
     let requestsSucceeded = 0;
     let requestsFailed = 0;
 
+    const headers = {
+      Authorization: `Bearer ${ctx.credential}`,
+      'Notion-Version': NOTION_API_VERSION,
+    };
     for (const note of notesFor(ctx, 'notion')) {
+      const pageRef = encodeURIComponent(note.sourceRef);
+      // A page is captured whole, so re-reading an unchanged page would store an
+      // identical snapshot. Only capture pages edited since the last pull.
+      const page = await fetchJson(
+        'notion',
+        `https://api.notion.com/v1/pages/${pageRef}`,
+        { headers }
+      );
+      if (page.isError()) {
+        requestsFailed += 1;
+        ctx.logger.warn({
+          event: 'intelligence.ingest.provider_error',
+          details: safeAppErrorDetails(page.getError()),
+        });
+        continue;
+      }
+      const lastEditedMs = Date.parse(
+        asString(pick(page.get(), 'last_edited_time')) ?? ''
+      );
+      if (
+        !Number.isNaN(lastEditedMs) &&
+        lastEditedMs <= ctx.periodStart.getTime()
+      ) {
+        requestsSucceeded += 1;
+        continue;
+      }
+
       const response = await fetchJson(
         'notion',
-        `https://api.notion.com/v1/blocks/${encodeURIComponent(note.sourceRef)}/children?page_size=100`,
-        {
-          headers: {
-            Authorization: `Bearer ${ctx.credential}`,
-            'Notion-Version': NOTION_API_VERSION,
-          },
-        }
+        `https://api.notion.com/v1/blocks/${pageRef}/children?page_size=100`,
+        { headers }
       );
       if (response.isError()) {
         requestsFailed += 1;
