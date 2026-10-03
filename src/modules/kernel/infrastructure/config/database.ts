@@ -76,10 +76,13 @@ export function isLikelyTransactionPooledDatabaseUrl(url: string): boolean {
   }
 }
 
-export function getMigrationDatabaseConfig(): MigrationDatabaseConfig {
-  if (cachedMigrationDatabaseConfig) return cachedMigrationDatabaseConfig;
+export function getMigrationDatabaseConfig(
+  source?: Record<string, unknown>
+): MigrationDatabaseConfig {
+  if (!source && cachedMigrationDatabaseConfig)
+    return cachedMigrationDatabaseConfig;
 
-  const env = parseEnv(databaseEnvSchema);
+  const env = parseEnv(databaseEnvSchema, source);
   const driver =
     env.DATABASE_MIGRATION_DRIVER ??
     getDefaultMigrationDriver(env.DATABASE_DRIVER);
@@ -98,9 +101,7 @@ export function getMigrationDatabaseConfig(): MigrationDatabaseConfig {
     );
   }
 
-  cachedMigrationDatabaseConfig = {
-    databaseUrl,
-    driver,
-  };
-  return cachedMigrationDatabaseConfig;
+  const configuration = { databaseUrl, driver };
+  if (!source) cachedMigrationDatabaseConfig = configuration;
+  return configuration;
 }

@@ -3,6 +3,7 @@ import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
 import type {
+  CaptureObservationInput,
   SearchResultRecord,
   SearchResultWriteInput,
   SourceRecord,
@@ -36,19 +37,14 @@ export interface SourceRepository {
   createSourceRecord(
     input: SourceRecordWriteInput
   ): Promise<ApplicationResult<SourceRecord>>;
-  /**
-   * Drop records that are exact copies of one already stored: same provider,
-   * same page (canonical URL) and same text, captured since `capturedSince`.
-   * A page whose text changed is kept as a new version. Records without a
-   * usable URL are always kept, since nothing proves they were seen before.
-   */
-  excludeStoredCopies(input: {
-    workspaceId: WorkspaceId;
-    providerName: string;
-    capturedSince: Date;
-    records: SourceRecordWriteInput[];
+  captureSourceRecord(input: {
+    record: SourceRecordWriteInput;
+    observation: CaptureObservationInput;
   }): Promise<
-    ApplicationResult<{ fresh: SourceRecordWriteInput[]; storedCopies: number }>
+    ApplicationResult<{
+      type: 'capture_created' | 'capture_reused';
+      sourceRecord: SourceRecord;
+    }>
   >;
   listForPeriod(input: {
     workspaceId: WorkspaceId;
@@ -69,10 +65,14 @@ export interface SourceRepository {
   createCallbackArtifacts(input: {
     sourceRecords: SourceRecordWriteInput[];
     searchResults?: SearchResultWriteInput[];
+    observation?: CaptureObservationInput;
   }): Promise<
     ApplicationResult<{
       sourceRecords: SourceRecord[];
       searchResults: SearchResultRecord[];
+      createdCaptures: number;
+      reusedCaptures: number;
+      observations: number;
     }>
   >;
 

@@ -14,6 +14,9 @@ import {
 } from '@/platform/components/ui/card';
 import { Textarea } from '@/platform/components/ui/textarea';
 
+import { ArticlePreview } from './article-preview';
+import { DuplicateReview } from './duplicate-review';
+import { NewsletterHistoryPanel } from './history-panel';
 import { NewsletterSettings } from './settings';
 import { TopicCorrections } from './topic-corrections';
 import { newsletterQueries } from './wired-queries';
@@ -27,7 +30,9 @@ import {
   newsletterAbandon,
   newsletterCorrectTopic,
   newsletterExport,
+  newsletterPrepareThemes,
   newsletterRegenerate,
+  newsletterRetry,
   newsletterSaveProfile,
   newsletterSelect,
   newsletterSkip,
@@ -43,6 +48,7 @@ const messages: Record<string, string> = {
   angle_unavailable: 'This theme is no longer available. Refresh the choices.',
   override_required: 'Provide a reason to reuse this angle.',
   invalid_correction: 'Check the topic title, target, and evidence selection.',
+  context_required: 'Enter the context window for this custom model.',
   not_found: 'This selection or draft is no longer available.',
 };
 function ThemeCard({
@@ -158,33 +164,6 @@ function ThemeCard({
         </Button>
       </CardContent>
     </Card>
-  );
-}
-function ArticlePreview({ markdown }: { markdown: string }) {
-  const content = [];
-  let cursor = 0;
-  for (const link of markdown.matchAll(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
-  )) {
-    content.push(markdown.slice(cursor, link.index));
-    content.push(
-      <a
-        key={link.index}
-        className="text-primary underline"
-        href={link[2]}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {link[1]}
-      </a>
-    );
-    cursor = link.index + link[0].length;
-  }
-  content.push(markdown.slice(cursor));
-  return (
-    <div className="text-sm leading-relaxed break-words whitespace-pre-wrap">
-      {content}
-    </div>
   );
 }
 function SavedDraft({
@@ -361,28 +340,40 @@ export function NewsletterPanel({
   const queryClient = useQueryClient();
   const query = useQuery(newsletterQueries.workspace(workspaceId));
   const mutation = useMutation({
-    mutationFn: async (run: () => Promise<ActionResult>) => run(),
-    onSuccess: async (result) => {
+    mutationFn: async ({
+      run,
+    }: {
+      run: () => Promise<ActionResult>;
+      success: string;
+    }) => run(),
+    onSuccess: async (result, input) => {
       match(result.type)
-        .with('saved', 'queued', () =>
-          toast.success(
-            result.type === 'queued'
-              ? 'Newsletter work queued'
-              : 'Newsletter settings saved'
-          )
-        )
+        .with('saved', 'queued', () => toast.success(input.success))
         .otherwise((type) =>
           toast.error(messages[type] ?? 'The action could not be completed.')
         );
-      await queryClient.invalidateQueries({
-        queryKey: newsletterQueries.workspace(workspaceId).queryKey,
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: newsletterQueries.workspace(workspaceId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: newsletterQueries.history(workspaceId).queryKey,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: newsletterQueries
+            .detail(workspaceId, '')
+            .queryKey.slice(0, 2),
+        }),
+      ]);
     },
     onError: () =>
       toast.error('Newsletter action failed. Your saved drafts are preserved.'),
   });
   const data = query.data;
-  const run = (fn: () => Promise<ActionResult>) => mutation.mutate(fn);
+  const run = (
+    fn: () => Promise<ActionResult>,
+    success = 'Newsletter action completed'
+  ) => mutation.mutate({ run: fn, success });
   if (query.isPending)
     return (
       <section aria-label="Newsletter" className="rounded-md border p-4">
@@ -430,8 +421,13 @@ export function NewsletterPanel({
       const a = document.createElement('a');
       a.href = url;
       a.download = `newsletter-${draft.id}.${format === 'markdown' ? 'md' : 'txt'}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      document.body.append(a);
+      try {
+        a.click();
+      } finally {
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+      }
     } catch {
       toast.error('Could not export this draft');
     }
@@ -450,18 +446,46 @@ export function NewsletterPanel({
         </summary>
         <div className="mt-4">
           <NewsletterSettings
-            key={JSON.stringify(state.profile)}
+            key={workspaceId}
             profile={state.profile}
             audienceSuggestion={data.audienceSuggestion}
             pending={mutation.isPending}
-            onSave={(profile: NewsletterProfile) =>
-              run(() =>
-                newsletterSaveProfile({ data: { workspaceId, profile } })
-              )
-            }
+            onSave={async (profile: NewsletterProfile) => {
+              try {
+                const result = await mutation.mutateAsync({
+                  run: () =>
+                    newsletterSaveProfile({ data: { workspaceId, profile } }),
+                  success: 'Newsletter settings saved',
+                });
+                return result.type === 'saved';
+              } catch {
+                return false;
+              }
+            }}
           />
         </div>
       </details>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          disabled={mutation.isPending || !state.profile}
+          onClick={() =>
+            run(
+              () => newsletterPrepareThemes({ data: { workspaceId } }),
+              'Theme preparation queued'
+            )
+          }
+        >
+          Prepare themes
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          Refresh newsletter
+        </Button>
+      </div>
       {busyJobs.length ? (
         <div role="status" className="rounded-md border bg-muted p-3 text-sm">
           {busyJobs.map((j) => (
@@ -493,6 +517,19 @@ export function NewsletterPanel({
                 {j.stage} · {j.runtime.provider} · {j.runtime.model}:{' '}
                 {j.failure}
               </p>
+              <Button
+                variant="secondary"
+                disabled={mutation.isPending}
+                onClick={() =>
+                  run(
+                    () =>
+                      newsletterRetry({ data: { workspaceId, jobId: j.id } }),
+                    'New retry attempt queued'
+                  )
+                }
+              >
+                Retry failed work
+              </Button>
               {j.audits.map((audit, i) => (
                 <p key={i}>
                   Audit pass {i + 1}:{' '}
@@ -515,17 +552,19 @@ export function NewsletterPanel({
             variant="secondary"
             disabled={mutation.isPending}
             onClick={() =>
-              run(() =>
-                newsletterAbandon({
-                  data: { workspaceId, selectionId: selection.id },
-                })
+              run(
+                () =>
+                  newsletterAbandon({
+                    data: { workspaceId, selectionId: selection.id },
+                  }),
+                'Selection abandoned'
               )
             }
           >
             Abandon selection
           </Button>
         </div>
-      ) : state.profile?.enabled ? (
+      ) : state.profile ? (
         latest ? (
           state.skippedReports?.includes(reportId) ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -534,10 +573,12 @@ export function NewsletterPanel({
                 variant="secondary"
                 disabled={mutation.isPending}
                 onClick={() =>
-                  run(() =>
-                    newsletterSkip({
-                      data: { workspaceId, reportId, skip: false },
-                    })
+                  run(
+                    () =>
+                      newsletterSkip({
+                        data: { workspaceId, reportId, skip: false },
+                      }),
+                    'Newsletter choice updated'
                   )
                 }
               >
@@ -551,10 +592,12 @@ export function NewsletterPanel({
                 className="self-start"
                 disabled={mutation.isPending}
                 onClick={() =>
-                  run(() =>
-                    newsletterSkip({
-                      data: { workspaceId, reportId, skip: true },
-                    })
+                  run(
+                    () =>
+                      newsletterSkip({
+                        data: { workspaceId, reportId, skip: true },
+                      }),
+                    'Newsletter choice updated'
                   )
                 }
               >
@@ -577,10 +620,12 @@ export function NewsletterPanel({
                     sources={state.sources}
                     pending={mutation.isPending}
                     onSelect={() =>
-                      run(() =>
-                        newsletterSelect({
-                          data: { workspaceId, reportId, angleId: theme.id },
-                        })
+                      run(
+                        () =>
+                          newsletterSelect({
+                            data: { workspaceId, reportId, angleId: theme.id },
+                          }),
+                        'Newsletter draft queued'
                       )
                     }
                   />
@@ -600,15 +645,17 @@ export function NewsletterPanel({
                         override
                         pending={mutation.isPending}
                         onSelect={(overrideReason) =>
-                          run(() =>
-                            newsletterSelect({
-                              data: {
-                                workspaceId,
-                                reportId,
-                                angleId: theme.id,
-                                overrideReason,
-                              },
-                            })
+                          run(
+                            () =>
+                              newsletterSelect({
+                                data: {
+                                  workspaceId,
+                                  reportId,
+                                  angleId: theme.id,
+                                  overrideReason,
+                                },
+                              }),
+                            'Newsletter draft queued'
                           )
                         }
                       />
@@ -625,13 +672,23 @@ export function NewsletterPanel({
           </p>
         )
       ) : null}
+      <DuplicateReview
+        workspaceId={workspaceId}
+        onChanged={() => void query.refetch()}
+      />
+      <NewsletterHistoryPanel
+        workspaceId={workspaceId}
+        onExport={(draft, format) => void exportVersion(draft, format)}
+      />
       <TopicCorrections
         topics={state.topics}
         sources={state.sources}
         pending={mutation.isPending}
         onCorrect={(correction) =>
-          run(() =>
-            newsletterCorrectTopic({ data: { workspaceId, ...correction } })
+          run(
+            () =>
+              newsletterCorrectTopic({ data: { workspaceId, ...correction } }),
+            'Topic correction saved'
           )
         }
       />
@@ -650,14 +707,16 @@ export function NewsletterPanel({
             )}
             onExport={(format) => void exportVersion(draft, format)}
             onRegenerate={(feedback) =>
-              run(() =>
-                newsletterRegenerate({
-                  data: {
-                    workspaceId,
-                    selectionId: draft.selectionId,
-                    feedback,
-                  },
-                })
+              run(
+                () =>
+                  newsletterRegenerate({
+                    data: {
+                      workspaceId,
+                      selectionId: draft.selectionId,
+                      feedback,
+                    },
+                  }),
+                'New draft version queued'
               )
             }
           />

@@ -5,5 +5,6 @@ import 'vitest';
 declare module 'vitest' {
   export interface ProvidedContext {
     pgliteTestDatabaseUrl: string;
+    testDatabasePoolSize: number;
   }
 }

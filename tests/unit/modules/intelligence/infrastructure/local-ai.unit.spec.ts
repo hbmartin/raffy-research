@@ -3,20 +3,14 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  codexModel: { id: 'codex-model' },
   ollamaModel: { id: 'ollama-model' },
-  createCodexCli: vi.fn(),
-  createClaudeCode: vi.fn(),
+  nativeText: vi.fn(),
   createOllama: vi.fn(),
   streamText: vi.fn(),
 }));
 
-vi.mock('ai-sdk-provider-codex-cli', () => ({
-  createCodexCli: mocks.createCodexCli,
-}));
-
-vi.mock('ai-sdk-provider-claude-code', () => ({
-  createClaudeCode: mocks.createClaudeCode,
+vi.mock('@/modules/intelligence/infrastructure/local-ai/native-cli', () => ({
+  generateNativeCliText: mocks.nativeText,
 }));
 
 vi.mock('ollama-ai-provider-v2', () => ({
@@ -51,8 +45,7 @@ describe('local AI text generation', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     await mkdir(rawOutputDir, { recursive: true });
-    mocks.createCodexCli.mockReturnValue(() => mocks.codexModel);
-    mocks.createClaudeCode.mockReturnValue(() => mocks.codexModel);
+    mocks.nativeText.mockResolvedValue('{"ok":true}');
     mocks.createOllama.mockReturnValue(() => mocks.ollamaModel);
     mocks.streamText.mockReturnValue({ stream: streamFixture() });
   });
@@ -68,7 +61,7 @@ describe('local AI text generation', () => {
     const abortController = new AbortController();
 
     const result = await generateLocalText({
-      provider: 'codex-cli',
+      provider: 'ollama',
       model: 'gpt-5-codex',
       prompt: 'Return JSON',
       action: 'summarize_sources',
@@ -85,7 +78,7 @@ describe('local AI text generation', () => {
     });
 
     expect(result.text).toBe('{"ok":true}');
-    expect(result.modelProvider).toBe('codex-cli');
+    expect(result.modelProvider).toBe('ollama');
     expect(result.metadata.rawFilePath).toEqual(
       expect.stringContaining(
         path.join(rawOutputDir, 'run-1').replaceAll(path.sep, '/')
@@ -96,7 +89,7 @@ describe('local AI text generation', () => {
     );
     expect(mocks.streamText).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: mocks.codexModel,
+        model: mocks.ollamaModel,
         prompt: 'Return JSON',
         abortSignal: abortController.signal,
         include: {
@@ -104,16 +97,6 @@ describe('local AI text generation', () => {
         },
       })
     );
-    expect(mocks.createCodexCli).toHaveBeenCalledWith({
-      defaultSettings: {
-        approvalMode: 'never',
-        sandboxMode: 'read-only',
-        skipGitRepoCheck: true,
-        allowNpx: false,
-        cwd: process.cwd(),
-        logger: false,
-      },
-    });
   });
 
   it('preserves abort errors instead of wrapping them as generation failures', async () => {
@@ -157,43 +140,28 @@ describe('local AI text generation', () => {
     );
   });
 
-  it('configures claude code with no write, bash, read, or web tools', async () => {
+  it('delegates native generation with the original model, prompt and cancellation signal', async () => {
     const { generateLocalText } =
       await import('@/modules/intelligence/infrastructure/local-ai/local-text-generator');
-
-    await generateLocalText({
+    const abortController = new AbortController();
+    const result = await generateLocalText({
       provider: 'claude-code',
-      model: 'claude-sonnet',
+      model: 'custom-claude-model',
       prompt: 'Return JSON',
       action: 'summarize_sources',
       label: 'source-summary',
       runId: 'run-claude',
       rawOutputDir,
+      abortSignal: abortController.signal,
     });
-
-    expect(mocks.createClaudeCode).toHaveBeenCalledWith({
-      defaultSettings: {
-        allowedTools: [],
-        disallowedTools: [
-          'Bash',
-          'Edit',
-          'Glob',
-          'Grep',
-          'LS',
-          'MultiEdit',
-          'NotebookEdit',
-          'Read',
-          'WebFetch',
-          'WebSearch',
-          'Write',
-        ],
-        permissionMode: 'dontAsk',
-        settingSources: [],
-        cwd: process.cwd(),
-        logger: false,
-        streamingInput: 'auto',
-      },
+    expect(result.text).toBe('{"ok":true}');
+    expect(mocks.nativeText).toHaveBeenCalledWith({
+      provider: 'claude-code',
+      model: 'custom-claude-model',
+      prompt: 'Return JSON',
+      signal: abortController.signal,
     });
+    expect(mocks.streamText).not.toHaveBeenCalled();
   });
 
   it('configures ollama with custom base URL', async () => {
@@ -302,8 +270,9 @@ describe('local AI text generation', () => {
       ollamaNumCtx: 40960,
     });
 
-    expect(mocks.streamText).toHaveBeenCalledWith(
-      expect.not.objectContaining({ providerOptions: expect.anything() })
+    expect(mocks.nativeText).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'codex-cli', model: 'gpt-5-codex' })
     );
+    expect(mocks.streamText).not.toHaveBeenCalled();
   });
 });

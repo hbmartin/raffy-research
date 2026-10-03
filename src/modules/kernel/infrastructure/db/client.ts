@@ -60,6 +60,7 @@ function createNeonWebsocketDb(url: string): Database {
 export function createDbClient(options?: {
   driver?: DatabaseDriver;
   url?: string;
+  poolSize?: number;
 }): Database {
   const config = options?.url === undefined ? getDatabaseConfig() : undefined;
   const driver = options?.driver ?? config?.driver ?? 'node-pg';
@@ -106,6 +107,7 @@ export function createDbClient(options?: {
 
   const pool = new Pool({
     connectionString: url,
+    max: options?.poolSize,
   });
   const database = drizzleNodePg(pool, { schema, casing: 'camelCase' });
 

@@ -92,4 +92,11 @@ describe('buildReportPrompt', () => {
     expect(prompt).toContain('dental no-show');
     expect(prompt).toContain('Acme Dental');
   });
+
+  it('uses market assumptions as context without requesting internal evidence', () => {
+    expect(prompt).toContain(
+      'Internal market assumptions: Buyers care about speed'
+    );
+    expect(prompt).not.toContain('related_internal_sources');
+  });
 });

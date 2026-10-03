@@ -22,6 +22,8 @@ export type HandleProviderCallbackOutcome = {
   type: 'callback_stored';
   normalized: boolean;
   sourceRecords: number;
+  reusedCaptures?: number;
+  observations?: number;
 };
 
 /**
@@ -85,7 +87,11 @@ export async function handleProviderCallback(
     });
   }
 
-  const persisted = await persistCallbackNormalization(deps, normalization);
+  const persisted = await persistCallbackNormalization(
+    deps,
+    normalization,
+    eventId
+  );
   if (persisted.isError()) {
     return markCallbackFailedAndReturnError(
       deps,
@@ -93,12 +99,18 @@ export async function handleProviderCallback(
       persisted.getError()
     );
   }
-  const { count, firstSourceRecordId } = persisted.get();
+  const { count, firstSourceRecordId, reusedCaptures, observations } =
+    persisted.get();
 
   return updateCallbackAndReturn(deps, eventId, {
     normalizationStatus: 'normalized',
     sourceRecordId: firstSourceRecordId,
-    outcome: { normalized: true, sourceRecords: count },
+    outcome: {
+      normalized: true,
+      sourceRecords: count,
+      reusedCaptures,
+      observations,
+    },
   });
 }
 
@@ -120,16 +132,20 @@ async function resolveCallbackCredential(
 
 type PersistedCallbackNormalization = {
   count: number;
+  reusedCaptures: number;
+  observations: number;
   firstSourceRecordId: SourceRecordId | null;
 };
 
 async function persistCallbackNormalization(
   deps: IngestionDeps,
-  normalization: Extract<CallbackNormalization, { type: 'normalized' }>
+  normalization: Extract<CallbackNormalization, { type: 'normalized' }>,
+  callbackId: string
 ): Promise<ApplicationResult<PersistedCallbackNormalization>> {
   const created = await deps.sourceRepository.createCallbackArtifacts({
     sourceRecords: normalization.sourceRecords,
     searchResults: normalization.searchResults ?? [],
+    observation: { kind: 'callback', callbackId, observedAt: deps.clock.now() },
   });
   if (created.isError()) {
     const error = created.getError();
@@ -149,7 +165,9 @@ async function persistCallbackNormalization(
 
   const artifacts = created.get();
   return Result.Ok({
-    count: artifacts.sourceRecords.length,
+    count: artifacts.createdCaptures,
+    reusedCaptures: artifacts.reusedCaptures,
+    observations: artifacts.observations,
     firstSourceRecordId: artifacts.sourceRecords[0]?.id ?? null,
   });
 }

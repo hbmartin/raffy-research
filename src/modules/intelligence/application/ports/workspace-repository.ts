@@ -1,15 +1,12 @@
 import type { ApplicationResult } from '@/modules/kernel/application/result';
 import type {
   CompetitorId,
-  InternalNoteConfigId,
   KeywordId,
   ProviderConfigId,
   WorkspaceId,
 } from '@/modules/kernel/domain/ids';
 
 import type {
-  InternalNoteConfig,
-  InternalNoteSystem,
   ProviderConfig,
   ProviderConfigWriteInput,
   ProviderName,
@@ -102,24 +99,6 @@ export interface WorkspaceRepository {
     input: ProviderConfigWriteInput
   ): Promise<ApplicationResult<ProviderConfig>>;
 
-  listInternalNoteConfigs(
-    workspaceId: WorkspaceId,
-    options?: { enabledOnly?: boolean }
-  ): Promise<ApplicationResult<InternalNoteConfig[]>>;
-  createInternalNoteConfig(input: {
-    workspaceId: WorkspaceId;
-    sourceSystem: InternalNoteSystem;
-    sourceRef: string;
-    enabled?: boolean;
-  }): Promise<ApplicationResult<InternalNoteConfig>>;
-  deleteInternalNoteConfig(
-    workspaceId: WorkspaceId,
-    id: InternalNoteConfigId
-  ): Promise<
-    ApplicationResult<{
-      type: 'internal_note_deleted' | 'internal_note_not_found';
-    }>
-  >;
   deleteProviderConfig(
     workspaceId: WorkspaceId,
     id: ProviderConfigId

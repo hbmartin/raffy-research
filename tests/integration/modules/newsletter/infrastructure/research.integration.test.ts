@@ -51,8 +51,9 @@ describe('Newsletter public research acquisition', () => {
       {
         id: 'private',
         workspaceId: 'ws-1',
-        providerName: 'slack',
-        sourceType: 'message',
+        providerName: 'exa',
+        sourceType: 'web_page',
+        metadata: { visibility: 'private' },
         externalUrl: 'https://example.org/private',
         contentText: 'Internal secret should never enter a prompt.',
       },

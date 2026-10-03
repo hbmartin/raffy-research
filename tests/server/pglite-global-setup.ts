@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { TestProject } from 'vitest/node';
 
+import { disposablePostgres } from './disposable-postgres';
 import { pgliteTestDatabaseUrlContextKey } from './pglite-context';
 import { makeTestDatabaseUrl } from './test-database-url';
 
@@ -27,10 +28,18 @@ async function readMigrationSql() {
 }
 
 export async function setup(project: TestProject) {
+  const migrations = await readMigrationSql();
+  const postgres = await disposablePostgres(migrations);
+  if (postgres) {
+    project.provide(pgliteTestDatabaseUrlContextKey, postgres.url);
+    project.provide('testDatabasePoolSize', 10);
+    return postgres.close;
+  }
+  project.provide('testDatabasePoolSize', 1);
   const pglite = new PGlite('memory://', { extensions: { pgcrypto } });
   await pglite.waitReady;
   await pglite.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
-  await pglite.exec(await readMigrationSql());
+  await pglite.exec(migrations);
 
   const server = new PGLiteSocketServer({
     db: pglite,

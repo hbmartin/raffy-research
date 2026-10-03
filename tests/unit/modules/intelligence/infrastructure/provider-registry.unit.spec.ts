@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PROVIDER_NAMES } from '@/modules/intelligence';
+import { isProviderName, PROVIDER_NAMES } from '@/modules/intelligence';
 import { createProviderRegistry } from '@/modules/intelligence/testing';
 import { toProviderConfigId, toWorkspaceId } from '@/modules/kernel';
 
@@ -17,6 +17,14 @@ describe('provider registry', () => {
   it('returns undefined for an unknown provider', () => {
     expect(registry.get('not-a-provider')).toBeUndefined();
   });
+
+  it.each(['slack', 'notion'])(
+    'does not support %s evidence ingestion',
+    (name) => {
+      expect(isProviderName(name)).toBe(false);
+      expect(registry.get(name)).toBeUndefined();
+    }
+  );
 
   it('skips API providers without a credential', () => {
     const exa = registry.get('exa');

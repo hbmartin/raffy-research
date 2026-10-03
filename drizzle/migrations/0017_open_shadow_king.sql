@@ -1,0 +1,1 @@
+ALTER TABLE "sourceRecord" ADD COLUMN "contentLength" integer;

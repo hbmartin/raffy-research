@@ -1,6 +1,16 @@
 import { Result } from '@swan-io/boxed';
-import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
-import { createHash } from 'node:crypto';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
@@ -17,17 +27,26 @@ import {
   isTransactionCapableDatabase,
 } from '@/modules/kernel/infrastructure/db/types';
 
+import { captureFingerprints, isUncertainCopy } from './capture-fingerprints';
+import { effectiveEvidenceLabel } from './effective-evidence';
 import {
   intelligenceInvariantError,
   mapIntelligenceDbError,
 } from './map-db-error';
 import {
+  captureObservation,
+  captureVersion,
+  evidenceEquivalenceReview,
+  evidenceGroup,
+  evidenceJudgment,
   searchResult as searchResultTable,
   sourceRecord as sourceRecordTable,
   sourceSummary as sourceSummaryTable,
+  workspace,
 } from './schema';
 import type { SourceRepository } from '../../application/ports/source-repository';
 import type {
+  CaptureObservationInput,
   SearchResultRecord,
   SearchResultWriteInput,
   SourceRecord,
@@ -36,20 +55,6 @@ import type {
   SourceSummary,
 } from '../../domain/source';
 import { canonicalizeSourceUrl, normalizeHttpUrl } from '../../domain/url';
-
-const contentHash = (text: string | null | undefined): string =>
-  createHash('md5')
-    .update(text ?? '', 'utf8')
-    .digest('hex');
-
-/** Same page and same text; `null` when the URL cannot identify a page. */
-const captureKey = (
-  externalUrl: string | null | undefined,
-  hash: string
-): string | null => {
-  const canonicalUrl = canonicalizeSourceUrl(externalUrl);
-  return canonicalUrl === null ? null : `${canonicalUrl}\n${hash}`;
-};
 
 type SourceRow = typeof sourceRecordTable.$inferSelect;
 type SearchRow = typeof searchResultTable.$inferSelect;
@@ -118,6 +123,10 @@ const toSourceRecord = (row: SourceRow): SourceRecord => ({
   labeledAt: row.labeledAt,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
+  canonicalUrl: row.canonicalUrl,
+  contentFingerprint: row.contentFingerprint,
+  normalizedFingerprint: row.normalizedFingerprint,
+  evidenceIdentity: row.evidenceIdentity,
 });
 
 const toSearchResult = (row: SearchRow): SearchResultRecord => ({
@@ -162,21 +171,191 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     return work(this.db);
   }
 
-  private async insertSourceRecord(
+  private async captureRecord(
     db: DbLike,
-    input: SourceRecordWriteInput
-  ): Promise<SourceRecord> {
-    const [created] = await db
-      .insert(sourceRecordTable)
-      .values(toSourceRecordInsert(input))
-      .returning();
-    if (!created) {
-      throw intelligenceInvariantError(
-        'SOURCE_CREATE_EMPTY',
-        'source record insert returned no row'
-      );
+    input: SourceRecordWriteInput,
+    observation: CaptureObservationInput
+  ): Promise<{
+    type: 'capture_created' | 'capture_reused';
+    sourceRecord: SourceRecord;
+  }> {
+    // A tiny team benefits from serializing derived group decisions per workspace.
+    await db
+      .select({ id: workspace.id })
+      .from(workspace)
+      .where(eq(workspace.id, input.workspaceId))
+      .for('update');
+    const hashes = captureFingerprints(input);
+    let source: SourceRecord | undefined;
+    if (hashes.versionKey) {
+      const [reservation] = await db
+        .insert(captureVersion)
+        .values({
+          workspaceId: input.workspaceId,
+          providerName: input.providerName,
+          versionKey: hashes.versionKey,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!reservation) {
+        const [existing] = await db
+          .select({ source: sourceRecordTable })
+          .from(captureVersion)
+          .innerJoin(
+            sourceRecordTable,
+            eq(captureVersion.sourceRecordId, sourceRecordTable.id)
+          )
+          .where(
+            and(
+              eq(captureVersion.workspaceId, input.workspaceId),
+              eq(captureVersion.providerName, input.providerName),
+              eq(captureVersion.versionKey, hashes.versionKey)
+            )
+          );
+        if (!existing)
+          throw intelligenceInvariantError(
+            'CAPTURE_RESERVATION_EMPTY',
+            'Capture version reservation has no capture'
+          );
+        source = toSourceRecord(existing.source);
+      }
     }
-    return toSourceRecord(created);
+    const reused = Boolean(source);
+    if (!source) {
+      const [equivalent] = hashes.normalizedFingerprint
+        ? await db
+            .select({ identity: sourceRecordTable.evidenceIdentity })
+            .from(sourceRecordTable)
+            .where(
+              and(
+                eq(sourceRecordTable.workspaceId, input.workspaceId),
+                eq(
+                  sourceRecordTable.normalizedFingerprint,
+                  hashes.normalizedFingerprint
+                )
+              )
+            )
+            .orderBy(
+              asc(sourceRecordTable.capturedAt),
+              asc(sourceRecordTable.id)
+            )
+            .limit(1)
+        : [];
+      const [created] = await db
+        .insert(sourceRecordTable)
+        .values({
+          ...toSourceRecordInsert(input),
+          canonicalUrl: hashes.canonicalUrl,
+          contentFingerprint: hashes.contentFingerprint,
+          contentLength: input.contentText?.length ?? 0,
+          normalizedFingerprint: hashes.normalizedFingerprint,
+          similarityBucket: hashes.similarityBucket,
+          evidenceIdentity:
+            equivalent?.identity ??
+            (hashes.normalizedFingerprint
+              ? `body:${hashes.normalizedFingerprint}`
+              : null),
+        })
+        .returning();
+      if (!created)
+        throw intelligenceInvariantError(
+          'SOURCE_CREATE_EMPTY',
+          'Capture insert returned no row'
+        );
+      source = toSourceRecord(created);
+      if (!created.evidenceIdentity) {
+        await db
+          .update(sourceRecordTable)
+          .set({ evidenceIdentity: `capture:${created.id}` })
+          .where(eq(sourceRecordTable.id, created.id));
+        source.evidenceIdentity = `capture:${created.id}`;
+      }
+      if (hashes.versionKey)
+        await db
+          .update(captureVersion)
+          .set({ sourceRecordId: created.id })
+          .where(
+            and(
+              eq(captureVersion.workspaceId, input.workspaceId),
+              eq(captureVersion.providerName, input.providerName),
+              eq(captureVersion.versionKey, hashes.versionKey)
+            )
+          );
+      const identity = source.evidenceIdentity!;
+      await db
+        .insert(evidenceGroup)
+        .values({
+          id: `${input.workspaceId}:${identity}`,
+          workspaceId: input.workspaceId,
+          identity,
+          representativeId: source.id,
+          publicationDate: input.publishedAt ?? source.capturedAt,
+        })
+        .onConflictDoUpdate({
+          target: [evidenceGroup.workspaceId, evidenceGroup.identity],
+          set: {
+            publicationDate: sql`least(${evidenceGroup.publicationDate}, ${new Date(input.publishedAt ?? source.capturedAt).toISOString()}::timestamptz)`,
+            representativeId: sql`case when length(coalesce((select "contentText" from "sourceRecord" where id = ${evidenceGroup.representativeId}), '')) < ${input.contentText?.length ?? 0} then ${source.id} else ${evidenceGroup.representativeId} end`,
+          },
+        });
+      // Suggestions are bounded and have no effect on labels or ranking.
+      const candidates = await db
+        .select({
+          id: sourceRecordTable.id,
+          content: sourceRecordTable.contentText,
+          identity: sourceRecordTable.evidenceIdentity,
+        })
+        .from(sourceRecordTable)
+        .where(
+          and(
+            eq(sourceRecordTable.workspaceId, input.workspaceId),
+            or(
+              eq(sourceRecordTable.canonicalUrl, hashes.canonicalUrl ?? ''),
+              hashes.similarityBucket
+                ? eq(
+                    sourceRecordTable.similarityBucket,
+                    hashes.similarityBucket
+                  )
+                : undefined
+            )
+          )
+        )
+        .orderBy(desc(sourceRecordTable.capturedAt))
+        .limit(50);
+      for (const candidate of candidates) {
+        if (
+          candidate.id === created.id ||
+          candidate.identity === source.evidenceIdentity ||
+          !isUncertainCopy(candidate.content ?? '', input.contentText ?? '')
+        )
+          continue;
+        const [leftSourceId, rightSourceId] = [created.id, candidate.id].sort();
+        await db
+          .insert(evidenceEquivalenceReview)
+          .values({
+            workspaceId: input.workspaceId,
+            leftSourceId: leftSourceId!,
+            rightSourceId: rightSourceId!,
+          })
+          .onConflictDoNothing();
+      }
+    }
+    await db
+      .insert(captureObservation)
+      .values({
+        workspaceId: input.workspaceId,
+        providerName: input.providerName,
+        sourceRecordId: source.id,
+        ...observation,
+        observedAt: observation.observedAt ?? input.capturedAt,
+        rawPayload: input.rawPayload ?? {},
+        metadata: { ...input.metadata, ...observation.metadata },
+      })
+      .onConflictDoNothing();
+    return {
+      type: reused ? 'capture_reused' : 'capture_created',
+      sourceRecord: source,
+    };
   }
 
   private async insertSearchResult(
@@ -199,7 +378,10 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   async getById(id: SourceRecordId) {
     try {
       const [row] = await this.db
-        .select()
+        .select({
+          ...getTableColumns(sourceRecordTable),
+          relevanceLabel: effectiveEvidenceLabel,
+        })
         .from(sourceRecordTable)
         .where(eq(sourceRecordTable.id, id))
         .limit(1);
@@ -220,7 +402,10 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     try {
       if (ids.length === 0) return Result.Ok([]);
       const rows = await this.db
-        .select()
+        .select({
+          ...getTableColumns(sourceRecordTable),
+          relevanceLabel: effectiveEvidenceLabel,
+        })
         .from(sourceRecordTable)
         .where(
           and(
@@ -275,59 +460,29 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     }
   }
 
-  async createSourceRecord(input: SourceRecordWriteInput) {
+  async captureSourceRecord(input: {
+    record: SourceRecordWriteInput;
+    observation: CaptureObservationInput;
+  }): ReturnType<SourceRepository['captureSourceRecord']> {
     try {
-      return Result.Ok(await this.insertSourceRecord(this.db, input));
+      return Result.Ok(
+        await this.runWriteBatch((db) =>
+          this.captureRecord(db, input.record, input.observation)
+        )
+      );
     } catch (error) {
       return Result.Error(mapIntelligenceDbError(error, 'SOURCE_CREATE_ERROR'));
     }
   }
 
-  async excludeStoredCopies(input: {
-    workspaceId: WorkspaceId;
-    providerName: string;
-    capturedSince: Date;
-    records: SourceRecordWriteInput[];
-  }) {
-    try {
-      if (input.records.length === 0) {
-        return Result.Ok({ fresh: [], storedCopies: 0 });
-      }
-      // Hash in the database so page text never leaves it; Postgres `md5`
-      // hashes the UTF-8 bytes, matching `contentHash` below.
-      const rows = await this.db
-        .select({
-          externalUrl: sourceRecordTable.externalUrl,
-          contentHash: sql<string>`md5(coalesce(${sourceRecordTable.contentText}, ''))`,
-        })
-        .from(sourceRecordTable)
-        .where(
-          and(
-            eq(sourceRecordTable.workspaceId, input.workspaceId),
-            eq(sourceRecordTable.providerName, input.providerName),
-            gte(sourceRecordTable.capturedAt, input.capturedSince)
-          )
-        );
-      const stored = new Set(
-        rows.map((row) => captureKey(row.externalUrl, row.contentHash))
-      );
-
-      const fresh = input.records.filter((record) => {
-        const key = captureKey(
-          record.externalUrl,
-          contentHash(record.contentText)
-        );
-        return key === null || !stored.has(key);
-      });
-      return Result.Ok({
-        fresh,
-        storedCopies: input.records.length - fresh.length,
-      });
-    } catch (error) {
-      return Result.Error(
-        mapIntelligenceDbError(error, 'SOURCE_STORED_COPIES_ERROR')
-      );
-    }
+  async createSourceRecord(
+    input: SourceRecordWriteInput
+  ): ReturnType<SourceRepository['createSourceRecord']> {
+    const captured = await this.captureSourceRecord({
+      record: input,
+      observation: { kind: 'direct' },
+    });
+    return captured.map((outcome) => outcome.sourceRecord);
   }
 
   async listForPeriod(input: {
@@ -339,13 +494,21 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     try {
       const limit = input.limit ?? 1000;
       const rows = await this.db
-        .select()
+        .select({
+          ...getTableColumns(sourceRecordTable),
+          relevanceLabel: effectiveEvidenceLabel,
+        })
         .from(sourceRecordTable)
         .where(
           and(
             eq(sourceRecordTable.workspaceId, input.workspaceId),
-            gte(sourceRecordTable.capturedAt, input.periodStart),
-            lte(sourceRecordTable.capturedAt, input.periodEnd)
+            or(
+              and(
+                gte(sourceRecordTable.capturedAt, input.periodStart),
+                lte(sourceRecordTable.capturedAt, input.periodEnd)
+              ),
+              sql`exists (select 1 from "captureObservation" observation where observation."sourceRecordId" = ${sourceRecordTable.id} and observation."observedAt" >= ${input.periodStart.toISOString()}::timestamptz and observation."observedAt" <= ${input.periodEnd.toISOString()}::timestamptz)`
+            )
           )
         )
         .orderBy(asc(sourceRecordTable.capturedAt))
@@ -382,26 +545,47 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     labeledAt: Date;
   }) {
     try {
-      const [updated] = await this.db
-        .update(sourceRecordTable)
-        .set({
-          relevanceLabel: input.label,
-          labeledAt: input.label === null ? null : input.labeledAt,
-        })
-        .where(
-          and(
-            eq(sourceRecordTable.id, input.sourceRecordId),
-            eq(sourceRecordTable.workspaceId, input.workspaceId)
-          )
-        )
-        .returning();
       return Result.Ok(
-        updated
-          ? ({
-              type: 'source_labeled',
-              sourceRecord: toSourceRecord(updated),
-            } as const)
-          : ({ type: 'source_record_not_found' } as const)
+        await this.runWriteBatch(async (db) => {
+          await db
+            .select({ id: workspace.id })
+            .from(workspace)
+            .where(eq(workspace.id, input.workspaceId))
+            .for('update');
+          const [latest] = await db
+            .select({ at: sourceRecordTable.labeledAt })
+            .from(sourceRecordTable)
+            .where(eq(sourceRecordTable.workspaceId, input.workspaceId))
+            .orderBy(sql`${sourceRecordTable.labeledAt} desc nulls last`)
+            .limit(1);
+          const judgedAt = new Date(
+            Math.max(
+              input.labeledAt.getTime(),
+              latest?.at ? latest.at.getTime() + 1 : 0
+            )
+          );
+          const [updated] = await db
+            .update(sourceRecordTable)
+            .set({ relevanceLabel: input.label, labeledAt: judgedAt })
+            .where(
+              and(
+                eq(sourceRecordTable.id, input.sourceRecordId),
+                eq(sourceRecordTable.workspaceId, input.workspaceId)
+              )
+            )
+            .returning();
+          if (!updated) return { type: 'source_record_not_found' } as const;
+          await db.insert(evidenceJudgment).values({
+            workspaceId: input.workspaceId,
+            sourceRecordId: input.sourceRecordId,
+            label: input.label,
+            judgedAt,
+          });
+          return {
+            type: 'source_labeled',
+            sourceRecord: toSourceRecord(updated),
+          } as const;
+        })
       );
     } catch (error) {
       return Result.Error(mapIntelligenceDbError(error, 'SOURCE_LABEL_ERROR'));
@@ -421,44 +605,83 @@ export class SourceRepositoryDrizzle implements SourceRepository {
   async createCallbackArtifacts(input: {
     sourceRecords: SourceRecordWriteInput[];
     searchResults?: SearchResultWriteInput[];
+    observation?: CaptureObservationInput;
   }) {
     try {
       const artifacts = await this.runWriteBatch(async (db) => {
-        const sourceRecordRows =
-          input.sourceRecords.length > 0
-            ? await db
-                .insert(sourceRecordTable)
-                .values(input.sourceRecords.map(toSourceRecordInsert))
-                .returning()
+        const sources: SourceRecord[] = [];
+        const searches: SearchResultRecord[] = [];
+        let createdCaptures = 0,
+          reusedCaptures = 0;
+        for (const record of input.sourceRecords) {
+          const captured = await this.captureRecord(
+            db,
+            record,
+            input.observation ?? { kind: 'callback' }
+          );
+          sources.push(captured.sourceRecord);
+          if (captured.type === 'capture_created') createdCaptures++;
+          else reusedCaptures++;
+        }
+        for (const search of input.searchResults ?? []) {
+          const canonical = canonicalizeSourceUrl(search.url);
+          const candidates = canonical
+            ? [
+                ...new Map(
+                  sources
+                    .filter(
+                      (s) =>
+                        s.providerName === search.providerName &&
+                        s.canonicalUrl === canonical
+                    )
+                    .map((source) => [source.id, source])
+                ).values(),
+              ]
             : [];
-        const searchResultInputs = input.searchResults ?? [];
-        const searchResultRows =
-          searchResultInputs.length > 0
-            ? await db
-                .insert(searchResultTable)
-                .values(searchResultInputs.map(toSearchResultInsert))
-                .returning()
-            : [];
-
-        if (sourceRecordRows.length !== input.sourceRecords.length) {
-          throw intelligenceInvariantError(
-            'SOURCE_CREATE_BATCH_MISMATCH',
-            'source record batch insert returned the wrong row count'
+          const text =
+            search.rawPayload &&
+            typeof search.rawPayload === 'object' &&
+            !Array.isArray(search.rawPayload) &&
+            typeof search.rawPayload.text === 'string'
+              ? search.rawPayload.text
+              : undefined;
+          const capture =
+            candidates.find(
+              (s) => text !== undefined && s.contentText === text
+            ) ??
+            candidates.find(
+              (s) =>
+                search.metadata?.keywordId &&
+                s.metadata?.keywordId === search.metadata.keywordId
+            ) ??
+            (candidates.length === 1 ? candidates[0] : undefined);
+          searches.push(
+            await this.insertSearchResult(db, {
+              ...search,
+              sourceRecordId: capture?.id ?? search.sourceRecordId,
+              metadata: {
+                ...search.metadata,
+                ...(input.observation?.runId
+                  ? { runId: input.observation.runId }
+                  : {}),
+                ...(input.observation?.callbackId
+                  ? { callbackId: input.observation.callbackId }
+                  : {}),
+                ...(input.observation?.jobId
+                  ? { jobId: input.observation.jobId }
+                  : {}),
+              },
+            })
           );
         }
-        if (searchResultRows.length !== searchResultInputs.length) {
-          throw intelligenceInvariantError(
-            'SEARCH_RESULT_CREATE_BATCH_MISMATCH',
-            'search result batch insert returned the wrong row count'
-          );
-        }
-
         return {
-          sourceRecords: sourceRecordRows.map(toSourceRecord),
-          searchResults: searchResultRows.map(toSearchResult),
+          sourceRecords: sources,
+          searchResults: searches,
+          createdCaptures,
+          reusedCaptures,
+          observations: sources.length + searches.length,
         };
       });
-
       return Result.Ok(artifacts);
     } catch (error) {
       return Result.Error(

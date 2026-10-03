@@ -6,10 +6,12 @@ import {
   requireOk,
   stateFixture,
 } from '@tests/support/newsletter';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { workspace } from '@/modules/intelligence/infrastructure/drizzle/schema';
 import type { NewsletterJob } from '@/modules/newsletter';
+import { newsletterJob } from '@/modules/newsletter/infrastructure/drizzle/schema';
 import { createNewsletterRepository } from '@/modules/newsletter/testing';
 
 describe('Newsletter transactional persistence', () => {
@@ -30,6 +32,67 @@ describe('Newsletter transactional persistence', () => {
   });
   afterAll(async () => {
     await database?.close();
+  });
+  it('allows only one of two distinct hosted and local jobs in a workspace to execute', async () => {
+    const repository = createNewsletterRepository(database.db);
+    const jobs = ['local', 'hosted'].map((mode): NewsletterJob => ({
+      id: mode,
+      key: mode,
+      workspaceId: 'ws-1',
+      kind: 'prepare',
+      runtime:
+        mode === 'local'
+          ? newsletterProfile.runtime
+          : { mode: 'hosted', provider: 'openai', model: 'gpt-5-mini' },
+      localOperatorId: mode === 'local' ? 'reader' : null,
+      selectionId: null,
+      feedback: '',
+      status: 'queued',
+      stage: 'queued',
+      checkpoint: {},
+      leaseToken: null,
+      leaseUntil: null,
+      failure: null,
+      createdAt: newsletterNow,
+    }));
+    requireOk(
+      await repository.mutate('ws-1', () =>
+        Result.Ok({ value: 'queued', jobs })
+      )
+    );
+    const outcomes = (
+      await Promise.all([
+        repository.claim(
+          'local',
+          new Date('2090-01-01'),
+          'local-token',
+          'reader'
+        ),
+        repository.claim('hosted', new Date('1990-01-01'), 'hosted-token'),
+      ])
+    ).map(requireOk);
+    expect(
+      outcomes.filter((result) => result.type === 'job_claimed')
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((result) => result.type === 'queue_empty')
+    ).toHaveLength(1);
+    const claimed = outcomes.find((result) => result.type === 'job_claimed')!;
+    if (claimed.type !== 'job_claimed')
+      throw new Error('Expected a claimed job');
+    expect(
+      requireOk(
+        await repository.checkpoint(
+          claimed.job,
+          { status: 'succeeded' },
+          claimed.job.leaseToken!
+        )
+      ).type
+    ).toBe('job_updated');
+    const mode = claimed.job.runtime.mode === 'local' ? 'hosted' : 'local';
+    expect(
+      requireOk(await repository.claim(mode, new Date(), 'next', 'reader')).type
+    ).toBe('job_claimed');
   });
   it('serializes competing selections and enqueues their job atomically', async () => {
     const repository = createNewsletterRepository(database.db);
@@ -85,6 +148,7 @@ describe('Newsletter transactional persistence', () => {
       workspaceId: 'ws-1',
       kind: 'prepare',
       runtime: newsletterProfile.runtime,
+      localOperatorId: 'reader',
       selectionId: null,
       feedback: '',
       status: 'queued',
@@ -101,29 +165,57 @@ describe('Newsletter transactional persistence', () => {
     expect(
       requireOk(await repository.claim('hosted', newsletterNow, 'hosted')).type
     ).toBe('queue_empty');
+    expect(
+      requireOk(
+        await repository.claim('local', newsletterNow, 'wrong', 'another-user')
+      ).type
+    ).toBe('queue_empty');
     const lease = requireOk(
-      await repository.claim('local', newsletterNow, 'first')
+      await repository.claim('local', newsletterNow, 'first', 'reader')
     );
     if (lease.type !== 'job_claimed') throw new Error('Expected lease');
+    expect(lease.job.leaseUntil!.getTime() - Date.now()).toBeGreaterThan(
+      110000
+    );
+    const staleMutation = await repository.mutate(
+      'other-workspace',
+      () => Result.Ok({ value: 'bad' }),
+      { jobId: lease.job.id, leaseToken: 'first' }
+    );
+    expect(staleMutation.isError()).toBe(true);
     await repository.checkpoint(
       lease.job,
       { stage: 'auditing', checkpoint: { repairs: 1 } },
       'first'
     );
     expect(
-      requireOk(await repository.claim('local', newsletterNow, 'second')).type
+      requireOk(
+        await repository.claim('local', newsletterNow, 'second', 'reader')
+      ).type
     ).toBe('queue_empty');
+    await database.db
+      .update(newsletterJob)
+      .set({ leaseUntil: sql`clock_timestamp() - interval '1 second'` });
     const resumed = requireOk(
       await repository.claim(
         'local',
         new Date(newsletterNow.getTime() + 180000),
-        'second'
+        'second',
+        'reader'
       )
     );
     expect(resumed).toMatchObject({
       type: 'job_claimed',
       job: { stage: 'auditing', checkpoint: { repairs: 1 } },
     });
+    expect(
+      (
+        await repository.mutate('ws-1', () => Result.Ok({ value: 'stale' }), {
+          jobId: lease.job.id,
+          leaseToken: 'first',
+        })
+      ).isError()
+    ).toBe(true);
     expect(
       requireOk(
         await repository.checkpoint(lease.job, { status: 'succeeded' }, 'first')

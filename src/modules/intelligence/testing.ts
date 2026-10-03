@@ -1,4 +1,5 @@
 export { createIntelligenceUseCases } from './factory';
+export { backfillCaptureHistory } from './infrastructure/drizzle/capture-backfill';
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';
 export {
   createPublicResearchArchive,

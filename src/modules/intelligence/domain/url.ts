@@ -62,9 +62,12 @@ export function canonicalizeSourceUrl(
     const path = url.pathname.replace(/\/+$/, '');
     const params = [...url.searchParams.entries()]
       .filter(([key]) => !TRACKING_PARAMS.test(key))
-      .map(([key, param]) => `${key}=${param}`)
-      .sort();
-    const query = params.length > 0 ? `?${params.join('&')}` : '';
+      .sort(
+        ([keyA, valueA], [keyB, valueB]) =>
+          keyA.localeCompare(keyB) || valueA.localeCompare(valueB)
+      );
+    // Re-encode each component: a literal '&' in a value is not a separator.
+    const query = params.length > 0 ? `?${new URLSearchParams(params)}` : '';
     return `${host}${path}${query}`;
   } catch {
     return null;

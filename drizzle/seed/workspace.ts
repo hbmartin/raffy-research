@@ -99,12 +99,6 @@ export async function createWorkspaces() {
       enabled: true,
       credentialsRef: 'APIFY_TOKEN',
     },
-    {
-      workspaceId: ws.id,
-      providerName: 'slack',
-      enabled: false,
-      credentialsRef: 'SLACK_BOT_TOKEN',
-    },
   ]);
 
   // Source records the report will cite.
@@ -259,7 +253,6 @@ export async function createWorkspaces() {
         ],
         related_competitors: ['ToothPilot'],
         related_keywords: ['dental no-show reduction'],
-        related_internal_sources: [],
       },
     ],
     competitor_watch: [

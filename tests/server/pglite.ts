@@ -46,7 +46,10 @@ export async function createPgliteTestDatabase(options?: {
     );
   }
 
-  const db = createDbClient({ url: databaseUrl });
+  const db = createDbClient({
+    url: databaseUrl,
+    poolSize: inject('testDatabasePoolSize'),
+  });
 
   return {
     db,
