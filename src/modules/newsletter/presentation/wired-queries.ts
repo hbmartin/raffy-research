@@ -5,6 +5,7 @@ import {
   newsletterEvidenceDetails,
   newsletterGet,
   newsletterHistory,
+  newsletterJobDetail,
 } from '../server';
 export const newsletterQueries = createNewsletterQueries({
   newsletterGet,
@@ -12,4 +13,5 @@ export const newsletterQueries = createNewsletterQueries({
   newsletterDetail,
   newsletterEvidenceDetails,
   newsletterEquivalenceReviews,
+  newsletterJobDetail,
 });

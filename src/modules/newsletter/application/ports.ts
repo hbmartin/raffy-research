@@ -3,6 +3,7 @@ import type { ApplicationResult } from '@/modules/kernel/application/result';
 import type {
   Archive,
   EvidenceSource,
+  JobSummary,
   NewsletterJob,
   NewsletterState,
   Runtime,
@@ -13,6 +14,7 @@ export type Mutation<T> = {
   jobs?: NewsletterJob[];
   alreadyPresent?: T;
 };
+export type MutationContext = { activeSelectionIds: string[] };
 export type NewsletterHistoryEntry = {
   id: string;
   kind: 'draft' | 'offer' | 'failure' | 'attempt' | 'retired';
@@ -65,7 +67,10 @@ export interface NewsletterRepository {
   ): Promise<ApplicationResult<{ workspaceId: string; reportId: string }[]>>;
   mutate<T>(
     workspaceId: string,
-    work: (state: NewsletterState) => ApplicationResult<Mutation<T>>,
+    work: (
+      state: NewsletterState,
+      context: MutationContext
+    ) => ApplicationResult<Mutation<T>>,
     lease?: { jobId: string; leaseToken: string },
     options?: { content?: boolean; drafts?: boolean }
   ): Promise<ApplicationResult<T>>;
@@ -73,6 +78,10 @@ export interface NewsletterRepository {
     workspaceId: string,
     options?: { summaries?: boolean }
   ): Promise<ApplicationResult<NewsletterJob[]>>;
+  /** Active work oldest first, then completed attempts newest first; ID breaks ties. */
+  listJobSummaries(
+    workspaceId: string
+  ): Promise<ApplicationResult<JobSummary[]>>;
   claim(
     mode: Runtime['mode'],
     now: Date,
@@ -119,8 +128,13 @@ export interface ResearchArchive {
     workspaceId: string;
     reviewId: string;
     actorId: string;
-    action: 'confirm' | 'separate';
-  }): Promise<ApplicationResult<{ type: 'saved' | 'not_found' }>>;
+    action: 'confirm' | 'separate' | 'reverse';
+  }): Promise<
+    ApplicationResult<
+      | { type: 'saved' | 'not_found' | 'no_active_decision' }
+      | import('@/modules/intelligence').EquivalenceConflict
+    >
+  >;
   read(
     workspaceId: string,
     options?: {
@@ -151,5 +165,7 @@ export interface NewsletterModel {
     signal?: AbortSignal;
     deadline?: Date;
     contextBudget?: number;
+    maxOutputTokens?: number;
+    timeoutMs?: number;
   }): Promise<ApplicationResult<string>>;
 }

@@ -222,17 +222,14 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     }
     const reused = Boolean(source);
     if (!source) {
-      const [equivalent] = hashes.normalizedFingerprint
+      const [equivalent] = hashes.equivalenceKey
         ? await db
             .select({ identity: sourceRecordTable.evidenceIdentity })
             .from(sourceRecordTable)
             .where(
               and(
                 eq(sourceRecordTable.workspaceId, input.workspaceId),
-                eq(
-                  sourceRecordTable.normalizedFingerprint,
-                  hashes.normalizedFingerprint
-                )
+                eq(sourceRecordTable.equivalenceKey, hashes.equivalenceKey)
               )
             )
             .orderBy(
@@ -250,11 +247,8 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           contentLength: input.contentText?.length ?? 0,
           normalizedFingerprint: hashes.normalizedFingerprint,
           similarityBucket: hashes.similarityBucket,
-          evidenceIdentity:
-            equivalent?.identity ??
-            (hashes.normalizedFingerprint
-              ? `body:${hashes.normalizedFingerprint}`
-              : null),
+          equivalenceKey: hashes.equivalenceKey,
+          evidenceIdentity: equivalent?.identity ?? hashes.equivalenceKey,
         })
         .returning();
       if (!created)
@@ -266,7 +260,10 @@ export class SourceRepositoryDrizzle implements SourceRepository {
       if (!created.evidenceIdentity) {
         await db
           .update(sourceRecordTable)
-          .set({ evidenceIdentity: `capture:${created.id}` })
+          .set({
+            evidenceIdentity: `capture:${created.id}`,
+            equivalenceKey: `capture:${created.id}`,
+          })
           .where(eq(sourceRecordTable.id, created.id));
         source.evidenceIdentity = `capture:${created.id}`;
       }
@@ -299,32 +296,47 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           },
         });
       // Suggestions are bounded and have no effect on labels or ranking.
-      const candidates = await db
-        .select({
-          id: sourceRecordTable.id,
-          content: sourceRecordTable.contentText,
-          identity: sourceRecordTable.evidenceIdentity,
-        })
-        .from(sourceRecordTable)
-        .where(
-          and(
-            eq(sourceRecordTable.workspaceId, input.workspaceId),
-            or(
-              eq(sourceRecordTable.canonicalUrl, hashes.canonicalUrl ?? ''),
-              hashes.similarityBucket
-                ? eq(
-                    sourceRecordTable.similarityBucket,
+      const candidates =
+        input.sourceType === 'seo_report'
+          ? []
+          : await db
+              .select({
+                id: sourceRecordTable.id,
+                content: sourceRecordTable.contentText,
+                identity: sourceRecordTable.evidenceIdentity,
+                sourceType: sourceRecordTable.sourceType,
+              })
+              .from(sourceRecordTable)
+              .where(
+                and(
+                  eq(sourceRecordTable.workspaceId, input.workspaceId),
+                  or(
+                    eq(
+                      sourceRecordTable.canonicalUrl,
+                      hashes.canonicalUrl ?? ''
+                    ),
+                    hashes.normalizedFingerprint &&
+                      input.sourceType !== 'seo_report'
+                      ? eq(
+                          sourceRecordTable.normalizedFingerprint,
+                          hashes.normalizedFingerprint
+                        )
+                      : undefined,
                     hashes.similarityBucket
+                      ? eq(
+                          sourceRecordTable.similarityBucket,
+                          hashes.similarityBucket
+                        )
+                      : undefined
                   )
-                : undefined
-            )
-          )
-        )
-        .orderBy(desc(sourceRecordTable.capturedAt))
-        .limit(50);
+                )
+              )
+              .orderBy(desc(sourceRecordTable.capturedAt))
+              .limit(50);
       for (const candidate of candidates) {
         if (
           candidate.id === created.id ||
+          candidate.sourceType === 'seo_report' ||
           candidate.identity === source.evidenceIdentity ||
           !isUncertainCopy(candidate.content ?? '', input.contentText ?? '')
         )

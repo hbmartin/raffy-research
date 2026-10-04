@@ -33,6 +33,99 @@ describe('Newsletter transactional persistence', () => {
   afterAll(async () => {
     await database?.close();
   });
+  it('reads typed lightweight summaries and loads complete diagnostics only on demand', async () => {
+    const repository = createNewsletterRepository(database.db);
+    const job: NewsletterJob = {
+      id: 'diagnostic-job',
+      key: 'diagnostic-job',
+      workspaceId: 'ws-1',
+      kind: 'prepare',
+      runtime: newsletterProfile.runtime,
+      contextBudget: 128000,
+      status: 'failed',
+      stage: 'tracking',
+      selectionId: null,
+      feedback: '',
+      checkpoint: {
+        version: 2,
+        styleNotes: ['bulky diagnostic '.repeat(20000)],
+        repairUnits: {
+          'tracking:report:0': {
+            repairsUsed: 2,
+            needsRepair: true,
+            rejected: { text: 'Rejected output' },
+          },
+        },
+      },
+      leaseToken: null,
+      leaseUntil: null,
+      failure: 'Malformed tracking output',
+      createdAt: newsletterNow,
+    };
+    requireOk(
+      await repository.mutate('ws-1', () =>
+        Result.Ok({ value: { type: 'queued' as const }, jobs: [job] })
+      )
+    );
+    const summaries = requireOk(await repository.listJobSummaries('ws-1'));
+    expect(summaries[0]).toMatchObject({ id: job.id, failure: job.failure });
+    expect(summaries[0]).not.toHaveProperty('checkpoint');
+    expect(summaries[0]).not.toHaveProperty('leaseToken');
+    expect(JSON.stringify(summaries).length).toBeLessThan(2000);
+    const full = requireOk(await repository.getJob('ws-1', job.id));
+    expect(full).toMatchObject({
+      type: 'job_found',
+      job: { checkpoint: job.checkpoint },
+    });
+    expect(
+      requireOk(await repository.getJob('different-workspace', job.id))
+    ).toEqual({ type: 'not_found' });
+  });
+  it('orders active work oldest first and completed failures newest first, with deterministic ties', async () => {
+    const repository = createNewsletterRepository(database.db);
+    const jobs = Array.from({ length: 8 }, (_, i): NewsletterJob => ({
+      id: `failed-${i}`,
+      key: `failed-${i}`,
+      workspaceId: 'ws-1',
+      kind: 'prepare',
+      runtime: newsletterProfile.runtime,
+      status: 'failed',
+      stage: 'failed',
+      selectionId: null,
+      feedback: '',
+      checkpoint: {},
+      leaseToken: null,
+      leaseUntil: null,
+      failure: `Failure ${i}`,
+      createdAt: new Date(newsletterNow.getTime() + Math.floor(i / 2) * 1000),
+    }));
+    jobs.push(
+      ...['b', 'a'].map((id): NewsletterJob => ({
+        ...jobs[0]!,
+        id: `active-${id}`,
+        key: `active-${id}`,
+        status: 'queued',
+        failure: null,
+        createdAt: newsletterNow,
+      }))
+    );
+    requireOk(
+      await repository.mutate('ws-1', () =>
+        Result.Ok({ value: 'queued', jobs })
+      )
+    );
+    const summaries = requireOk(await repository.listJobSummaries('ws-1'));
+    expect(summaries.slice(0, 2).map((job) => job.id)).toEqual([
+      'active-a',
+      'active-b',
+    ]);
+    expect(
+      summaries
+        .filter((job) => job.status === 'failed')
+        .slice(0, 5)
+        .map((job) => job.id)
+    ).toEqual(['failed-7', 'failed-6', 'failed-5', 'failed-4', 'failed-3']);
+  });
   it('allows only one of two distinct hosted and local jobs in a workspace to execute', async () => {
     const repository = createNewsletterRepository(database.db);
     const jobs = ['local', 'hosted'].map((mode): NewsletterJob => ({

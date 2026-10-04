@@ -160,7 +160,20 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
               persistenceError('Missing newsletter aggregate')
             );
           const state = await hydrate(tx, row.state, workspaceId, options);
-          const outcome = work(state);
+          const activeJobs = await tx
+            .select({ selectionId: newsletterJob.selectionId })
+            .from(newsletterJob)
+            .where(
+              and(
+                eq(newsletterJob.workspaceId, workspaceId),
+                inArray(newsletterJob.status, ['queued', 'running'])
+              )
+            );
+          const outcome = work(state, {
+            activeSelectionIds: activeJobs.flatMap((j) =>
+              j.selectionId ? [j.selectionId] : []
+            ),
+          });
           if (outcome.isError()) return Result.Error(outcome.getError());
           const mutation = outcome.get();
           let inserted = 0;
@@ -185,6 +198,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
                   parentAttemptId: job.parentAttemptId,
                   initiatingActorId: job.initiatingActorId,
                   contextBudget: job.contextBudget,
+                  budget: job.budget,
                 },
                 createdAt: job.createdAt,
               });
@@ -284,6 +298,40 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
         return Result.Error(
           cause instanceof AppError ? cause : persistenceError(cause)
         );
+      }
+    },
+    async listJobSummaries(workspaceId) {
+      try {
+        const {
+          checkpoint: _checkpoint,
+          leaseToken: _leaseToken,
+          ...columns
+        } = getTableColumns(newsletterJob);
+        const active = await db
+          .select(columns)
+          .from(newsletterJob)
+          .where(
+            and(
+              eq(newsletterJob.workspaceId, workspaceId),
+              inArray(newsletterJob.status, ['queued', 'running'])
+            )
+          )
+          .orderBy(asc(newsletterJob.createdAt), asc(newsletterJob.id))
+          .limit(20);
+        const recent = await db
+          .select(columns)
+          .from(newsletterJob)
+          .where(
+            and(
+              eq(newsletterJob.workspaceId, workspaceId),
+              inArray(newsletterJob.status, ['failed', 'succeeded'])
+            )
+          )
+          .orderBy(desc(newsletterJob.createdAt), desc(newsletterJob.id))
+          .limit(20);
+        return Result.Ok([...active, ...recent]);
+      } catch (cause) {
+        return Result.Error(persistenceError(cause));
       }
     },
     async listJobs(workspaceId, options) {

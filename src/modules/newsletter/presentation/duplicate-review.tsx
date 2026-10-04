@@ -14,6 +14,9 @@ export function DuplicateReview({
   workspaceId: string;
   onChanged: () => void;
 }) {
+  const [conflict, setConflict] = useState<
+    import('@/modules/intelligence').EquivalenceConflict | null
+  >(null);
   const [open, setOpen] = useState(false);
   const [sourceIds, setSourceIds] = useState<string[]>([]);
   const evidence = useQuery({
@@ -30,14 +33,24 @@ export function DuplicateReview({
       action,
     }: {
       reviewId: string;
-      action: 'confirm' | 'separate';
+      action: 'confirm' | 'separate' | 'reverse';
     }) =>
       newsletterDecideEquivalence({ data: { workspaceId, reviewId, action } }),
     onSuccess: async (outcome) => {
+      if (outcome.type === 'equivalence_conflict') {
+        setConflict(outcome);
+        return;
+      }
+      if (outcome.type === 'no_active_decision') {
+        toast.info('There is no active decision to reverse');
+        await reviews.refetch();
+        return;
+      }
       if (outcome.type !== 'saved') {
         toast.error('This duplicate decision could not be saved');
         return;
       }
+      setConflict(null);
       toast.success('Evidence equivalence decision saved');
       onChanged();
       await reviews.refetch();
@@ -56,6 +69,28 @@ export function DuplicateReview({
       </p>
       {reviews.isError ? (
         <p role="alert">Duplicate reviews could not be loaded.</p>
+      ) : null}
+      {conflict ? (
+        <div role="alert" className="mt-3 rounded-md border p-3 text-sm">
+          <p>{conflict.message}</p>
+          {conflict.blockingReviews.map((review) => (
+            <div key={review.id} className="mt-2 break-words">
+              <p>
+                {review.leftSourceId} ↔ {review.rightSourceId} ({review.status})
+              </p>
+              <Button
+                disabled={decision.isPending}
+                variant="secondary"
+                onClick={() =>
+                  decision.mutate({ reviewId: review.id, action: 'reverse' })
+                }
+              >
+                Reverse{' '}
+                {review.status === 'confirmed' ? 'confirmation' : 'separation'}
+              </Button>
+            </div>
+          ))}
+        </div>
       ) : null}
       <ul className="mt-3 space-y-3">
         {reviews.data?.pages
@@ -85,6 +120,15 @@ export function DuplicateReview({
                   }
                 >
                   Confirm equivalent content
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={decision.isPending || review.status === 'suggested'}
+                  onClick={() =>
+                    decision.mutate({ reviewId: review.id, action: 'reverse' })
+                  }
+                >
+                  Reverse decision
                 </Button>
                 <Button
                   variant="ghost"

@@ -22,6 +22,12 @@ export const createNewsletterQueries = (facade: NewsletterQueryFacade) => ({
       queryKey: ['newsletter-detail', workspaceId, id],
       queryFn: () => facade.newsletterDetail({ data: { workspaceId, id } }),
     }),
+  jobDetail: (workspaceId: string, jobId: string) =>
+    queryOptions({
+      queryKey: ['newsletter-job-detail', workspaceId, jobId],
+      queryFn: () =>
+        facade.newsletterJobDetail({ data: { workspaceId, jobId } }),
+    }),
   evidence: (workspaceId: string, sourceIds: string[]) =>
     queryOptions({
       queryKey: ['newsletter-evidence', workspaceId, sourceIds],

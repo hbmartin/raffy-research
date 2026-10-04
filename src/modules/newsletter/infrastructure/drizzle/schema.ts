@@ -58,6 +58,7 @@ export const newsletterJob = pgTable(
     initiatingActorId: text('initiatingActorId'),
     localOperatorId: text('localOperatorId'),
     contextBudget: integer('contextBudget'),
+    budget: jsonb('budget').$type<NewsletterJob['budget']>(),
   },
   (table) => [
     uniqueIndex('newsletterJob_key_idx').on(table.key),

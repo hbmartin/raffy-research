@@ -11,6 +11,8 @@ import {
   newsletterJob,
   newsletterWorkspace,
 } from './schema';
+import { normalizeCheckpoint } from '../../domain/checkpoint';
+import { jobGenerationBudget } from '../../domain/processing';
 import { resolveContextBudget } from '../../domain/processing';
 
 export async function backfillNewsletterHistory(
@@ -23,11 +25,20 @@ export async function backfillNewsletterHistory(
     for (const row of workspaces) {
       const operator = operators[row.workspaceId];
       const saved = await repository.mutate(row.workspaceId, (state) => {
-        if (operator && state.profile?.runtime.mode === 'local')
+        if (
+          operator &&
+          state.profile?.runtime.mode === 'local' &&
+          !state.profile.runtime.localOperatorId
+        )
           state.profile.runtime.localOperatorId = operator;
         return Result.Ok({ value: { type: 'saved' as const } });
       });
       if (saved.isError()) return Result.Error(saved.getError());
+      const state = await repository.read(row.workspaceId, {
+        content: false,
+        drafts: false,
+      });
+      if (state.isError()) return Result.Error(state.getError());
       const jobs = await db
         .select()
         .from(newsletterJob)
@@ -35,11 +46,26 @@ export async function backfillNewsletterHistory(
       for (const job of jobs) {
         const localOperatorId =
           job.localOperatorId ??
+          job.runtime.localOperatorId ??
           (job.mode === 'local' ? (operator ?? null) : null);
         const runtime = localOperatorId
           ? { ...job.runtime, localOperatorId }
           : job.runtime;
         const budget = job.contextBudget ?? resolveContextBudget(runtime);
+        const normalized =
+          job.status === 'queued' || job.status === 'running'
+            ? normalizeCheckpoint(
+                {
+                  ...job,
+                  contextBudget: budget,
+                },
+                state.get().angles
+              )
+            : job.checkpoint;
+        const pinnedBudget = jobGenerationBudget({
+          ...job,
+          contextBudget: budget,
+        });
         const prefix = `publication:${row.workspaceId}:`;
         const reports = job.key.startsWith(prefix)
           ? job.key.slice(prefix.length).split(':').filter(Boolean)
@@ -50,21 +76,24 @@ export async function backfillNewsletterHistory(
             runtime,
             localOperatorId,
             contextBudget: budget,
+            budget: pinnedBudget,
             targetReportId:
               job.targetReportId ?? (reports.length === 1 ? reports[0] : null),
             checkpoint:
-              operator && job.checkpoint.profile?.runtime.mode === 'local'
+              localOperatorId &&
+              job.checkpoint.profile?.runtime.mode === 'local' &&
+              !job.checkpoint.profile.runtime.localOperatorId
                 ? {
-                    ...job.checkpoint,
+                    ...normalized,
                     profile: {
                       ...job.checkpoint.profile,
                       runtime: {
                         ...job.checkpoint.profile.runtime,
-                        localOperatorId: operator,
+                        localOperatorId,
                       },
                     },
                   }
-                : job.checkpoint,
+                : normalized,
           })
           .where(eq(newsletterJob.id, job.id));
         await db
@@ -136,7 +165,8 @@ export async function backfillNewsletterHistory(
             status: 'succeeded',
             stage: 'legacy-publication-ledger',
             checkpoint: {},
-            localOperatorId: operator ?? null,
+            localOperatorId:
+              row.state.profile?.runtime.localOperatorId ?? operator ?? null,
           })
           .onConflictDoNothing();
     }

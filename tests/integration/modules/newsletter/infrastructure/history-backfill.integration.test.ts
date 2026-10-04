@@ -47,6 +47,59 @@ describe('Preservation backfill and bounded newsletter reads', () => {
   afterAll(async () => {
     await database?.close();
   });
+  it('recovers completed legacy repairs while retaining failed attempts and existing owners', async () => {
+    const state = stateFixture();
+    await database.db
+      .insert(newsletterWorkspace)
+      .values({ workspaceId: 'ws-1', state });
+    const checkpoint = {
+      version: 2 as const,
+      profile: state.profile!,
+      styleCursor: 1,
+      styleNotes: ['Completed style'],
+      unitRepairs: { 'style:0': 1 },
+      legacyRepairBlocked: true,
+    };
+    await database.db.insert(newsletterJob).values(
+      ['queued', 'failed'].map((status) => ({
+        id: status,
+        key: status,
+        workspaceId: 'ws-1',
+        mode: 'local' as const,
+        kind: 'draft' as const,
+        runtime: state.profile!.runtime,
+        checkpoint,
+        status: status as 'queued' | 'failed',
+      }))
+    );
+    requireOk(
+      await backfillNewsletterHistory(database.db, {
+        'ws-1': 'different-operator',
+      })
+    );
+    const repository = createNewsletterRepository(database.db);
+    const queued = requireOk(await repository.getJob('ws-1', 'queued'));
+    expect(queued).toMatchObject({
+      type: 'job_found',
+      job: {
+        status: 'queued',
+        localOperatorId: 'reader',
+        checkpoint: {
+          version: 3,
+          repairUnits: { 'style:0': { repairsUsed: 1, exhausted: false } },
+        },
+      },
+    });
+    if (queued.type === 'job_found')
+      expect(queued.job.checkpoint.legacyRepairBlocked).toBeUndefined();
+    expect(requireOk(await repository.getJob('ws-1', 'failed'))).toMatchObject({
+      type: 'job_found',
+      job: { status: 'failed', checkpoint },
+    });
+    expect(
+      requireOk(await repository.read('ws-1')).profile!.runtime.localOperatorId
+    ).toBe('reader');
+  });
   it('preserves every capture payload and date, creates idempotent indexes and reuses legacy copies', async () => {
     const capturedAt = new Date('2020-01-01T00:00:00Z');
     await database.db.insert(sourceRecord).values(

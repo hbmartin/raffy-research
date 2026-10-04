@@ -9,9 +9,9 @@ import type {
   NewsletterRepository,
   ResearchArchive,
 } from './application/ports';
+import type { MutationContext } from './application/ports';
 import {
   angleEligible,
-  type Audit,
   DAY_MS,
   type DraftVersion,
   exportDraft,
@@ -24,7 +24,12 @@ import {
   type Theme,
   zArticle,
 } from './domain/newsletter';
-import { resolveContextBudget, resolveTopicRoot } from './domain/processing';
+import {
+  DEFAULT_HOSTED_OUTPUT_TOKENS,
+  knownContextLimit,
+  resolveGenerationBudget,
+  resolveTopicRoot,
+} from './domain/processing';
 
 type Deps = {
   repository: NewsletterRepository;
@@ -39,16 +44,18 @@ type Deps = {
       { type: 'context_found'; tokens: number } | { type: 'context_unknown' }
     >
   >;
+  operatorContextCeiling?: () => number | undefined;
+  localOperatorId?: string;
 };
 export type NewsletterView = {
   type: 'newsletter_found';
   audienceSuggestion: string;
   state: NewsletterState;
-  jobs: (Omit<NewsletterJob, 'checkpoint' | 'leaseToken'> & {
-    audits: Audit[];
-  })[];
+  jobs: import('./domain/newsletter').JobSummary[];
   snoozed: Theme[];
   warnings: Record<string, string[]>;
+  configurationIssue: import('./domain/processing').BudgetIssue | null;
+  generationBudget: import('./domain/newsletter').GenerationBudget | null;
 };
 type GetOutcome = NewsletterView | { type: 'workspace_not_found' };
 type ExportOutcome =
@@ -67,7 +74,9 @@ type Outcome =
   | { type: 'override_required' }
   | { type: 'not_found' }
   | { type: 'invalid_correction' }
-  | { type: 'context_required' };
+  | { type: 'no_active_decision' }
+  | import('@/modules/intelligence').EquivalenceConflict
+  | import('./domain/processing').BudgetIssue;
 const currentAssignments = (
   state: NewsletterState,
   sourceIds: string[],
@@ -80,13 +89,16 @@ export function createNewsletterUseCases(deps: Deps) {
   const mutate = <T>(
     workspaceId: string,
     work: (
-      state: NewsletterState
+      state: NewsletterState,
+      context: MutationContext
     ) => ApplicationResult<import('./application/ports').Mutation<T>>
   ) =>
     deps.repository.mutate(workspaceId, work, undefined, {
       content: false,
       drafts: false,
     });
+  const profileBudget = (runtime: NewsletterProfile['runtime']) =>
+    resolveGenerationBudget(runtime);
   const makeJob = (
     workspaceId: string,
     state: NewsletterState,
@@ -94,40 +106,48 @@ export function createNewsletterUseCases(deps: Deps) {
     key: string,
     selectionId: string | null = null,
     feedback = ''
-  ): NewsletterJob => ({
-    id: deps.idGenerator.createId(),
-    workspaceId,
-    kind,
-    key,
-    runtime: structuredClone(state.profile!.runtime),
-    contextBudget: resolveContextBudget(state.profile!.runtime),
-    localOperatorId: state.profile!.runtime.localOperatorId ?? null,
-    initiatingActorId:
-      state.selections.find((s) => s.id === selectionId)?.selectedBy ??
-      state.profile!.runtime.localOperatorId ??
-      null,
-    targetReportId:
-      state.selections.find((s) => s.id === selectionId)?.reportId ?? null,
-    selectionId,
-    feedback,
-    status: 'queued',
-    stage: 'queued',
-    checkpoint: {
-      profile: structuredClone(state.profile!),
-      angle: structuredClone(
-        state.selections.find((v) => v.id === selectionId)?.angleSnapshot ??
-          state.angles.find(
-            (a) =>
-              a.id ===
-              state.selections.find((v) => v.id === selectionId)?.angleId
-          )
-      ),
-    },
-    leaseToken: null,
-    leaseUntil: null,
-    failure: null,
-    createdAt: deps.clock.now(),
-  });
+  ): NewsletterJob => {
+    const resolved = profileBudget(state.profile!.runtime);
+    return {
+      id: deps.idGenerator.createId(),
+      workspaceId,
+      kind,
+      key,
+      runtime: structuredClone(state.profile!.runtime),
+      contextBudget:
+        resolved.type === 'budget_resolved'
+          ? resolved.budget.contextTokens
+          : undefined,
+      budget: resolved.type === 'budget_resolved' ? resolved.budget : null,
+      localOperatorId: state.profile!.runtime.localOperatorId ?? null,
+      initiatingActorId:
+        state.selections.find((s) => s.id === selectionId)?.selectedBy ??
+        state.profile!.runtime.localOperatorId ??
+        null,
+      targetReportId:
+        state.selections.find((s) => s.id === selectionId)?.reportId ?? null,
+      selectionId,
+      feedback,
+      status: 'queued',
+      stage: 'queued',
+      checkpoint: {
+        version: 3,
+        profile: structuredClone(state.profile!),
+        angle: structuredClone(
+          state.selections.find((v) => v.id === selectionId)?.angleSnapshot ??
+            state.angles.find(
+              (a) =>
+                a.id ===
+                state.selections.find((v) => v.id === selectionId)?.angleId
+            )
+        ),
+      },
+      leaseToken: null,
+      leaseUntil: null,
+      failure: null,
+      createdAt: deps.clock.now(),
+    };
+  };
   const authorize = async (userId: UserId) =>
     deps.permissionChecker.hasPermission(userId, { report: ['read'] });
   const authorized = async <T>(
@@ -164,9 +184,7 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        const jobs = await deps.repository.listJobs(input.workspaceId, {
-          summaries: true,
-        });
+        const jobs = await deps.repository.listJobSummaries(input.workspaceId);
         if (jobs.isError()) return Result.Error(jobs.getError());
         const state = stored.get();
         const current = state.sources.map((s) => {
@@ -181,6 +199,9 @@ export function createNewsletterUseCases(deps: Deps) {
         });
         const refreshed = { ...state, sources: current };
         const latest = data.reports.at(-1)?.id ?? null;
+        const resolution = state.profile
+          ? profileBudget(state.profile.runtime)
+          : undefined;
         return Result.Ok({
           type: 'newsletter_found' as const,
           audienceSuggestion: data.audienceSuggestion,
@@ -194,17 +215,18 @@ export function createNewsletterUseCases(deps: Deps) {
               sources: d.sources.map((s) => ({ ...s, content: '' })),
             })),
           },
-          jobs: jobs
-            .get()
-            .map(({ checkpoint, leaseToken: _leaseToken, ...j }) => ({
-              ...j,
-              audits: checkpoint.audits ?? [],
-            })),
+          jobs: jobs.get(),
+          configurationIssue:
+            resolution && resolution.type !== 'budget_resolved'
+              ? resolution
+              : null,
+          generationBudget:
+            resolution?.type === 'budget_resolved' ? resolution.budget : null,
           snoozed: rankThemes(refreshed, deps.clock.now(), true).filter(
             (a) => !angleEligible(refreshed, a, deps.clock.now())
           ),
           warnings: Object.fromEntries(
-            state.drafts.map((d) => [d.id, sourceWarnings(d, current)])
+            state.drafts.map((d) => [d.id, sourceWarnings(d, data.sources)])
           ),
         });
       });
@@ -222,30 +244,119 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         if ('type' in archive.get())
           return Result.Ok({ type: 'workspace_not_found' });
-        let tokens = resolveContextBudget(input.profile.runtime);
-        if (!tokens && deps.discoverContextBudget) {
-          const discovery = await deps.discoverContextBudget(
-            input.profile.runtime
-          );
-          if (discovery.isError()) return Result.Error(discovery.getError());
-          const discovered = discovery.get();
-          if (discovered.type === 'context_found') tokens = discovered.tokens;
+        const stored = await deps.repository.read(input.workspaceId, {
+          content: false,
+          drafts: false,
+        });
+        if (stored.isError()) return Result.Error(stored.getError());
+        const previous = stored.get().profile?.runtime;
+        const requested = input.profile.runtime;
+        const sameLocal =
+          requested.mode === 'local' &&
+          previous?.mode === 'local' &&
+          previous.provider === requested.provider &&
+          previous.model === requested.model;
+        const verifyLocal =
+          input.userId === deps.localOperatorId &&
+          (!sameLocal || previous?.localOperatorId === input.userId);
+        if (requested.mode === 'local' && !sameLocal && !verifyLocal)
+          return Result.Ok({ type: 'local_verification_required' });
+        // Allocation and discovery metadata are trusted only when loaded from storage
+        // or produced by the authenticated operator's local adapter.
+        let tokens = knownContextLimit(requested.model, requested.provider);
+        let origin: 'known' | 'discovered' | 'declared' | 'legacy' = 'known';
+        let contextLimit =
+          sameLocal &&
+          !verifyLocal &&
+          previous?.contextLimit?.provider === requested.provider &&
+          previous.contextLimit.model === requested.model
+            ? previous.contextLimit
+            : undefined;
+        if (contextLimit) {
+          tokens = contextLimit.tokens;
+          origin = contextLimit.origin;
         }
-        if (!tokens) return Result.Ok({ type: 'context_required' });
+        if (
+          !tokens &&
+          deps.discoverContextBudget &&
+          (requested.mode === 'hosted' || verifyLocal)
+        ) {
+          const discovery = await deps.discoverContextBudget({
+            ...requested,
+            contextWindowTokens: undefined,
+            contextLimit: undefined,
+            localOperatorId: undefined,
+          });
+          if (
+            discovery.isError() &&
+            !requested.contextWindowTokens &&
+            input.profile.enabled
+          )
+            return Result.Error(discovery.getError());
+          if (discovery.isOk() && discovery.get().type === 'context_found') {
+            const discovered = discovery.get();
+            if (discovered.type === 'context_found') {
+              tokens = discovered.tokens;
+              origin = 'discovered';
+            }
+          }
+        }
+        if (!tokens && requested.contextWindowTokens) {
+          tokens = requested.contextWindowTokens;
+          origin = 'declared';
+        }
+        if (!tokens && input.profile.enabled)
+          return Result.Ok({ type: 'context_required' });
+        if (tokens && !contextLimit)
+          contextLimit = {
+            provider: requested.provider,
+            model: requested.model,
+            tokens,
+            origin,
+            ...(requested.provider === 'ollama' && verifyLocal
+              ? { operatorCeiling: deps.operatorContextCeiling?.() }
+              : {}),
+          };
+        const runtime: NewsletterProfile['runtime'] = {
+          mode: requested.mode,
+          provider: requested.provider,
+          model: requested.model,
+          contextWindowTokens: requested.contextWindowTokens,
+          maxOutputTokens:
+            requested.mode === 'hosted'
+              ? (requested.maxOutputTokens ?? DEFAULT_HOSTED_OUTPUT_TOKENS)
+              : undefined,
+          contextLimit,
+          localOperatorId:
+            requested.mode === 'local'
+              ? sameLocal
+                ? previous.localOperatorId
+                : input.userId
+              : undefined,
+        };
+        const capacity = profileBudget(runtime);
+        if (capacity.type !== 'budget_resolved' && input.profile.enabled)
+          return Result.Ok(capacity);
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
         return mutate<Outcome>(input.workspaceId, (state) => {
+          if (
+            sameLocal &&
+            (!state.profile ||
+              state.profile.runtime.provider !== previous.provider ||
+              state.profile.runtime.model !== previous.model ||
+              state.profile.runtime.localOperatorId !==
+                previous.localOperatorId ||
+              JSON.stringify(state.profile.runtime.contextLimit) !==
+                JSON.stringify(previous.contextLimit))
+          )
+            return Result.Ok({
+              value: { type: 'local_verification_required' as const },
+            });
           const firstEnable = input.profile.enabled && !state.profile?.enabled;
           state.profile = {
             ...input.profile,
-            runtime: {
-              ...input.profile.runtime,
-              contextWindowTokens: tokens,
-              localOperatorId:
-                input.profile.runtime.mode === 'local'
-                  ? input.userId
-                  : undefined,
-            },
+            runtime,
           };
           const jobs = firstEnable
             ? data.reports
@@ -280,8 +391,9 @@ export function createNewsletterUseCases(deps: Deps) {
         return mutate<Outcome>(input.workspaceId, (state) => {
           if (!state.profile)
             return Result.Ok({ value: { type: 'style_required' } });
-          if (!resolveContextBudget(state.profile.runtime))
-            return Result.Ok({ value: { type: 'context_required' } });
+          const capacity = profileBudget(state.profile.runtime);
+          if (capacity.type !== 'budget_resolved')
+            return Result.Ok({ value: capacity });
           const job = makeJob(
             input.workspaceId,
             state,
@@ -319,17 +431,20 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        return mutate<Outcome>(input.workspaceId, (state) => {
+        return mutate<Outcome>(input.workspaceId, (state, context) => {
           if (
             !state.profile ||
             (parent.kind === 'draft' && !hasStyle(state.profile))
           )
             return Result.Ok({ value: { type: 'style_required' } });
-          if (!resolveContextBudget(state.profile.runtime))
-            return Result.Ok({ value: { type: 'context_required' } });
+          const capacity = profileBudget(state.profile.runtime);
+          if (capacity.type !== 'budget_resolved')
+            return Result.Ok({ value: capacity });
           const selection = state.selections.find(
             (s) => s.id === parent.selectionId
           );
+          if (selection && context.activeSelectionIds.includes(selection.id))
+            return Result.Ok({ value: { type: 'selection_conflict' } });
           if (
             parent.kind === 'draft' &&
             (!selection ||
@@ -354,7 +469,8 @@ export function createNewsletterUseCases(deps: Deps) {
           job.targetReportId =
             parent.targetReportId ?? selection?.reportId ?? null;
           job.initiatingActorId = input.userId;
-          if (selection) selection.status = 'pending';
+          if (selection && selection.status !== 'ready')
+            selection.status = 'pending';
           return Result.Ok({
             value: { type: 'queued' },
             alreadyPresent: { type: 'selection_conflict' },
@@ -371,6 +487,66 @@ export function createNewsletterUseCases(deps: Deps) {
       return authorized(input.userId, () =>
         deps.repository.history(input.workspaceId, input.before)
       );
+    },
+    async jobDetail(input: {
+      userId: UserId;
+      workspaceId: string;
+      jobId: string;
+    }) {
+      return authorized<
+        | { type: 'not_found' }
+        | {
+            type: 'job_detail_found';
+            audits: import('./domain/newsletter').Audit[];
+            repairUnits: Record<
+              string,
+              Omit<
+                import('./domain/newsletter').RepairUnitState,
+                'rejected'
+              > & { rejectedJson?: string }
+            >;
+            failureHistoryJson: string;
+            failureDetailsJson: string;
+            failure: string | null;
+            budget: import('./domain/newsletter').GenerationBudget | null;
+          }
+      >(input.userId, async () => {
+        const found = await deps.repository.getJob(
+          input.workspaceId,
+          input.jobId
+        );
+        if (found.isError()) return Result.Error(found.getError());
+        const value = found.get();
+        if (value.type === 'not_found') return Result.Ok(value);
+        return Result.Ok({
+          type: 'job_detail_found' as const,
+          audits: value.job.checkpoint.audits ?? [],
+          repairUnits: Object.fromEntries(
+            Object.entries(value.job.checkpoint.repairUnits ?? {}).map(
+              ([unit, state]) => {
+                const { rejected, ...summary } = state;
+                return [
+                  unit,
+                  {
+                    ...summary,
+                    rejectedJson:
+                      rejected === undefined
+                        ? undefined
+                        : JSON.stringify(rejected),
+                  },
+                ];
+              }
+            )
+          ),
+          failureDetailsJson:
+            value.job.checkpoint.terminalFailure?.detailsJson ?? '{}',
+          failureHistoryJson: JSON.stringify(
+            value.job.checkpoint.unitFailures ?? []
+          ),
+          failure: value.job.failure,
+          budget: value.job.budget ?? null,
+        });
+      });
     },
     async detail(input: { userId: UserId; workspaceId: string; id: string }) {
       return authorized<
@@ -449,7 +625,7 @@ export function createNewsletterUseCases(deps: Deps) {
       userId: UserId;
       workspaceId: string;
       reviewId: string;
-      action: 'confirm' | 'separate';
+      action: 'confirm' | 'separate' | 'reverse';
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
         deps.archive.decideEquivalence
@@ -478,8 +654,9 @@ export function createNewsletterUseCases(deps: Deps) {
         return mutate<Outcome>(input.workspaceId, (state) => {
           if (!state.profile || !hasStyle(state.profile))
             return Result.Ok({ value: { type: 'style_required' as const } });
-          if (!resolveContextBudget(state.profile.runtime))
-            return Result.Ok({ value: { type: 'context_required' as const } });
+          const capacity = profileBudget(state.profile.runtime);
+          if (capacity.type !== 'budget_resolved')
+            return Result.Ok({ value: capacity });
           const active = state.selections.find(
             (s) =>
               s.reportId === input.reportId &&
@@ -597,7 +774,9 @@ export function createNewsletterUseCases(deps: Deps) {
       feedback: string;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        mutate<Outcome>(input.workspaceId, (state) => {
+        mutate<Outcome>(input.workspaceId, (state, context) => {
+          if (context.activeSelectionIds.includes(input.selectionId))
+            return Result.Ok({ value: { type: 'selection_conflict' } });
           const s = state.selections.find(
             (v) => v.id === input.selectionId && v.status === 'ready'
           );
@@ -605,8 +784,9 @@ export function createNewsletterUseCases(deps: Deps) {
             return Result.Ok({ value: { type: 'not_found' as const } });
           if (!hasStyle(state.profile))
             return Result.Ok({ value: { type: 'style_required' as const } });
-          if (!resolveContextBudget(state.profile.runtime))
-            return Result.Ok({ value: { type: 'context_required' as const } });
+          const capacity = profileBudget(state.profile.runtime);
+          if (capacity.type !== 'budget_resolved')
+            return Result.Ok({ value: capacity });
           return Result.Ok({
             value: { type: 'queued' as const },
             jobs: [

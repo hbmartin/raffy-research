@@ -12,7 +12,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 
 import { productionBuildMarker } from './scripts/vite-build-marker';
 import { clientDisconnectPlugin } from './scripts/vite-client-disconnect';
-import { newsletterInvocationSeconds } from './src/composition/newsletter-config';
+import { newsletterExecutionConfig } from './src/composition/newsletter-config';
 
 function srcJsonImportPlugin(): Plugin {
   return {
@@ -101,9 +101,10 @@ export default defineConfig(async ({ mode, command }) => {
       : [];
   const nitroConfig: NitroConfig = {
     vercel: {
+      functions: { maxDuration: 'max' },
       functionRules: {
         '/api/cron/newsletter': {
-          maxDuration: newsletterInvocationSeconds(privateEnv),
+          maxDuration: newsletterExecutionConfig(privateEnv).durationSeconds,
         },
       },
     },

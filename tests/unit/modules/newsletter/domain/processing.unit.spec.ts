@@ -11,8 +11,19 @@ import {
   resolveContextBudget,
   resolveTopicRoot,
 } from '@/modules/newsletter/domain/processing';
+import { fittingStyleEnd } from '@/modules/newsletter/domain/style-processing';
 
 describe('Bounded newsletter evidence and shared Markdown parsing', () => {
+  it('fits a complete emoji without rejecting it because its escaped half is larger', () => {
+    expect(
+      fittingStyleEnd(
+        '🌸',
+        0,
+        2,
+        (end) => Buffer.byteLength(JSON.stringify('🌸'.slice(0, end))) <= 6
+      )
+    ).toBe(2);
+  });
   it('retains custom names and requires an explicit unknown-model limit', () => {
     expect(
       resolveContextBudget({

@@ -10,6 +10,16 @@ export const zRuntime = z
     provider: z.enum(['openai', 'codex-cli', 'claude-code', 'ollama']),
     model: z.string().trim().min(1).max(200),
     contextWindowTokens: z.number().int().min(8192).max(2_000_000).optional(),
+    maxOutputTokens: z.number().int().positive().max(2_000_000).optional(),
+    contextLimit: z
+      .object({
+        provider: z.enum(['openai', 'codex-cli', 'claude-code', 'ollama']),
+        model: z.string().min(1),
+        tokens: z.number().int().positive(),
+        origin: z.enum(['known', 'discovered', 'declared', 'legacy']),
+        operatorCeiling: z.number().int().positive().optional(),
+      })
+      .optional(),
     localOperatorId: z.string().min(1).optional(),
   })
   .refine(
@@ -203,6 +213,37 @@ export const emptyState = (): NewsletterState => ({
   revision: 0,
 });
 export type JobKind = 'prepare' | 'draft';
+export type GenerationBudget = {
+  contextTokens: number;
+  outputTokens: number;
+  inputBytes: number;
+  safetyTokens: number;
+  origin: 'known' | 'discovered' | 'declared' | 'legacy';
+  operatorCeiling?: number;
+};
+export type RepairUnitState = {
+  candidateId?: string;
+  repairsUsed: number;
+  needsRepair: boolean;
+  requestInFlight?: boolean;
+  exhausted?: boolean;
+  issues?: string[];
+  rejected?: unknown;
+  response?: { signature: string; text: string };
+};
+export type StylePartition = {
+  sampleIndex: number;
+  start: number;
+  end: number;
+  unit: string;
+};
+export type StylePlan = {
+  inputSignature: string;
+  layout: 'legacy-20' | 'version-2-3' | 'utf8';
+  parts: StylePartition[];
+  cursor: number;
+  legacyPatterns?: string;
+};
 export type NewsletterJob = {
   id: string;
   workspaceId: string;
@@ -214,6 +255,16 @@ export type NewsletterJob = {
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   stage: string;
   checkpoint: {
+    version?: 2 | 3;
+    normalizationIssue?: string;
+    stylePlan?: StylePlan;
+    terminalFailure?: { code: string; message: string; detailsJson: string };
+    legacyRepairBlocked?: boolean;
+    repairUnits?: Record<string, RepairUnitState>;
+    styleAggregate?: {
+      patterns: string;
+      rules: { id: string; text: string }[];
+    };
     profile?: NewsletterProfile;
     angle?: EditorialAngle;
     researchQueries?: string[];
@@ -257,7 +308,9 @@ export type NewsletterJob = {
   initiatingActorId?: string | null;
   localOperatorId?: string | null;
   contextBudget?: number | null;
+  budget?: GenerationBudget | null;
 };
+export type JobSummary = Omit<NewsletterJob, 'checkpoint' | 'leaseToken'>;
 export const hasStyle = (profile: NewsletterProfile) =>
   Boolean(profile.guidance.trim() || profile.samples.length);
 

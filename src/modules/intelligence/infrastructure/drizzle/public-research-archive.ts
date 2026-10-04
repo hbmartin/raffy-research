@@ -20,6 +20,10 @@ import {
 } from './schema';
 import { SourceRepositoryDrizzle } from './source-repository-drizzle';
 import { getProviderCredential } from '../config/runtime';
+import {
+  copyGroups,
+  type EquivalenceConflict,
+} from '../../domain/evidence-equivalence';
 import type { SourceRecord } from '../../domain/source';
 import { normalizeHttpUrl } from '../../domain/url';
 
@@ -379,8 +383,14 @@ export function createPublicResearchArchive(db: Database) {
       workspaceId: string;
       reviewId: string;
       actorId: string;
-      action: 'confirm' | 'separate';
-    }): Promise<Result<{ type: 'saved' | 'not_found' }, AppError>> {
+      action: 'confirm' | 'separate' | 'reverse';
+    }): Promise<
+      Result<
+        | { type: 'saved' | 'not_found' | 'no_active_decision' }
+        | EquivalenceConflict,
+        AppError
+      >
+    > {
       try {
         if (!db.$runInTransaction)
           return Result.Error(error('Transactional database required'));
@@ -402,6 +412,8 @@ export function createPublicResearchArchive(db: Database) {
               )
               .for('update');
             if (!review) return { type: 'not_found' as const };
+            if (input.action === 'reverse' && review.status === 'suggested')
+              return { type: 'no_active_decision' as const };
             const members = await tx
               .select()
               .from(sourceRecord)
@@ -417,23 +429,92 @@ export function createPublicResearchArchive(db: Database) {
             const left = members.find((s) => s.id === review.leftSourceId),
               right = members.find((s) => s.id === review.rightSourceId);
             if (!left || !right) return { type: 'not_found' as const };
-            const identity =
-              input.action === 'confirm'
-                ? (left.evidenceIdentity ?? `capture:${left.id}`)
-                : `separate:${right.id}`;
-            await tx
-              .update(sourceRecord)
-              .set({ evidenceIdentity: identity })
+            const affected = await tx
+              .select({
+                id: sourceRecord.id,
+                baseKey: sourceRecord.equivalenceKey,
+                identity: sourceRecord.evidenceIdentity,
+              })
+              .from(sourceRecord)
               .where(
                 and(
                   eq(sourceRecord.workspaceId, input.workspaceId),
-                  input.action === 'confirm' && right.evidenceIdentity
-                    ? eq(sourceRecord.evidenceIdentity, right.evidenceIdentity)
-                    : eq(sourceRecord.id, right.id)
+                  inArray(sourceRecord.evidenceIdentity, [
+                    left.evidenceIdentity!,
+                    right.evidenceIdentity!,
+                  ])
                 )
               );
+            const ids = affected.map((member) => member.id);
+            const relationships = await tx
+              .select()
+              .from(evidenceEquivalenceReview)
+              .where(
+                and(
+                  eq(evidenceEquivalenceReview.workspaceId, input.workspaceId),
+                  inArray(evidenceEquivalenceReview.leftSourceId, ids),
+                  inArray(evidenceEquivalenceReview.rightSourceId, ids)
+                )
+              );
+            if (input.action === 'confirm' && review.status === 'separate')
+              return {
+                type: 'equivalence_conflict' as const,
+                message:
+                  'Reverse the active separation before confirming this relationship.',
+                blockingReviews: [review],
+              };
+            const status =
+              input.action === 'confirm'
+                ? ('confirmed' as const)
+                : input.action === 'separate'
+                  ? ('separate' as const)
+                  : ('suggested' as const);
+            const graph = copyGroups(
+              affected.map((member) => ({
+                id: member.id,
+                baseKey: member.baseKey ?? `capture:${member.id}`,
+              })),
+              relationships.map((edge) =>
+                edge.id === review.id ? { ...edge, status } : edge
+              )
+            );
+            if (graph.conflicts.length)
+              return {
+                type: 'equivalence_conflict' as const,
+                message:
+                  input.action === 'separate'
+                    ? 'These groups remain connected. Reverse the connecting confirmations first. Clear automatic copies cannot be split.'
+                    : 'This confirmation contradicts an active separation. Reverse that decision first.',
+                blockingReviews: [
+                  ...new Map(
+                    graph.conflicts
+                      .flatMap((conflict) =>
+                        input.action === 'separate'
+                          ? conflict.confirmations
+                          : [conflict.separation]
+                      )
+                      .map((edge) => [edge.id, edge])
+                  ).values(),
+                ],
+              };
+            const groups = new Map<string, string[]>();
+            for (const [id, identity] of graph.memberships)
+              groups.set(identity, [...(groups.get(identity) ?? []), id]);
+            for (const [identity, memberIds] of groups)
+              await tx
+                .update(sourceRecord)
+                .set({
+                  evidenceIdentity: identity,
+                  updatedAt: sql`${sourceRecord.updatedAt}`,
+                })
+                .where(
+                  and(
+                    eq(sourceRecord.workspaceId, input.workspaceId),
+                    inArray(sourceRecord.id, memberIds)
+                  )
+                );
             const affectedIdentities = new Set([
-              identity,
+              ...groups.keys(),
               left.evidenceIdentity,
               right.evidenceIdentity,
             ]);
@@ -490,7 +571,7 @@ export function createPublicResearchArchive(db: Database) {
             await tx
               .update(evidenceEquivalenceReview)
               .set({
-                status: input.action === 'confirm' ? 'confirmed' : 'separate',
+                status,
                 actorId: input.actorId,
                 decidedAt: new Date(),
               })
@@ -541,15 +622,7 @@ export function createPublicResearchArchive(db: Database) {
                 'Enable and configure Exa public research for this Workspace',
             })
           );
-        const timeout = AbortSignal.timeout(
-          Math.max(
-            1,
-            Math.min(
-              input.timeoutMs,
-              input.deadline ? input.deadline.getTime() - Date.now() : Infinity
-            )
-          )
-        );
+        const timeout = AbortSignal.timeout(Math.max(1, input.timeoutMs));
         const signal = input.signal
           ? AbortSignal.any([input.signal, timeout])
           : timeout;
@@ -665,8 +738,10 @@ export function createPublicResearchArchive(db: Database) {
             }
           }
         }
-        return Result.Ok(sources);
+        return Result.Ok(sources.sort((a, b) => a.id.localeCompare(b.id)));
       } catch (cause) {
+        if (input.signal?.aborted && input.signal.reason instanceof AppError)
+          return Result.Error(input.signal.reason);
         return Result.Error(error(cause));
       }
     },

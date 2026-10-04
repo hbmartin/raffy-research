@@ -204,7 +204,7 @@ describe('Newsletter shared workflow', () => {
     }
     expect(s.getJobs()[0]!.status).toBe('succeeded');
     expect(
-      styleParts.filter((prompt) => prompt.includes('part 1/'))
+      styleParts.filter((prompt) => prompt.includes('Input guidance range 0-'))
     ).toHaveLength(1);
     expect(styleParts.join('\n')).toContain('first sample');
     expect(styleParts.join('\n')).toContain('last sample');
@@ -585,8 +585,13 @@ describe('Newsletter shared workflow', () => {
     const view = requireOk(await s.useCases.get(actor));
     if (view.type !== 'newsletter_found')
       throw new Error('Expected newsletter');
-    expect(view.jobs[0]!.audits).toHaveLength(3);
-    expect(view.jobs[0]!.audits[0]!.issues).toContain(
+    const detail = requireOk(
+      await s.useCases.jobDetail({ ...actor, jobId: view.jobs[0]!.id })
+    );
+    if (detail.type !== 'job_detail_found')
+      throw new Error('Expected job details');
+    expect(detail.audits).toHaveLength(3);
+    expect(detail.audits[0]!.issues).toContain(
       'Recap without meaningful synthesis'
     );
   });
