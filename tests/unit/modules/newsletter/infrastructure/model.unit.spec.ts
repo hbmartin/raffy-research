@@ -9,6 +9,30 @@ vi.mock('@ai-sdk/openai', () => ({
   createOpenAI: () => (model: string) => model,
 }));
 describe('Hosted newsletter termination metadata', () => {
+  it('uses a ten-minute provider timeout and accepts the explicit worker allowance', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    generateText.mockResolvedValue({
+      text: 'valid response',
+      finishReason: 'stop',
+      usage: { inputTokens: 10, outputTokens: 4 },
+    });
+    const model = createHostedNewsletterModel({ apiKey: () => 'fixture' });
+    const input = {
+      runtime: {
+        mode: 'hosted' as const,
+        provider: 'openai' as const,
+        model: 'custom',
+      },
+      prompt: 'fixture',
+      jobId: 'job',
+      stage: 'drafting',
+    };
+    await model.generate(input);
+    expect(timeout).toHaveBeenLastCalledWith(600000);
+    await model.generate({ ...input, timeoutMs: 120000 });
+    expect(timeout).toHaveBeenLastCalledWith(120000);
+    timeout.mockRestore();
+  });
   it('returns a capacity error for length termination with usage and partial text', async () => {
     generateText.mockResolvedValueOnce({
       text: 'partial JSON',

@@ -8,10 +8,19 @@ import type { NewsletterModel } from '../application/ports';
 
 export function createHostedNewsletterModel(input: {
   apiKey: () => string | undefined;
+  measure?: (details: Record<string, unknown>) => void;
 }): NewsletterModel {
   return {
-    async generate({ runtime, prompt, signal, maxOutputTokens = 4096 }) {
-      const timeout = AbortSignal.timeout(100_000);
+    async generate({
+      runtime,
+      prompt,
+      signal,
+      maxOutputTokens = 4096,
+      timeoutMs = 600_000,
+      jobId,
+      stage,
+    }) {
+      const timeout = AbortSignal.timeout(timeoutMs);
       try {
         const key = input.apiKey();
         if (!key)
@@ -29,6 +38,14 @@ export function createHostedNewsletterModel(input: {
           maxRetries: 0,
           maxOutputTokens,
           abortSignal: AbortSignal.any([timeout, ...(signal ? [signal] : [])]),
+        });
+        input.measure?.({
+          jobId,
+          stage,
+          model: runtime.model,
+          provider: runtime.provider,
+          usage: result.usage,
+          finishReason: result.finishReason,
         });
         if (result.finishReason === 'length')
           return Result.Error(

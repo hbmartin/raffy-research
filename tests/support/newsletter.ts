@@ -211,7 +211,24 @@ export function memoryRepository(initial = stateFixture()) {
     },
     async listJobSummaries() {
       return Result.Ok(
-        structuredClone(jobs).map(
+        [
+          ...structuredClone(jobs)
+            .filter((j) => j.status === 'queued' || j.status === 'running')
+            .sort(
+              (a, b) =>
+                a.createdAt.getTime() - b.createdAt.getTime() ||
+                a.id.localeCompare(b.id)
+            )
+            .slice(0, 20),
+          ...structuredClone(jobs)
+            .filter((j) => j.status === 'failed' || j.status === 'succeeded')
+            .sort(
+              (a, b) =>
+                b.createdAt.getTime() - a.createdAt.getTime() ||
+                b.id.localeCompare(a.id)
+            )
+            .slice(0, 20),
+        ].map(
           ({ checkpoint: _checkpoint, leaseToken: _token, ...summary }) =>
             summary
         )

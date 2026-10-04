@@ -50,22 +50,45 @@ export const knownContextLimit = (
   return knownLimits[model];
 };
 export const DEFAULT_HOSTED_OUTPUT_TOKENS = 16384;
+export type BudgetIssue =
+  | { type: 'context_required' }
+  | { type: 'local_allocation_required' }
+  | { type: 'local_verification_required' }
+  | { type: 'budget_invalid'; message: string };
 export function resolveGenerationBudget(
   runtime: Runtime,
   operatorCeiling?: number
-):
-  | { type: 'budget_resolved'; budget: GenerationBudget }
-  | { type: 'context_required' }
-  | { type: 'local_allocation_required' }
-  | { type: 'budget_invalid'; message: string } {
+): { type: 'budget_resolved'; budget: GenerationBudget } | BudgetIssue {
+  const invalid = [
+    runtime.contextWindowTokens,
+    runtime.contextLimit?.tokens,
+    runtime.maxOutputTokens,
+    operatorCeiling,
+    runtime.contextLimit?.operatorCeiling,
+  ].some(
+    (value) =>
+      value !== undefined && (!Number.isSafeInteger(value) || value <= 0)
+  );
+  if (invalid)
+    return {
+      type: 'budget_invalid',
+      message:
+        'Context, response, and allocation limits must be positive integers.',
+    };
+  const stored = runtime.contextLimit;
+  const allocation =
+    operatorCeiling ??
+    (stored?.provider === runtime.provider && stored.model === runtime.model
+      ? stored.operatorCeiling
+      : undefined);
   const context = resolveContextBudget(runtime);
   if (!context) return { type: 'context_required' };
-  if (runtime.provider === 'ollama' && !operatorCeiling)
+  if (runtime.provider === 'ollama' && !allocation)
     return { type: 'local_allocation_required' };
+  if (runtime.mode === 'local' && !runtime.localOperatorId)
+    return { type: 'local_verification_required' };
   const contextTokens =
-    runtime.provider === 'ollama'
-      ? Math.min(context, operatorCeiling!)
-      : context;
+    runtime.provider === 'ollama' ? Math.min(context, allocation!) : context;
   const outputTokens =
     runtime.mode === 'hosted'
       ? (runtime.maxOutputTokens ?? DEFAULT_HOSTED_OUTPUT_TOKENS)
@@ -88,7 +111,7 @@ export function resolveGenerationBudget(
       origin: runtime.contextWindowTokens
         ? 'declared'
         : (runtime.contextLimit?.origin ?? 'known'),
-      ...(runtime.provider === 'ollama' ? { operatorCeiling } : {}),
+      ...(runtime.provider === 'ollama' ? { operatorCeiling: allocation } : {}),
     },
   };
 }

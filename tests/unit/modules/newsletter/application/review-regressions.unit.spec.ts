@@ -20,6 +20,8 @@ import type {
   NewsletterModel,
   ResearchArchive,
 } from '@/modules/newsletter';
+import { normalizeCheckpoint } from '@/modules/newsletter/domain/checkpoint';
+import { processingSignature } from '@/modules/newsletter/domain/processing';
 import {
   createNewsletterUseCases,
   createNewsletterWorker,
@@ -131,7 +133,7 @@ describe('Validated review regressions', () => {
     await s.checkpoint({
       checkpoint: { repairUnits: { [unit]: { ...state, repairsUsed: 1 } } },
     });
-    const deadline = new Date(now.getTime() + 1000);
+    const deadline = new Date(now.getTime() + 630000);
     const generate = vi.fn<NewsletterModel['generate']>(async ({ stage }) => {
       expect(stage).toBe('evidence-processing');
       now = new Date(deadline.getTime() + 1);
@@ -167,7 +169,7 @@ describe('Validated review regressions', () => {
         repairUnits: { 'theme:angle-1': { repairsUsed: 1, needsRepair: true } },
       },
     });
-    const deadline = new Date(now.getTime() + 1000);
+    const deadline = new Date(now.getTime() + 630000);
     const generate = vi.fn<NewsletterModel['generate']>(async () => {
       now = new Date(deadline.getTime() + 1);
       return failure();
@@ -404,7 +406,7 @@ describe('Validated review regressions', () => {
         repairUnits: { draft: { repairsUsed: 2, needsRepair: false } },
       },
     });
-    const deadline = new Date(now.getTime() + 1000);
+    const deadline = new Date(now.getTime() + 630000);
     const generate = vi.fn<NewsletterModel['generate']>(async ({ stage }) => {
       expect(stage).toBe('audit');
       now = new Date(deadline.getTime() + 1);
@@ -476,7 +478,7 @@ describe('Validated review regressions', () => {
     'counts interrupted dispatched repair %i before deadline resume',
     async (repair) => {
       let now = newsletterNow;
-      const deadline = new Date(now.getTime() + 1000);
+      const deadline = new Date(now.getTime() + 630000);
       const s = setup(stateFixture(), archiveFixture, { now: () => now });
       requireOk(await s.select());
       await s.checkpoint({
@@ -669,5 +671,399 @@ describe('Validated review regressions', () => {
     expect(
       s.getJobs()[0]!.checkpoint.styleAggregate!.patterns.length
     ).toBeLessThan(1500);
+  });
+  it('yields for insufficient invocation allowance without dispatch or repair consumption', async () => {
+    const s = setup();
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: {
+        version: 3,
+        repairUnits: { draft: { repairsUsed: 1, needsRepair: true } },
+      },
+    });
+    const generate = vi.fn(passing);
+    const result = requireOk(
+      await s.worker(generate).runNext('local', {
+        deadline: new Date(newsletterNow.getTime() + 629999),
+      })
+    );
+    expect(result).toMatchObject({
+      status: 'queued',
+      yieldReason: 'invocation_budget',
+    });
+    expect(generate).not.toHaveBeenCalled();
+    expect(s.getJobs()[0]!.checkpoint.repairUnits!.draft).toMatchObject({
+      repairsUsed: 1,
+      needsRepair: true,
+    });
+  });
+  it('restores a reservation when persistence consumes the admission margin before dispatch', async () => {
+    let now = newsletterNow;
+    const s = setup(stateFixture(), archiveFixture, { now: () => now });
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: {
+        version: 3,
+        repairUnits: { draft: { repairsUsed: 1, needsRepair: true } },
+      },
+    });
+    const persist = s.repository.checkpoint;
+    vi.spyOn(s.repository, 'checkpoint').mockImplementation(
+      async (job, values, token) => {
+        if (values.checkpoint?.repairUnits?.draft?.requestInFlight)
+          now = new Date(newsletterNow.getTime() + 1);
+        return persist(job, values, token);
+      }
+    );
+    const generate = vi.fn(passing);
+    const result = requireOk(
+      await s.worker(generate).runNext('local', {
+        deadline: new Date(newsletterNow.getTime() + 630000),
+      })
+    );
+    expect(result).toMatchObject({
+      status: 'queued',
+      yieldReason: 'invocation_budget',
+    });
+    expect(generate).not.toHaveBeenCalled();
+    expect(s.getJobs()[0]!.checkpoint.repairUnits!.draft).toMatchObject({
+      repairsUsed: 1,
+      needsRepair: true,
+    });
+    vi.restoreAllMocks();
+  });
+  it('caches a successful final repair arriving after deadline, then resumes without redispatch', async () => {
+    let now = newsletterNow;
+    const s = setup(stateFixture(), archiveFixture, { now: () => now });
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: {
+        version: 3,
+        repairUnits: { draft: { repairsUsed: 1, needsRepair: true } },
+      },
+    });
+    const deadline = new Date(now.getTime() + 630000);
+    const generate = vi.fn<NewsletterModel['generate']>(async (input) => {
+      expect(input.timeoutMs).toBe(600000);
+      now = new Date(deadline.getTime() + 1);
+      return passing(input);
+    });
+    expect(
+      requireOk(await s.worker(generate).runNext('local', { deadline }))
+    ).toMatchObject({ status: 'queued' });
+    expect(s.getJobs()[0]!.checkpoint.repairUnits!.draft).toMatchObject({
+      repairsUsed: 2,
+      requestInFlight: false,
+      response: { text: JSON.stringify(articleFixture) },
+    });
+    const resumed = vi.fn(passing);
+    await finishNewsletter(s.worker(resumed));
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(resumed.mock.calls.map(([input]) => input.stage)).toEqual(['audit']);
+    expect(s.getState().drafts).toHaveLength(1);
+  });
+  it('allows condensed evidence above 64KB when its complete audit prompt fits the pinned context', async () => {
+    const initial = stateFixture();
+    initial.profile!.runtime.contextWindowTokens = 400000;
+    const large = Array.from(
+      { length: 35 },
+      (_, i) => `Passage ${i}: ` + 'retained evidence '.repeat(130)
+    );
+    initial.sources[0]!.content += large.join('\n');
+    const archive = {
+      ...archiveFixture,
+      async read() {
+        const data = requireOk(await archiveFixture.read('ws-1'));
+        return Result.Ok(
+          'type' in data ? data : { ...data, sources: initial.sources }
+        );
+      },
+    };
+    const s = setup(initial, archive);
+    requireOk(await s.useCases.prepareThemes(actor));
+    await s.checkpoint({
+      checkpoint: {
+        version: 3,
+        refreshCompleted: true,
+        processingBatches: [],
+        evidenceSlices: [],
+        evidenceInputSignature: processingSignature({
+          angle: initial.angles[0],
+          sources: initial.sources,
+        }),
+        evidenceNotes: large.map((passage) => ({
+          sourceId: 'source-1',
+          passage,
+          authority: 1,
+          explanation: 'Exact captured passage',
+          counterevidence: [],
+        })),
+      },
+    });
+    const generate = vi.fn<NewsletterModel['generate']>(
+      async ({ stage, prompt }) => {
+        expect(stage).toBe('theme-audit');
+        expect(Buffer.byteLength(prompt)).toBeGreaterThan(64000);
+        expect(Buffer.byteLength(prompt)).toBeLessThan(393856);
+        return Result.Ok(JSON.stringify(auditFixture));
+      }
+    );
+    await finishNewsletter(s.worker(generate));
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(s.getState().angles[0]!.failed).toBeFalsy();
+  });
+  it('records capacity for one candidate and prepares another without spending repairs', async () => {
+    const initial = stateFixture();
+    initial.profile!.runtime.contextWindowTokens = 32000;
+    initial.angles[0]!.takeaway = 'oversized takeaway '.repeat(4000);
+    initial.angles.push({
+      ...initial.angles[0]!,
+      id: 'usable-angle',
+      takeaway: 'A useful supported mechanism',
+    });
+    const s = setup(initial);
+    requireOk(await s.useCases.prepareThemes(actor));
+    await s.checkpoint({
+      checkpoint: { version: 3, refreshCompleted: true, processingBatches: [] },
+    });
+    const generate = vi.fn(async () => Result.Ok(JSON.stringify(auditFixture)));
+    await finishNewsletter(s.worker(generate));
+    expect(s.getJobs()[0]!.status).toBe('succeeded');
+    expect(s.getState().angles[0]!.failed).toBe(true);
+    expect(s.getState().offers.map((angle) => angle.id)).toEqual([
+      'usable-angle',
+    ]);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(
+      s.getFailures().some((entry) => entry.summary.includes('bytes'))
+    ).toBe(true);
+  });
+  it.each([undefined, 2] as const)(
+    'retains completed legacy style ranges and repair history for checkpoint version %s',
+    async (version) => {
+      const initial = stateFixture();
+      initial.profile!.runtime.contextWindowTokens = 8192;
+      initial.profile!.guidance = '';
+      initial.profile!.samples = ['sample prose '.repeat(1000)];
+      const s = setup(initial);
+      requireOk(await s.select());
+      const cursor = version === undefined ? 15 : 2;
+      await s.checkpoint({
+        stage: 'style-processing',
+        checkpoint: {
+          version,
+          styleCursor: cursor,
+          styleNotes: Array.from(
+            { length: cursor },
+            (_, i) => `Completed pattern ${i}`
+          ),
+          unitRepairs: { 'style:0': 1 },
+          legacyRepairBlocked: version === 2 ? true : undefined,
+        },
+      });
+      // The incorrect v2 migration marker came from legacy /20 partitions.
+      const job = s.getJobs()[0]!;
+      const normalized = normalizeCheckpoint(job);
+      expect(normalized.legacyRepairBlocked).toBeUndefined();
+      expect(normalized.repairUnits!['style:0']).toMatchObject({
+        repairsUsed: 1,
+        exhausted: false,
+      });
+      expect(normalized.stylePlan!.parts[cursor]).toMatchObject({
+        sampleIndex: -1,
+      });
+      expect(normalized.stylePlan!.parts[cursor + 1]!.start).toBe(cursor * 256);
+      const generate = vi.fn<NewsletterModel['generate']>(
+        async ({ stage, prompt }) => {
+          expect(stage).toBe('style-processing');
+          expect(prompt).toContain('Completed pattern 0');
+          return Result.Ok(
+            JSON.stringify({
+              notes: 'Integrated completed patterns',
+              rules: [],
+              coveredRuleIds: [],
+            })
+          );
+        }
+      );
+      requireOk(await s.worker(generate).runNext('local'));
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(s.getJobs()[0]!.checkpoint.styleAggregate!.patterns).toContain(
+        'Integrated completed patterns'
+      );
+      expect(s.getJobs()[0]!.checkpoint.stylePlan!.cursor).toBe(cursor + 1);
+    }
+  );
+  it('preserves version-2 /3 partition offsets rather than reinterpreting its cursor', async () => {
+    const s = setup();
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: {
+        version: 2,
+        styleCursor: 1,
+        styleNotes: ['saved'],
+        styleAggregate: { patterns: 'saved', rules: [] },
+      },
+    });
+    const checkpoint = normalizeCheckpoint(s.getJobs()[0]!);
+    expect(checkpoint.stylePlan!.layout).toBe('version-2-3');
+    expect(checkpoint.stylePlan!.parts[0]!.sampleIndex).toBe(0);
+    expect(checkpoint.stylePlan!.parts[1]!.sampleIndex).toBe(1);
+    expect(checkpoint.stylePlan!.cursor).toBe(1);
+  });
+  it('rejects an impossible legacy style cursor explicitly without dispatch', async () => {
+    const s = setup();
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: {
+        version: undefined,
+        styleCursor: 10000,
+        styleNotes: ['preserve me'],
+      },
+    });
+    const generate = vi.fn(passing);
+    await finishNewsletter(s.worker(generate));
+    expect(generate).not.toHaveBeenCalled();
+    expect(s.getJobs()[0]!.failure).toContain('Stored style');
+    expect(s.getJobs()[0]!.checkpoint.styleNotes).toEqual(['preserve me']);
+  });
+  it('partitions escaped Unicode samples by complete UTF-8 prompt bytes with exact range coverage', async () => {
+    const initial = stateFixture();
+    initial.profile!.runtime.contextWindowTokens = 8192;
+    initial.profile!.guidance = '';
+    initial.profile!.samples = ['日本語🌸\\"\n'.repeat(350)];
+    const s = setup(initial);
+    requireOk(await s.select());
+    const texts: string[] = [];
+    const generate = vi.fn<NewsletterModel['generate']>(
+      async ({ stage, prompt }) => {
+        expect(stage).toBe('style-processing');
+        expect(Buffer.byteLength(prompt)).toBeLessThanOrEqual(2048);
+        const input = / range \d+-\d+: ([\s\S]*?)\. Repair feedback:/.exec(
+          prompt
+        )![1]!;
+        texts.push(JSON.parse(input));
+        return Result.Ok(
+          JSON.stringify({
+            notes: 'Clear writing',
+            rules: [],
+            coveredRuleIds: [],
+          })
+        );
+      }
+    );
+    for (let i = 0; i < 100; i++) {
+      const plan = s.getJobs()[0]!.checkpoint.stylePlan;
+      if (plan && plan.cursor === plan.parts.length) break;
+      requireOk(await s.worker(generate).runNext('local'));
+    }
+    expect(texts.join('')).toBe(initial.profile!.samples[0]);
+    expect(s.getJobs()[0]!.checkpoint.stylePlan!.cursor).toBe(
+      s.getJobs()[0]!.checkpoint.stylePlan!.parts.length
+    );
+  });
+  it('uses stored Ollama allocation for hosted editorial changes and manual enqueue without transferring ownership', async () => {
+    const initial = stateFixture();
+    initial.profile!.runtime = {
+      mode: 'local',
+      provider: 'ollama',
+      model: 'custom',
+      localOperatorId: 'reader',
+      contextWindowTokens: 64000,
+      contextLimit: {
+        provider: 'ollama',
+        model: 'custom',
+        tokens: 128000,
+        origin: 'discovered',
+        operatorCeiling: 32000,
+      },
+    };
+    const s = setup(initial);
+    const profile = structuredClone(initial.profile!);
+    profile.audience = 'New editorial audience';
+    profile.runtime.localOperatorId = 'other-editor';
+    profile.runtime.contextLimit!.operatorCeiling = 100000;
+    expect(
+      requireOk(
+        await s.useCases.saveProfile({
+          workspaceId: 'ws-1',
+          userId: toUserId('other-editor'),
+          profile,
+        })
+      ).type
+    ).toBe('saved');
+    expect(s.getState().profile!.runtime.localOperatorId).toBe('reader');
+    expect(s.getState().profile!.runtime.contextLimit!.operatorCeiling).toBe(
+      32000
+    );
+    expect(requireOk(await s.useCases.prepareThemes(actor)).type).toBe(
+      'queued'
+    );
+    expect(s.getJobs()[0]!.budget!.contextTokens).toBe(32000);
+    profile.runtime.model = 'changed';
+    expect(
+      requireOk(await s.useCases.saveProfile({ ...actor, profile })).type
+    ).toBe('local_verification_required');
+  });
+  it.each([
+    {
+      runtime: {
+        mode: 'hosted' as const,
+        provider: 'openai' as const,
+        model: 'unknown',
+      },
+      type: 'context_required',
+    },
+    {
+      runtime: {
+        mode: 'local' as const,
+        provider: 'ollama' as const,
+        model: 'unknown',
+        contextWindowTokens: 64000,
+      },
+      type: 'local_allocation_required',
+    },
+    {
+      runtime: {
+        mode: 'hosted' as const,
+        provider: 'openai' as const,
+        model: 'gpt-5',
+        contextWindowTokens: -1,
+      },
+      type: 'budget_invalid',
+    },
+  ])(
+    'shows the actual $type issue without enqueue and permits disabling',
+    async ({ runtime, type }) => {
+      const initial = stateFixture();
+      initial.profile!.runtime = runtime;
+      initial.processedReports = [];
+      const s = setup(initial);
+      expect(
+        requireOk(await s.worker(passing).reconcile('ws-1'))
+      ).toMatchObject({ type: 'configuration_required', issue: { type } });
+      expect(requireOk(await s.useCases.get(actor))).toMatchObject({
+        configurationIssue: { type },
+      });
+      const profile = { ...initial.profile!, enabled: false };
+      expect(
+        requireOk(await s.useCases.saveProfile({ ...actor, profile })).type
+      ).toBe('saved');
+      expect(s.getJobs()).toHaveLength(0);
+    }
+  );
+  it('rejects missing completed legacy style outputs instead of dropping samples', async () => {
+    const s = setup();
+    requireOk(await s.select());
+    await s.checkpoint({
+      checkpoint: { version: undefined, styleCursor: 1, styleNotes: [] },
+    });
+    const normalized = normalizeCheckpoint(s.getJobs()[0]!);
+    expect(normalized.normalizationIssue).toContain('no recoverable');
+    const generate = vi.fn(passing);
+    await finishNewsletter(s.worker(generate));
+    expect(generate).not.toHaveBeenCalled();
+    expect(s.getJobs()[0]!.status).toBe('failed');
   });
 });

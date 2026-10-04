@@ -12,11 +12,13 @@ export function NewsletterSettings({
   audienceSuggestion,
   onSave,
   pending,
+  generationBudget,
 }: {
   profile: NewsletterProfile | null;
   audienceSuggestion: string;
   onSave: (profile: NewsletterProfile) => Promise<boolean>;
   pending: boolean;
+  generationBudget?: import('../domain/newsletter').GenerationBudget | null;
 }) {
   const id = useId();
   const baseline = {
@@ -207,11 +209,20 @@ export function NewsletterSettings({
           tokens plus a 2,048-token safety margin.
         </p>
       ) : null}
+      {generationBudget ? (
+        <p className="text-xs text-muted-foreground">
+          Saved settings resolve to{' '}
+          {generationBudget.contextTokens.toLocaleString()} context tokens and{' '}
+          {generationBudget.inputBytes.toLocaleString()} input bytes, including
+          instructions and evidence. New settings take effect after saving.
+        </p>
+      ) : null}
       <p className="text-sm text-muted-foreground">
-        Local work runs as the person who saves these settings, while their
-        local worker is active. Other editors can choose hosted generation.
-        Queued jobs keep their chosen runtime. Weak themes need configured Exa
-        research.
+        Local work runs as its verified operator while their local worker is
+        active. Editors can update editorial settings without changing that
+        operator, or choose hosted generation. Changes to a local provider or
+        model require verification in the operator’s local app. Queued jobs keep
+        their chosen runtime. Weak themes need configured Exa research.
       </p>
       <details>
         <summary className="cursor-pointer text-sm font-medium">

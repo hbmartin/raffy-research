@@ -204,7 +204,7 @@ describe('Newsletter shared workflow', () => {
     }
     expect(s.getJobs()[0]!.status).toBe('succeeded');
     expect(
-      styleParts.filter((prompt) => prompt.includes('part 1/'))
+      styleParts.filter((prompt) => prompt.includes('Input guidance range 0-'))
     ).toHaveLength(1);
     expect(styleParts.join('\n')).toContain('first sample');
     expect(styleParts.join('\n')).toContain('last sample');

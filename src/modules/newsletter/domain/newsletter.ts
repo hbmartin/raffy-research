@@ -231,6 +231,19 @@ export type RepairUnitState = {
   rejected?: unknown;
   response?: { signature: string; text: string };
 };
+export type StylePartition = {
+  sampleIndex: number;
+  start: number;
+  end: number;
+  unit: string;
+};
+export type StylePlan = {
+  inputSignature: string;
+  layout: 'legacy-20' | 'version-2-3' | 'utf8';
+  parts: StylePartition[];
+  cursor: number;
+  legacyPatterns?: string;
+};
 export type NewsletterJob = {
   id: string;
   workspaceId: string;
@@ -242,7 +255,9 @@ export type NewsletterJob = {
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   stage: string;
   checkpoint: {
-    version?: 2;
+    version?: 2 | 3;
+    normalizationIssue?: string;
+    stylePlan?: StylePlan;
     terminalFailure?: { code: string; message: string; detailsJson: string };
     legacyRepairBlocked?: boolean;
     repairUnits?: Record<string, RepairUnitState>;

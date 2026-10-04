@@ -1,3 +1,4 @@
+import { Result } from '@swan-io/boxed';
 import { expect, test } from '@tests/e2e/utils';
 import { installConsoleErrorGuard } from '@tests/e2e/utils/console-error-guard';
 import { USER_FILE } from '@tests/e2e/utils/constants';
@@ -160,19 +161,41 @@ test.describe('Shared newsletter drafting', () => {
         type: 'job_finished',
         status: 'failed',
       });
+      const newest = requireOk(
+        await fixture.repository.listJobs(fixture.report.workspaceId)
+      ).find((job) => job.status === 'failed')!;
+      requireOk(
+        await fixture.repository.mutate(fixture.report.workspaceId, () =>
+          Result.Ok({
+            value: 'seeded',
+            jobs: Array.from({ length: 8 }, (_, i) => ({
+              ...newest,
+              id: `old-failure-${i}`,
+              key: `old-failure-${i}`,
+              failure: `Old failure ${i}`,
+              createdAt: new Date(newest.createdAt.getTime() - (8 - i) * 1000),
+            })),
+          })
+        )
+      );
       await panel.getByRole('button', { name: 'Refresh newsletter' }).click();
       await panel
-        .getByText('Recent generation failures (1)', { exact: true })
+        .getByText('Recent generation failures (9)', { exact: true })
         .click();
       await expect(
         panel.getByText(/Deterministic generation outage/)
       ).toBeVisible();
+      await expect(
+        panel.getByText('Old failure 0', { exact: true })
+      ).toHaveCount(0);
       await panel
         .getByText('Audit and repair details', { exact: true })
+        .first()
         .click();
       await expect(panel.getByText(/Context 128,000/)).toBeVisible();
       await panel
         .getByRole('button', { name: 'Retry failed work', exact: true })
+        .first()
         .click();
       await expect(panel.getByText(/Queued for local execution/)).toBeVisible();
       await fixture.finish();
@@ -180,7 +203,7 @@ test.describe('Shared newsletter drafting', () => {
       const jobs = requireOk(
         await fixture.repository.listJobs(fixture.report.workspaceId)
       );
-      const failure = jobs.find((job) => job.status === 'failed')!;
+      const failure = jobs.find((job) => job.id === newest.id)!;
       expect(
         jobs.find((job) => job.parentAttemptId === failure.id)
       ).toMatchObject({ status: 'succeeded' });
@@ -230,10 +253,16 @@ test.describe('Shared newsletter drafting', () => {
           exact: false,
         })
       ).toBeVisible();
+      await expect(
+        panel.getByRole('button', { name: 'Reverse decision' })
+      ).toBeDisabled();
       await panel
         .getByRole('button', { name: 'Confirm equivalent content' })
         .click();
       await expect(panel.getByText('confirmed', { exact: true })).toBeVisible();
+      await expect(
+        panel.getByRole('button', { name: 'Reverse decision' })
+      ).toBeEnabled();
       await panel
         .getByRole('button', { name: 'Keep versions separate' })
         .click();
@@ -254,6 +283,93 @@ test.describe('Shared newsletter drafting', () => {
       expect(
         captures.rows.find((source) => source.id === changedId)?.contentText
       ).toContain('A material revision needs an editorial decision.');
+      await page.assertNoUnexpectedConsoleErrors();
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  test('shows missing allocation, allows disabling and preserves remotely edited local ownership', async ({
+    page,
+  }) => {
+    const fixture = await seedNewsletterE2e();
+    try {
+      const owner = fixture.state.profile!.runtime.localOperatorId;
+      requireOk(
+        await fixture.repository.mutate(fixture.report.workspaceId, (state) => {
+          state.profile!.runtime = {
+            mode: 'local',
+            provider: 'ollama',
+            model: 'custom-local',
+            contextWindowTokens: 64000,
+            localOperatorId: owner,
+            contextLimit: {
+              provider: 'ollama',
+              model: 'custom-local',
+              tokens: 128000,
+              origin: 'discovered',
+            },
+          };
+          return Result.Ok({ value: 'updated' });
+        })
+      );
+      await page.to('/app');
+      const panel = page.getByRole('region', { name: 'Newsletter drafting' });
+      await expect(
+        panel.getByRole('alert').filter({ hasText: 'OLLAMA_NUM_CTX' })
+      ).toBeVisible();
+      await panel.getByText('Newsletter settings', { exact: true }).click();
+      await panel
+        .getByLabel('Prepare themes automatically after published reports')
+        .uncheck();
+      await panel
+        .getByRole('button', { name: 'Save newsletter settings' })
+        .click();
+      await expect(
+        page.getByText('Newsletter settings saved', { exact: true }).last()
+      ).toBeVisible();
+      expect(
+        requireOk(await fixture.repository.read(fixture.report.workspaceId))
+          .profile!.enabled
+      ).toBe(false);
+      requireOk(
+        await fixture.repository.mutate(fixture.report.workspaceId, (state) => {
+          state.profile!.runtime.contextLimit!.operatorCeiling = 32000;
+          return Result.Ok({ value: 'allocated' });
+        })
+      );
+      await page.reload();
+      await panel.getByText('Newsletter settings', { exact: true }).click();
+      await panel
+        .getByLabel('Newsletter readership')
+        .fill('Remote editorial preference');
+      await panel
+        .getByRole('button', { name: 'Save newsletter settings' })
+        .click();
+      await expect(
+        page.getByText('Newsletter settings saved', { exact: true }).last()
+      ).toBeVisible();
+      const saved = requireOk(
+        await fixture.repository.read(fixture.report.workspaceId)
+      ).profile!;
+      expect(saved.audience).toBe('Remote editorial preference');
+      expect(saved.runtime.localOperatorId).toBe(owner);
+      expect(saved.runtime.contextLimit!.operatorCeiling).toBe(32000);
+      await panel
+        .getByRole('button', { name: 'Prepare themes', exact: true })
+        .click();
+      await expect(panel.getByText(/Queued for local execution/)).toBeVisible();
+      expect(
+        requireOk(
+          await fixture.repository.listJobs(fixture.report.workspaceId)
+        )[0]!.budget!.contextTokens
+      ).toBe(32000);
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth
+        )
+      ).toBe(true);
       await page.assertNoUnexpectedConsoleErrors();
     } finally {
       await fixture.close();

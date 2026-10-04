@@ -41,6 +41,11 @@ export function DuplicateReview({
         setConflict(outcome);
         return;
       }
+      if (outcome.type === 'no_active_decision') {
+        toast.info('There is no active decision to reverse');
+        await reviews.refetch();
+        return;
+      }
       if (outcome.type !== 'saved') {
         toast.error('This duplicate decision could not be saved');
         return;
@@ -118,7 +123,7 @@ export function DuplicateReview({
                 </Button>
                 <Button
                   variant="ghost"
-                  disabled={decision.isPending}
+                  disabled={decision.isPending || review.status === 'suggested'}
                   onClick={() =>
                     decision.mutate({ reviewId: review.id, action: 'reverse' })
                   }

@@ -81,6 +81,51 @@ describe('Newsletter transactional persistence', () => {
       requireOk(await repository.getJob('different-workspace', job.id))
     ).toEqual({ type: 'not_found' });
   });
+  it('orders active work oldest first and completed failures newest first, with deterministic ties', async () => {
+    const repository = createNewsletterRepository(database.db);
+    const jobs = Array.from({ length: 8 }, (_, i): NewsletterJob => ({
+      id: `failed-${i}`,
+      key: `failed-${i}`,
+      workspaceId: 'ws-1',
+      kind: 'prepare',
+      runtime: newsletterProfile.runtime,
+      status: 'failed',
+      stage: 'failed',
+      selectionId: null,
+      feedback: '',
+      checkpoint: {},
+      leaseToken: null,
+      leaseUntil: null,
+      failure: `Failure ${i}`,
+      createdAt: new Date(newsletterNow.getTime() + Math.floor(i / 2) * 1000),
+    }));
+    jobs.push(
+      ...['b', 'a'].map((id): NewsletterJob => ({
+        ...jobs[0]!,
+        id: `active-${id}`,
+        key: `active-${id}`,
+        status: 'queued',
+        failure: null,
+        createdAt: newsletterNow,
+      }))
+    );
+    requireOk(
+      await repository.mutate('ws-1', () =>
+        Result.Ok({ value: 'queued', jobs })
+      )
+    );
+    const summaries = requireOk(await repository.listJobSummaries('ws-1'));
+    expect(summaries.slice(0, 2).map((job) => job.id)).toEqual([
+      'active-a',
+      'active-b',
+    ]);
+    expect(
+      summaries
+        .filter((job) => job.status === 'failed')
+        .slice(0, 5)
+        .map((job) => job.id)
+    ).toEqual(['failed-7', 'failed-6', 'failed-5', 'failed-4', 'failed-3']);
+  });
   it('allows only one of two distinct hosted and local jobs in a workspace to execute', async () => {
     const repository = createNewsletterRepository(database.db);
     const jobs = ['local', 'hosted'].map((mode): NewsletterJob => ({

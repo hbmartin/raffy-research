@@ -385,7 +385,11 @@ export function createPublicResearchArchive(db: Database) {
       actorId: string;
       action: 'confirm' | 'separate' | 'reverse';
     }): Promise<
-      Result<{ type: 'saved' | 'not_found' } | EquivalenceConflict, AppError>
+      Result<
+        | { type: 'saved' | 'not_found' | 'no_active_decision' }
+        | EquivalenceConflict,
+        AppError
+      >
     > {
       try {
         if (!db.$runInTransaction)
@@ -408,6 +412,8 @@ export function createPublicResearchArchive(db: Database) {
               )
               .for('update');
             if (!review) return { type: 'not_found' as const };
+            if (input.action === 'reverse' && review.status === 'suggested')
+              return { type: 'no_active_decision' as const };
             const members = await tx
               .select()
               .from(sourceRecord)

@@ -80,6 +80,7 @@ describe('Pinned newsletter generation budgets', () => {
       provider: 'ollama',
       model: 'custom',
       contextWindowTokens: 48000,
+      localOperatorId: 'reader',
       contextLimit: {
         provider: 'ollama',
         model: 'custom',

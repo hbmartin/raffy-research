@@ -51,6 +51,9 @@ const messages: Record<string, string> = {
   invalid_correction: 'Check the topic title, target, and evidence selection.',
   context_required: 'Enter the context window for this custom model.',
   local_allocation_required: 'Configure OLLAMA_NUM_CTX for the local worker.',
+  local_verification_required:
+    'Verify this runtime in its operator’s local app before saving these settings.',
+  no_active_decision: 'There is no active duplicate decision to reverse.',
   budget_invalid: 'The context cannot fit the chosen response cap and input.',
   not_found: 'This selection or draft is no longer available.',
 };
@@ -456,6 +459,7 @@ export function NewsletterPanel({
             key={workspaceId}
             profile={state.profile}
             audienceSuggestion={data.audienceSuggestion}
+            generationBudget={data.generationBudget}
             pending={mutation.isPending}
             onSave={async (profile: NewsletterProfile) => {
               try {
@@ -472,6 +476,20 @@ export function NewsletterPanel({
           />
         </div>
       </details>
+      {data.configurationIssue ? (
+        <div role="alert" className="rounded-md border p-3 text-sm">
+          <p>Newsletter preparation needs updated settings.</p>
+          <p>
+            {data.configurationIssue.type === 'budget_invalid'
+              ? data.configurationIssue.message
+              : messages[data.configurationIssue.type]}
+          </p>
+          <p>
+            Existing drafts remain available. You can disable automation while
+            updating these settings.
+          </p>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button
           variant="secondary"
@@ -518,7 +536,7 @@ export function NewsletterPanel({
           <h4 className="text-sm font-medium">
             Recent generation failures ({failedJobs.length})
           </h4>
-          {failedJobs.slice(-5).map((j) => (
+          {failedJobs.slice(0, 5).map((j) => (
             <div className="mt-2 text-sm" key={j.id}>
               <p>
                 {j.stage} · {j.runtime.provider} · {j.runtime.model}:{' '}

@@ -85,8 +85,14 @@ describe('Reversible editorial equivalence with PostgreSQL persistence', () => {
     expect(
       await database.db.select().from(schema.evidenceEquivalenceReview)
     ).toHaveLength(1);
-    const deniedA = await capture('denied-a', `Access denied ${body}`),
-      deniedB = await capture('denied-b', `Access denied ${body}`);
+    const deniedA = await capture(
+        'denied-a',
+        'Access denied. You do not have permission to access this page.'
+      ),
+      deniedB = await capture(
+        'denied-b',
+        'Access denied. You do not have permission to access this page.'
+      );
     expect(deniedA.evidenceIdentity).not.toBe(deniedB.evidenceIdentity);
     const metricA = await capture('metric-a', body, 'seo_report'),
       metricB = await capture('metric-b', body, 'seo_report');
@@ -94,6 +100,41 @@ describe('Reversible editorial equivalence with PostgreSQL persistence', () => {
     expect(
       await database.db.select().from(schema.evidenceEquivalenceReview)
     ).toHaveLength(1);
+  });
+  it('reversing an undecided suggestion writes no decision or timestamp, including concurrent reversals', async () => {
+    const a = await capture('short-a', 'A useful brief finding.'),
+      b = await capture('short-b', 'A useful brief finding.');
+    const relationship = await review(a.id, b.id);
+    const before = await database.db
+      .select()
+      .from(schema.evidenceEquivalenceReview);
+    expect(
+      (
+        await Promise.all([
+          decide(relationship, 'reverse'),
+          decide(relationship, 'reverse'),
+        ])
+      ).map(requireOk)
+    ).toEqual([{ type: 'no_active_decision' }, { type: 'no_active_decision' }]);
+    expect(
+      await database.db.select().from(schema.evidenceEquivalenceDecision)
+    ).toHaveLength(0);
+    expect(
+      await database.db.select().from(schema.evidenceEquivalenceReview)
+    ).toEqual(before);
+  });
+  it('keeps complete paywall templates out of new reviews while preserving substantive headline prefixes', async () => {
+    await capture('paywall-a', 'Subscribe to continue reading.');
+    await capture('paywall-b', 'Subscribe to continue reading.');
+    expect(
+      await database.db.select().from(schema.evidenceEquivalenceReview)
+    ).toHaveLength(0);
+    const a = await capture('fruit-a', `Forbidden fruit: ${body}`),
+      b = await capture('fruit-b', `Forbidden fruit: ${body}`);
+    expect(a.evidenceIdentity).toBe(b.evidenceIdentity);
+    const c = await capture('ways-a', `404 ways to help: ${body}`),
+      d = await capture('ways-b', `404 ways to help: ${body}`);
+    expect(c.evidenceIdentity).toBe(d.evidenceIdentity);
   });
   it('splits whole base copy groups and restores their own latest judgments and publication dates', async () => {
     const a = await capture('a'),
@@ -217,6 +258,95 @@ describe('Reversible editorial equivalence with PostgreSQL persistence', () => {
     expect(
       await database.db.select().from(schema.captureObservation)
     ).toHaveLength(4);
+  });
+  it('rebuilds affected automatic memberships without modifying judgments, payloads or old suggestions', async () => {
+    const a = await capture('fruit-a', `Forbidden fruit: ${body}`),
+      b = await capture('fruit-b', `Forbidden fruit: ${body}`);
+    const paywall = await capture(
+        'paywall-a',
+        'Subscribe to continue reading.'
+      ),
+      paywall2 = await capture('paywall-b', 'Subscribe to continue reading.');
+    const oldSuggestion = await review(paywall.id, paywall2.id);
+    await database.db
+      .update(schema.sourceRecord)
+      .set({
+        equivalenceKey: 'legacy-blocked',
+        evidenceIdentity: 'legacy-blocked',
+      })
+      .where(eq(schema.sourceRecord.id, a.id));
+    requireOk(
+      await createSourceRepository({ db: database.db }).setRelevanceLabel({
+        workspaceId,
+        sourceRecordId: a.id,
+        label: 'keep',
+        labeledAt: new Date('2026-01-01'),
+      })
+    );
+    const before = await database.db.select().from(schema.sourceRecord);
+    const reviews = await database.db
+      .select()
+      .from(schema.evidenceEquivalenceReview);
+    const decisions = await database.db
+      .select()
+      .from(schema.evidenceEquivalenceDecision);
+    requireOk(await backfillCaptureHistory(database.db));
+    const after = await database.db.select().from(schema.sourceRecord);
+    expect(after.find((row) => row.id === a.id)!.evidenceIdentity).toBe(
+      after.find((row) => row.id === b.id)!.evidenceIdentity
+    );
+    for (const original of before) {
+      const { equivalenceKey, evidenceIdentity, ...unchanged } = original;
+      expect(after.find((row) => row.id === original.id)).toMatchObject(
+        unchanged
+      );
+    }
+    expect(
+      await database.db.select().from(schema.evidenceEquivalenceReview)
+    ).toEqual(reviews);
+    expect(
+      await database.db.select().from(schema.evidenceEquivalenceDecision)
+    ).toEqual(decisions);
+    expect(reviews.some((row) => row.id === oldSuggestion)).toBe(true);
+    expect(
+      requireOk(
+        await createSourceRepository({ db: database.db }).getManyByIds(
+          workspaceId,
+          [b.id]
+        )
+      )[0]!.relevanceLabel
+    ).toBe('keep');
+  });
+  it('stops regrouping when the corrected article classification contradicts a historical separation', async () => {
+    const a = await capture('fruit-a', `Forbidden fruit: ${body}`),
+      b = await capture('fruit-b', `Forbidden fruit: ${body}`);
+    const relationship = await review(a.id, b.id);
+    await database.db
+      .update(schema.sourceRecord)
+      .set({
+        equivalenceKey: 'legacy-blocked-a',
+        evidenceIdentity: 'legacy-blocked-a',
+      })
+      .where(eq(schema.sourceRecord.id, a.id));
+    await database.db
+      .update(schema.sourceRecord)
+      .set({
+        equivalenceKey: 'legacy-blocked-b',
+        evidenceIdentity: 'legacy-blocked-b',
+      })
+      .where(eq(schema.sourceRecord.id, b.id));
+    requireOk(await decide(relationship, 'separate'));
+    const before = await database.db.select().from(schema.sourceRecord);
+    const result = await backfillCaptureHistory(database.db);
+    expect(result.isError()).toBe(true);
+    if (result.isOk()) throw new Error('Expected classification conflict');
+    expect(result.getError()).toMatchObject({
+      code: 'EQUIVALENCE_MIGRATION_CONFLICT',
+      details: { conflicts: [{ separation: { id: relationship } }] },
+    });
+    expect(await database.db.select().from(schema.sourceRecord)).toEqual(
+      before
+    );
   });
   it('preflights historical contradictions and leaves derived memberships and judgments untouched', async () => {
     const a = await capture('a'),

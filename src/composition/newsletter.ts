@@ -25,10 +25,13 @@ import { createCachedFactory } from './shared/singleton';
 
 function buildNewsletterRuntime() {
   const kernel = getKernel();
+  const execution = newsletterExecutionConfig();
   const repository = createNewsletterRepository(kernel.db);
   const archive = createPublicResearchArchive(kernel.db);
   const hosted = createHostedNewsletterModel({
     apiKey: () => createIntelligenceRuntimeConfig().openAiApiKey,
+    measure: (details) =>
+      kernel.logger.info({ event: 'newsletter.provider.completed', details }),
   });
   const model: NewsletterModel = {
     async generate(input) {
@@ -42,8 +45,12 @@ function buildNewsletterRuntime() {
             message: 'Local newsletter generation requires the local app',
           })
         );
+      let timeout: AbortSignal | undefined;
       try {
         const config = getLocalAiConfig();
+        timeout = AbortSignal.timeout(
+          input.timeoutMs ?? execution.localTimeoutMs
+        );
         if (
           input.runtime.provider === 'ollama' &&
           (!config.ollamaNumCtx ||
@@ -73,7 +80,7 @@ function buildNewsletterRuntime() {
           ollamaBaseUrl: config.ollamaBaseUrl,
           ollamaNumCtx: input.contextBudget ?? config.ollamaNumCtx,
           abortSignal: AbortSignal.any([
-            AbortSignal.timeout(config.timeoutMs),
+            timeout,
             ...(input.signal ? [input.signal] : []),
           ]),
         });
@@ -83,7 +90,9 @@ function buildNewsletterRuntime() {
           return Result.Error(input.signal.reason);
         return Result.Error(
           new AppError({
-            code: 'LOCAL_NEWSLETTER_FAILED',
+            code: timeout?.aborted
+              ? 'NEWSLETTER_PROVIDER_TIMEOUT'
+              : 'LOCAL_NEWSLETTER_FAILED',
             category: 'system',
             status: 502,
             message: 'Local CLI newsletter generation failed',
@@ -99,12 +108,20 @@ function buildNewsletterRuntime() {
     model,
     clock: kernel.clock,
     idGenerator: kernel.idGenerator,
-    localOperatorId: newsletterExecutionConfig().operatorId,
+    localOperatorId: execution.operatorId,
+    requestTimeoutMs: (runtime) =>
+      runtime.mode === 'hosted'
+        ? execution.hostedTimeoutMs
+        : execution.localTimeoutMs,
+    persistenceReserveMs: execution.persistenceReserveMs,
+    measure: (details) =>
+      kernel.logger.info({ event: 'newsletter.generation', details }),
   });
   const useCases = createNewsletterUseCases({
     repository,
     archive,
     operatorContextCeiling: () => getLocalAiConfig().ollamaNumCtx,
+    localOperatorId: envClient.DEV ? execution.operatorId : undefined,
     discoverContextBudget: createContextDiscovery({
       ollamaBaseUrl: () => getLocalAiConfig().ollamaBaseUrl,
     }),
@@ -158,7 +175,12 @@ export async function drainNewsletterQueue(
       });
     localDraining = true;
   }
-  const deadline = new Date(Date.now() + config.durationSeconds * 800);
+  const deadline = new Date(
+    Date.now() +
+      (mode === 'hosted'
+        ? config.durationSeconds * 800
+        : config.localWorkSeconds * 1000)
+  );
   let stages = 0;
   try {
     const { repository, worker } = getNewsletterRuntime();
@@ -173,12 +195,23 @@ export async function drainNewsletterQueue(
           event: 'newsletter.reconcile.failed',
           details: { workspaceId, code: reconciled.getError().code },
         });
+      else if (reconciled.get().type === 'configuration_required')
+        getKernel().logger.warn({
+          event: 'newsletter.reconcile.configuration',
+          details: { workspaceId, issue: reconciled.get() },
+        });
     }
     while (stages < limit && Date.now() < deadline.getTime()) {
       const result = await worker.runNext(mode, { deadline });
       if (result.isError()) throw result.getError();
       if (result.get().type === 'queue_empty') break;
       stages++;
+      const outcome = result.get();
+      if (
+        outcome.type === 'job_finished' &&
+        outcome.yieldReason === 'invocation_budget'
+      )
+        break;
     }
     return { status: 'processed' as const, stages };
   } finally {

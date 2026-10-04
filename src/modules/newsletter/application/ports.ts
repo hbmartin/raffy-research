@@ -78,6 +78,7 @@ export interface NewsletterRepository {
     workspaceId: string,
     options?: { summaries?: boolean }
   ): Promise<ApplicationResult<NewsletterJob[]>>;
+  /** Active work oldest first, then completed attempts newest first; ID breaks ties. */
   listJobSummaries(
     workspaceId: string
   ): Promise<ApplicationResult<JobSummary[]>>;
@@ -130,7 +131,7 @@ export interface ResearchArchive {
     action: 'confirm' | 'separate' | 'reverse';
   }): Promise<
     ApplicationResult<
-      | { type: 'saved' | 'not_found' }
+      | { type: 'saved' | 'not_found' | 'no_active_decision' }
       | import('@/modules/intelligence').EquivalenceConflict
     >
   >;
@@ -165,5 +166,6 @@ export interface NewsletterModel {
     deadline?: Date;
     contextBudget?: number;
     maxOutputTokens?: number;
+    timeoutMs?: number;
   }): Promise<ApplicationResult<string>>;
 }

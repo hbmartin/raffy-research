@@ -45,6 +45,7 @@ type Deps = {
     >
   >;
   operatorContextCeiling?: () => number | undefined;
+  localOperatorId?: string;
 };
 export type NewsletterView = {
   type: 'newsletter_found';
@@ -53,6 +54,8 @@ export type NewsletterView = {
   jobs: import('./domain/newsletter').JobSummary[];
   snoozed: Theme[];
   warnings: Record<string, string[]>;
+  configurationIssue: import('./domain/processing').BudgetIssue | null;
+  generationBudget: import('./domain/newsletter').GenerationBudget | null;
 };
 type GetOutcome = NewsletterView | { type: 'workspace_not_found' };
 type ExportOutcome =
@@ -71,10 +74,9 @@ type Outcome =
   | { type: 'override_required' }
   | { type: 'not_found' }
   | { type: 'invalid_correction' }
+  | { type: 'no_active_decision' }
   | import('@/modules/intelligence').EquivalenceConflict
-  | { type: 'context_required' }
-  | { type: 'local_allocation_required' }
-  | { type: 'budget_invalid'; message: string };
+  | import('./domain/processing').BudgetIssue;
 const currentAssignments = (
   state: NewsletterState,
   sourceIds: string[],
@@ -96,12 +98,7 @@ export function createNewsletterUseCases(deps: Deps) {
       drafts: false,
     });
   const profileBudget = (runtime: NewsletterProfile['runtime']) =>
-    resolveGenerationBudget(
-      runtime,
-      deps.operatorContextCeiling
-        ? deps.operatorContextCeiling()
-        : runtime.contextLimit?.operatorCeiling
-    );
+    resolveGenerationBudget(runtime);
   const makeJob = (
     workspaceId: string,
     state: NewsletterState,
@@ -134,7 +131,7 @@ export function createNewsletterUseCases(deps: Deps) {
       status: 'queued',
       stage: 'queued',
       checkpoint: {
-        version: 2,
+        version: 3,
         profile: structuredClone(state.profile!),
         angle: structuredClone(
           state.selections.find((v) => v.id === selectionId)?.angleSnapshot ??
@@ -202,6 +199,9 @@ export function createNewsletterUseCases(deps: Deps) {
         });
         const refreshed = { ...state, sources: current };
         const latest = data.reports.at(-1)?.id ?? null;
+        const resolution = state.profile
+          ? profileBudget(state.profile.runtime)
+          : undefined;
         return Result.Ok({
           type: 'newsletter_found' as const,
           audienceSuggestion: data.audienceSuggestion,
@@ -216,6 +216,12 @@ export function createNewsletterUseCases(deps: Deps) {
             })),
           },
           jobs: jobs.get(),
+          configurationIssue:
+            resolution && resolution.type !== 'budget_resolved'
+              ? resolution
+              : null,
+          generationBudget:
+            resolution?.type === 'budget_resolved' ? resolution.budget : null,
           snoozed: rankThemes(refreshed, deps.clock.now(), true).filter(
             (a) => !angleEligible(refreshed, a, deps.clock.now())
           ),
@@ -238,18 +244,56 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         if ('type' in archive.get())
           return Result.Ok({ type: 'workspace_not_found' });
+        const stored = await deps.repository.read(input.workspaceId, {
+          content: false,
+          drafts: false,
+        });
+        if (stored.isError()) return Result.Error(stored.getError());
+        const previous = stored.get().profile?.runtime;
         const requested = input.profile.runtime;
+        const sameLocal =
+          requested.mode === 'local' &&
+          previous?.mode === 'local' &&
+          previous.provider === requested.provider &&
+          previous.model === requested.model;
+        const verifyLocal =
+          input.userId === deps.localOperatorId &&
+          (!sameLocal || previous?.localOperatorId === input.userId);
+        if (requested.mode === 'local' && !sameLocal && !verifyLocal)
+          return Result.Ok({ type: 'local_verification_required' });
+        // Allocation and discovery metadata are trusted only when loaded from storage
+        // or produced by the authenticated operator's local adapter.
         let tokens = knownContextLimit(requested.model, requested.provider);
-        let origin: 'known' | 'discovered' | 'declared' = 'known';
-        if (!tokens && deps.discoverContextBudget) {
+        let origin: 'known' | 'discovered' | 'declared' | 'legacy' = 'known';
+        let contextLimit =
+          sameLocal &&
+          !verifyLocal &&
+          previous?.contextLimit?.provider === requested.provider &&
+          previous.contextLimit.model === requested.model
+            ? previous.contextLimit
+            : undefined;
+        if (contextLimit) {
+          tokens = contextLimit.tokens;
+          origin = contextLimit.origin;
+        }
+        if (
+          !tokens &&
+          deps.discoverContextBudget &&
+          (requested.mode === 'hosted' || verifyLocal)
+        ) {
           const discovery = await deps.discoverContextBudget({
             ...requested,
             contextWindowTokens: undefined,
             contextLimit: undefined,
+            localOperatorId: undefined,
           });
-          if (discovery.isError() && !requested.contextWindowTokens)
+          if (
+            discovery.isError() &&
+            !requested.contextWindowTokens &&
+            input.profile.enabled
+          )
             return Result.Error(discovery.getError());
-          if (discovery.isOk()) {
+          if (discovery.isOk() && discovery.get().type === 'context_found') {
             const discovered = discovery.get();
             if (discovered.type === 'context_found') {
               tokens = discovered.tokens;
@@ -261,38 +305,58 @@ export function createNewsletterUseCases(deps: Deps) {
           tokens = requested.contextWindowTokens;
           origin = 'declared';
         }
-        if (!tokens) return Result.Ok({ type: 'context_required' });
-        const runtime = {
-          ...requested,
-          maxOutputTokens:
-            requested.mode === 'hosted'
-              ? (requested.maxOutputTokens ?? DEFAULT_HOSTED_OUTPUT_TOKENS)
-              : undefined,
-          contextLimit: {
+        if (!tokens && input.profile.enabled)
+          return Result.Ok({ type: 'context_required' });
+        if (tokens && !contextLimit)
+          contextLimit = {
             provider: requested.provider,
             model: requested.model,
             tokens,
             origin,
-            ...(requested.provider === 'ollama'
+            ...(requested.provider === 'ollama' && verifyLocal
               ? { operatorCeiling: deps.operatorContextCeiling?.() }
               : {}),
-          },
+          };
+        const runtime: NewsletterProfile['runtime'] = {
+          mode: requested.mode,
+          provider: requested.provider,
+          model: requested.model,
+          contextWindowTokens: requested.contextWindowTokens,
+          maxOutputTokens:
+            requested.mode === 'hosted'
+              ? (requested.maxOutputTokens ?? DEFAULT_HOSTED_OUTPUT_TOKENS)
+              : undefined,
+          contextLimit,
+          localOperatorId:
+            requested.mode === 'local'
+              ? sameLocal
+                ? previous.localOperatorId
+                : input.userId
+              : undefined,
         };
         const capacity = profileBudget(runtime);
-        if (capacity.type !== 'budget_resolved') return Result.Ok(capacity);
+        if (capacity.type !== 'budget_resolved' && input.profile.enabled)
+          return Result.Ok(capacity);
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
         return mutate<Outcome>(input.workspaceId, (state) => {
+          if (
+            sameLocal &&
+            (!state.profile ||
+              state.profile.runtime.provider !== previous.provider ||
+              state.profile.runtime.model !== previous.model ||
+              state.profile.runtime.localOperatorId !==
+                previous.localOperatorId ||
+              JSON.stringify(state.profile.runtime.contextLimit) !==
+                JSON.stringify(previous.contextLimit))
+          )
+            return Result.Ok({
+              value: { type: 'local_verification_required' as const },
+            });
           const firstEnable = input.profile.enabled && !state.profile?.enabled;
           state.profile = {
             ...input.profile,
-            runtime: {
-              ...runtime,
-              localOperatorId:
-                input.profile.runtime.mode === 'local'
-                  ? input.userId
-                  : undefined,
-            },
+            runtime,
           };
           const jobs = firstEnable
             ? data.reports

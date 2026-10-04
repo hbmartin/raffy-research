@@ -316,7 +316,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
               inArray(newsletterJob.status, ['queued', 'running'])
             )
           )
-          .orderBy(asc(newsletterJob.createdAt))
+          .orderBy(asc(newsletterJob.createdAt), asc(newsletterJob.id))
           .limit(20);
         const recent = await db
           .select(columns)
@@ -327,7 +327,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
               inArray(newsletterJob.status, ['failed', 'succeeded'])
             )
           )
-          .orderBy(desc(newsletterJob.createdAt))
+          .orderBy(desc(newsletterJob.createdAt), desc(newsletterJob.id))
           .limit(20);
         return Result.Ok([...active, ...recent]);
       } catch (cause) {

@@ -44,6 +44,11 @@ import {
   resolveGenerationBudget,
   resolveTopicRoot,
 } from '../domain/processing';
+import {
+  createStylePlan,
+  fittingStyleEnd,
+  styleInputSignature,
+} from '../domain/style-processing';
 
 const generationError = (message: string) =>
   new AppError({
@@ -125,7 +130,19 @@ type Deps = {
   clock: Clock;
   idGenerator: IdGenerator;
   localOperatorId?: string;
+  requestTimeoutMs?: (runtime: NewsletterJob['runtime']) => number;
+  persistenceReserveMs?: number;
+  measure?: (details: Record<string, unknown>) => void;
 };
+type GenerationOutcome =
+  | { type: 'text_generated'; text: string }
+  | { type: 'invocation_budget_yield' }
+  | {
+      type: 'input_capacity_exceeded';
+      requiredBytes: number;
+      availableBytes: number;
+      stage: string;
+    };
 export function createNewsletterWorker(deps: Deps) {
   const yieldStage = () => Result.Ok({ type: 'stage_yielded' as const });
   const mutate = <T>(
@@ -145,7 +162,7 @@ export function createNewsletterWorker(deps: Deps) {
     );
   const executions = new Map<
     string,
-    { controller: AbortController; deadline?: Date }
+    { controller: AbortController; deadline?: Date; budgetYield?: boolean }
   >();
   const deadlineError = () =>
     new AppError({
@@ -184,10 +201,12 @@ export function createNewsletterWorker(deps: Deps) {
     prompt: string,
     stage: string,
     unit = generationUnit(job, stage)
-  ): Promise<ApplicationResult<string>> => {
+  ): Promise<ApplicationResult<GenerationOutcome>> => {
     const execution = executions.get(job.id);
     const canceled = executionFailure(job);
     if (canceled) return Result.Error(canceled);
+    if (job.checkpoint.normalizationIssue)
+      return Result.Error(generationError(job.checkpoint.normalizationIssue));
     if (job.checkpoint.legacyRepairBlocked)
       return Result.Error(
         generationError(
@@ -201,16 +220,18 @@ export function createNewsletterWorker(deps: Deps) {
           'Declare a context window for this custom model before retrying'
         )
       );
-    if (promptSize(prompt) > budget.inputBytes)
-      return Result.Error(
-        generationError(
-          'Required processing unit exceeds the declared context window; increase it before retrying'
-        )
-      );
+    const inputBytes = promptSize(prompt);
+    if (inputBytes > budget.inputBytes)
+      return Result.Ok({
+        type: 'input_capacity_exceeded',
+        requiredBytes: inputBytes,
+        availableBytes: budget.inputBytes,
+        stage,
+      });
     const state = job.checkpoint.repairUnits?.[unit];
     const signature = processingSignature({ prompt, stage });
     if (state?.response?.signature === signature)
-      return Result.Ok(state.response.text);
+      return Result.Ok({ type: 'text_generated', text: state.response.text });
     if (state?.exhausted || (state?.requestInFlight && state.repairsUsed >= 2))
       return Result.Error(
         generationError(`${unit} exhausted its two repair requests; use Retry`)
@@ -224,6 +245,26 @@ export function createNewsletterWorker(deps: Deps) {
       return Result.Error(
         generationError(`${unit} exhausted its two repair requests; use Retry`)
       );
+    const timeoutMs = deps.requestTimeoutMs?.(job.runtime) ?? 600_000;
+    const reserveMs = deps.persistenceReserveMs ?? 30_000;
+    const fits = () =>
+      !execution?.deadline ||
+      execution.deadline.getTime() - deps.clock.now().getTime() >=
+        timeoutMs + reserveMs;
+    const budgetYield = () => {
+      if (execution) execution.budgetYield = true;
+      deps.measure?.({
+        jobId: job.id,
+        stage,
+        provider: job.runtime.provider,
+        model: job.runtime.model,
+        inputBytes,
+        timeoutMs,
+        outcome: 'invocation_budget_yield',
+      });
+      return Result.Ok({ type: 'invocation_budget_yield' as const });
+    };
+    if (!fits()) return budgetYield();
     const repairsUsed = used + (repairRequest ? 1 : 0);
     const previousCheckpoint = job.checkpoint;
     const reserved = await update(job, job.stage, {
@@ -251,10 +292,12 @@ export function createNewsletterWorker(deps: Deps) {
     });
     if (reserved.isError()) return Result.Error(reserved.getError());
     const expired = executionFailure(job);
-    if (expired) {
+    if (expired || !fits()) {
       const released = await update(job, job.stage, previousCheckpoint);
-      return Result.Error(released.isError() ? released.getError() : expired);
+      if (released.isError()) return Result.Error(released.getError());
+      return expired ? Result.Error(expired) : budgetYield();
     }
+    const startedAt = deps.clock.now().getTime();
     const response = await deps.model.generate({
       runtime: job.runtime,
       prompt,
@@ -264,15 +307,29 @@ export function createNewsletterWorker(deps: Deps) {
       deadline: execution?.deadline,
       contextBudget: budget.contextTokens,
       maxOutputTokens: budget.outputTokens,
+      timeoutMs,
+    });
+    deps.measure?.({
+      jobId: job.id,
+      stage,
+      provider: job.runtime.provider,
+      model: job.runtime.model,
+      inputBytes,
+      timeoutMs,
+      durationMs: Math.max(0, deps.clock.now().getTime() - startedAt),
+      outcome: response.isOk() ? 'response_received' : response.getError().code,
     });
     const interrupted = executionFailure(job);
-    if (interrupted) return Result.Error(interrupted);
-    if (response.isError()) return Result.Error(response.getError());
+    if (interrupted?.code === 'NEWSLETTER_LEASE_LOST')
+      return Result.Error(interrupted);
+    if (response.isError())
+      return Result.Error(interrupted ?? response.getError());
     const saved = await update(job, job.stage, {
       ...job.checkpoint,
       repairUnits: {
         ...job.checkpoint.repairUnits,
         [unit]: {
+          ...job.checkpoint.repairUnits?.[unit],
           repairsUsed: job.checkpoint.repairUnits?.[unit]?.repairsUsed ?? 0,
           needsRepair: job.checkpoint.repairUnits?.[unit]?.needsRepair ?? false,
           issues: job.checkpoint.repairUnits?.[unit]?.issues,
@@ -282,7 +339,39 @@ export function createNewsletterWorker(deps: Deps) {
         },
       },
     });
-    return saved.isError() ? Result.Error(saved.getError()) : response;
+    if (saved.isError()) return Result.Error(saved.getError());
+    return interrupted
+      ? Result.Error(interrupted)
+      : Result.Ok({ type: 'text_generated', text: response.get() });
+  };
+  const generationStopped = async (
+    job: NewsletterJob,
+    outcome: Exclude<GenerationOutcome, { type: 'text_generated' }>,
+    candidateId?: string
+  ): Promise<ApplicationResult<{ type: 'stage_yielded' }>> => {
+    if (outcome.type === 'invocation_budget_yield') return yieldStage();
+    const message = `Required ${outcome.stage} prompt uses ${outcome.requiredBytes} UTF-8 bytes; the pinned input budget allows ${outcome.availableBytes}. Increase context, lower the response cap, or edit required inputs before Retry.`;
+    if (job.kind !== 'prepare' || !candidateId)
+      return Result.Error(
+        new AppError({
+          code: 'NEWSLETTER_INPUT_CAPACITY',
+          category: 'system',
+          status: 422,
+          message,
+          details: outcome,
+        })
+      );
+    const recorded = await deps.repository.recordFailure(
+      job,
+      `capacity:${candidateId}`,
+      message,
+      outcome,
+      job.leaseToken!
+    );
+    if (recorded.isError()) return Result.Error(recorded.getError());
+    if (recorded.get().type === 'lease_lost')
+      return Result.Error(leaseLossError());
+    return excludeCandidate(job, candidateId);
   };
   const update = async (
     job: NewsletterJob,
@@ -473,41 +562,93 @@ export function createNewsletterWorker(deps: Deps) {
       | { type: 'stage_yielded' }
     >
   > => {
-    const capacity = Math.min(
-      64_000,
-      jobGenerationBudget(job)?.inputBytes ?? 1024
-    );
+    const inputBytes = jobGenerationBudget(job)?.inputBytes ?? 1024;
+    const capacity = Math.min(64_000, inputBytes);
     if (
+      !job.checkpoint.stylePlan &&
       promptSize(
         JSON.stringify({ guidance: profile.guidance, samples: profile.samples })
       ) <
-      capacity / 4
+        capacity / 4
     )
       return Result.Ok({ type: 'style_ready', profile });
-    const chunkSize = Math.max(256, Math.floor(capacity / 3));
-    const chunks = [profile.guidance, ...profile.samples].flatMap(
-      (value, index) => {
-        const parts: { index: number; text: string }[] = [];
-        for (let start = 0; start < value.length; start += chunkSize)
-          parts.push({ index, text: value.slice(start, start + chunkSize) });
-        return parts;
-      }
-    );
-    const cursor = job.checkpoint.styleCursor ?? 0;
-    if (cursor < chunks.length) {
-      const chunk = chunks[cursor]!;
+    if (!job.checkpoint.stylePlan) {
+      const plan = createStylePlan(
+        { ...job, checkpoint: { ...job.checkpoint, profile } },
+        'utf8'
+      );
+      if (!plan)
+        return Result.Error(generationError('Style inputs are unavailable'));
+      const saved = await update(job, 'style-processing', {
+        ...job.checkpoint,
+        stylePlan: plan,
+      });
+      if (saved.isError()) return Result.Error(saved.getError());
+    }
+    const plan = job.checkpoint.stylePlan!;
+    if (
+      plan.inputSignature !== styleInputSignature(profile) ||
+      !Number.isInteger(plan.cursor) ||
+      plan.cursor < 0 ||
+      plan.cursor > plan.parts.length
+    )
+      return Result.Error(
+        generationError(
+          'Stored style partition does not match pinned inputs; use Retry'
+        )
+      );
+    const part = plan.parts[plan.cursor];
+    if (part) {
       const prior = job.checkpoint.styleAggregate ?? {
-        patterns: (job.checkpoint.styleNotes ?? []).join('\n'),
+        patterns: '',
         rules: [],
       };
+      const fullText =
+        part.sampleIndex === -1
+          ? (plan.legacyPatterns ?? '')
+          : ([profile.guidance, ...profile.samples][part.sampleIndex] ?? '');
+      const promptFor = (end: number) =>
+        `Extract and integrate writing style only, never sample facts. Fold previous style patterns into a bounded replacement, preserving distinctive patterns. House guidance remains verbatim in the final profile. Preserve every previous rule id and exact text. ${part.sampleIndex === -1 ? 'This input contains saved legacy style patterns: integrate them, and add no new literal rules.' : 'Add explicit sample rules only with exact quotations from this input and stable unique ids. Samples override conflicting guidance.'} Previous rules and patterns: ${JSON.stringify(prior)}. Input ${part.sampleIndex === -1 ? 'legacy notes' : part.sampleIndex === 0 ? 'guidance' : `sample ${part.sampleIndex}`} range ${part.start}-${end}: ${JSON.stringify(fullText.slice(part.start, end))}. Repair feedback: ${unitFeedback(job, part.unit)}. Return ONLY JSON {notes:string,rules:[{id:string,text:string}],coveredRuleIds:string[]}, notes at most 1500 characters.`;
+      // Feedback and accumulated rules are included when sizing the actual prompt.
+      if (promptSize(promptFor(part.end)) > inputBytes) {
+        const end = fittingStyleEnd(
+          fullText,
+          part.start,
+          part.end,
+          (value) => promptSize(promptFor(value)) <= inputBytes
+        );
+        if (end <= part.start)
+          return generationStopped(job, {
+            type: 'input_capacity_exceeded',
+            requiredBytes: promptSize(promptFor(part.start)),
+            availableBytes: inputBytes,
+            stage: 'style-processing',
+          });
+        const saved = await update(job, 'style-processing', {
+          ...job.checkpoint,
+          stylePlan: {
+            ...plan,
+            parts: [
+              ...plan.parts.slice(0, plan.cursor),
+              { ...part, end },
+              { ...part, start: end },
+              ...plan.parts.slice(plan.cursor + 1),
+            ],
+          },
+        });
+        return saved.isError() ? Result.Error(saved.getError()) : yieldStage();
+      }
       const output = await generate(
         job,
-        `Extract and integrate writing style only, never sample facts. Fold the previous style patterns into a bounded replacement, preserving distinctive patterns. House guidance remains verbatim. Preserve every previous rule id and its exact text. Add explicit sample rules only with exact quotations from this input and stable unique ids. Samples override conflicting guidance. Previous rules and patterns: ${JSON.stringify(prior)}. Input ${chunk.index === 0 ? 'guidance' : `sample ${chunk.index}`} part ${cursor + 1}/${chunks.length}: ${JSON.stringify(chunk.text)}. Repair feedback: ${unitFeedback(job, `style:${cursor}`)}. Return ONLY JSON {notes:string,rules:[{id:string,text:string}],coveredRuleIds:string[]}, notes at most 1500 characters.`,
-        'style-processing'
+        promptFor(part.end),
+        'style-processing',
+        part.unit
       );
       if (output.isError()) return Result.Error(output.getError());
+      const value = output.get();
+      if (value.type !== 'text_generated') return generationStopped(job, value);
       const parsed = parseModel(
-        output.get(),
+        value.text,
         z.object({
           notes: z.string().trim().min(1).max(1500),
           rules: z
@@ -517,45 +658,48 @@ export function createNewsletterWorker(deps: Deps) {
         })
       );
       if (parsed.type === 'model_invalid')
-        return repairUnit(job, `style:${cursor}`, parsed.issues, output.get());
-      const value = parsed.value;
+        return repairUnit(job, part.unit, parsed.issues, value.text);
+      const next = parsed.value;
       const rulesValid =
-        new Set(value.rules.map((rule) => rule.id)).size ===
-          value.rules.length &&
+        new Set(next.rules.map((rule) => rule.id)).size === next.rules.length &&
         prior.rules.every(
           (rule) =>
-            value.coveredRuleIds.includes(rule.id) &&
-            value.rules.some(
-              (next) => next.id === rule.id && next.text === rule.text
+            next.coveredRuleIds.includes(rule.id) &&
+            next.rules.some(
+              (replacement) =>
+                replacement.id === rule.id && replacement.text === rule.text
             )
         ) &&
-        value.rules.every(
+        next.rules.every(
           (rule) =>
             prior.rules.some(
               (old) => old.id === rule.id && old.text === rule.text
-            ) || chunk.text.includes(rule.text)
+            ) ||
+            (part.sampleIndex !== -1 &&
+              fullText.slice(part.start, part.end).includes(rule.text))
         );
       if (!rulesValid)
         return repairUnit(
           job,
-          `style:${cursor}`,
+          part.unit,
           ['Style aggregation dropped a prior rule or fabricated a quotation'],
-          value
+          next
         );
-      const aggregate = { patterns: value.notes, rules: value.rules };
-      if (
-        promptSize(profile.guidance + JSON.stringify(aggregate)) >
-        capacity - 1024
-      )
-        return Result.Error(
-          generationError(
-            'Required style rules exceed available input capacity; increase context or edit writing settings before Retry'
-          )
-        );
+      const aggregate = { patterns: next.notes, rules: next.rules };
+      if (promptSize(profile.guidance + JSON.stringify(aggregate)) > inputBytes)
+        return generationStopped(job, {
+          type: 'input_capacity_exceeded',
+          requiredBytes: promptSize(
+            profile.guidance + JSON.stringify(aggregate)
+          ),
+          availableBytes: inputBytes,
+          stage: 'style-rules',
+        });
       const saved = await update(job, 'style-processing', {
-        ...completedUnit(job.checkpoint, `style:${cursor}`),
-        styleCursor: cursor + 1,
-        styleNotes: [...(job.checkpoint.styleNotes ?? []), value.notes],
+        ...completedUnit(job.checkpoint, part.unit),
+        stylePlan: { ...plan, cursor: plan.cursor + 1 },
+        styleCursor: plan.cursor + 1,
+        styleNotes: [...(job.checkpoint.styleNotes ?? []), next.notes],
         styleAggregate: aggregate,
       });
       return saved.isError() ? Result.Error(saved.getError()) : yieldStage();
@@ -632,8 +776,15 @@ export function createNewsletterWorker(deps: Deps) {
         'evidence-processing'
       );
       if (output.isError()) return Result.Error(output.getError());
+      const outputValue = output.get();
+      if (outputValue.type !== 'text_generated')
+        return generationStopped(
+          job,
+          outputValue,
+          job.kind === 'prepare' ? selectedAngle?.id : undefined
+        );
       const parsed = parseModel(
-        output.get(),
+        outputValue.text,
         z.object({
           notes: z
             .array(
@@ -653,7 +804,7 @@ export function createNewsletterWorker(deps: Deps) {
           job,
           `evidence:${job.checkpoint.evidenceInputSignature}:${cursor}`,
           parsed.issues,
-          output.get(),
+          outputValue.text,
           job.kind === 'prepare' ? selectedAngle?.id : undefined
         );
       const invalid =
@@ -722,12 +873,6 @@ export function createNewsletterWorker(deps: Deps) {
         ].join('\n'),
       };
     });
-    if (promptSize(JSON.stringify(prepared)) > capacity - 2048)
-      return Result.Error(
-        generationError(
-          'Required exact evidence and counterevidence exceed input capacity. Increase the context or lower the response cap, then Retry.'
-        )
-      );
     return Result.Ok({ type: 'evidence_ready', sources: prepared });
   };
   const repairTheme = async (
@@ -754,7 +899,10 @@ export function createNewsletterWorker(deps: Deps) {
       unit
     );
     if (repaired.isError()) return Result.Error(repaired.getError());
-    const parsed = parseModel(repaired.get(), zPrepared);
+    const repairedValue = repaired.get();
+    if (repairedValue.type !== 'text_generated')
+      return generationStopped(job, repairedValue, angle.id);
+    const parsed = parseModel(repairedValue.text, zPrepared);
     const candidate =
       parsed.type === 'model_parsed'
         ? parsed.value.angles.find((a) => a.id === angle.id)
@@ -766,7 +914,7 @@ export function createNewsletterWorker(deps: Deps) {
         parsed.type === 'model_invalid'
           ? parsed.issues
           : ['Repaired candidate still lacks valid exact excerpts'],
-        repaired.get(),
+        repairedValue.text,
         angle.id
       );
     const saved = await mutate(job, (current) => {
@@ -874,13 +1022,16 @@ export function createNewsletterWorker(deps: Deps) {
         unit
       );
       if (result.isError()) return Result.Error(result.getError());
-      const parsed = parseModel(result.get(), zAudit);
+      const resultValue = result.get();
+      if (resultValue.type !== 'text_generated')
+        return generationStopped(job, resultValue, angle.id);
+      const parsed = parseModel(resultValue.text, zAudit);
       if (parsed.type === 'model_invalid')
         return repairUnit(
           job,
           `theme:${angle.id}`,
           parsed.issues,
-          result.get(),
+          resultValue.text,
           angle.id
         );
       const audit = parsed.value;
@@ -1029,13 +1180,16 @@ export function createNewsletterWorker(deps: Deps) {
         `tracking:${report.id}:${cursor}`
       );
       if (text.isError()) return Result.Error(text.getError());
-      const parsed = parseModel(text.get(), zPrepared);
+      const textValue = text.get();
+      if (textValue.type !== 'text_generated')
+        return generationStopped(job, textValue);
+      const parsed = parseModel(textValue.text, zPrepared);
       if (parsed.type === 'model_invalid')
         return repairUnit(
           job,
           `tracking:${report.id}:${cursor}`,
           parsed.issues,
-          text.get()
+          textValue.text
         );
       const model = parsed.value;
       const saved = await mutate(job, (current) => {
@@ -1297,16 +1451,48 @@ export function createNewsletterWorker(deps: Deps) {
     job: NewsletterJob,
     angle: EditorialAngle,
     input: Parameters<Deps['archive']['research']>[0]
-  ): Promise<ApplicationResult<EvidenceSource[]>> => {
+  ): Promise<
+    ApplicationResult<
+      | { type: 'research_completed'; sources: EvidenceSource[] }
+      | { type: 'invocation_budget_yield' }
+    >
+  > => {
     const execution = executions.get(job.id);
     const canceled = executionFailure(job);
     if (canceled) return Result.Error(canceled);
+    if (
+      execution?.deadline &&
+      execution.deadline.getTime() - deps.clock.now().getTime() <
+        input.timeoutMs + (deps.persistenceReserveMs ?? 30_000)
+    ) {
+      execution.budgetYield = true;
+      deps.measure?.({
+        jobId: job.id,
+        stage: 'research',
+        provider: 'exa',
+        model: job.runtime.model,
+        timeoutMs: input.timeoutMs,
+        outcome: 'invocation_budget_yield',
+      });
+      return Result.Ok({ type: 'invocation_budget_yield' });
+    }
+    const started = deps.clock.now().getTime();
     const research = await deps.archive.research({
       ...input,
       signal: execution?.controller.signal,
       deadline: execution?.deadline,
     });
-    if (research.isOk()) return research;
+    deps.measure?.({
+      jobId: job.id,
+      stage: 'research',
+      provider: 'exa',
+      model: job.runtime.model,
+      timeoutMs: input.timeoutMs,
+      durationMs: Math.max(0, deps.clock.now().getTime() - started),
+      outcome: research.isOk() ? 'response_received' : research.getError().code,
+    });
+    if (research.isOk())
+      return Result.Ok({ type: 'research_completed', sources: research.get() });
     const enriched = await recoverResearch(job, angle);
     return Result.Error(
       enriched.isError() ? enriched.getError() : research.getError()
@@ -1344,13 +1530,16 @@ export function createNewsletterWorker(deps: Deps) {
         'research-audit'
       );
       if (auditResult.isError()) return Result.Error(auditResult.getError());
-      const audited = parseModel(auditResult.get(), zAudit);
+      const auditResultValue = auditResult.get();
+      if (auditResultValue.type !== 'text_generated')
+        return generationStopped(job, auditResultValue);
+      const audited = parseModel(auditResultValue.text, zAudit);
       if (audited.type === 'model_invalid')
         return repairUnit(
           job,
           'research-audit',
           audited.issues,
-          auditResult.get()
+          auditResultValue.text
         );
       if (
         !audited.value.supported ||
@@ -1403,6 +1592,42 @@ export function createNewsletterWorker(deps: Deps) {
     }
     return Result.Ok({ type: 'angle_supported', sources });
   };
+  const captureResearch = async (
+    job: NewsletterJob,
+    angle: EditorialAngle,
+    profile: NewsletterProfile,
+    queries: string[]
+  ): Promise<ApplicationResult<{ type: 'stage_yielded' }>> => {
+    const elapsed = job.checkpoint.researchElapsedMs ?? 0;
+    const timeoutMs = profile.researchMinutes * 60_000 - elapsed;
+    if (timeoutMs <= 0)
+      return Result.Error(generationError('Research time limit reached'));
+    const researchStarted = deps.clock.now().getTime();
+    const research = await acquireResearch(job, angle, {
+      workspaceId: job.workspaceId,
+      jobId: job.id,
+      queries,
+      pages: profile.researchPages,
+      timeoutMs,
+    });
+    if (research.isOk() && research.get().type === 'invocation_budget_yield')
+      return yieldStage();
+    const measured = await update(job, 'research', {
+      ...job.checkpoint,
+      researchElapsedMs:
+        elapsed + Math.max(0, deps.clock.now().getTime() - researchStarted),
+    });
+    if (measured.isError()) return Result.Error(measured.getError());
+    if (research.isError()) return Result.Error(research.getError());
+    const outcome = research.get();
+    if (outcome.type === 'invocation_budget_yield') return yieldStage();
+    const checkpoint = await update(job, 'researched', {
+      ...job.checkpoint,
+      sources: outcome.sources,
+    });
+    if (checkpoint.isError()) return Result.Error(checkpoint.getError());
+    return yieldStage();
+  };
   const researchAngle = async (input: {
     job: NewsletterJob;
     state: NewsletterState;
@@ -1430,14 +1655,22 @@ export function createNewsletterWorker(deps: Deps) {
           'research-planning'
         );
         if (plan.isError()) return Result.Error(plan.getError());
+        const planValue = plan.get();
+        if (planValue.type !== 'text_generated')
+          return generationStopped(job, planValue);
         const parsed = parseModel(
-          plan.get(),
+          planValue.text,
           z.object({
             queries: z.array(z.string().trim().min(1).max(1000)).min(1).max(3),
           })
         );
         if (parsed.type === 'model_invalid')
-          return repairUnit(job, 'research-plan', parsed.issues, plan.get());
+          return repairUnit(
+            job,
+            'research-plan',
+            parsed.issues,
+            planValue.text
+          );
         const checkpoint = await update(job, 'research', {
           ...completedUnit(job.checkpoint, 'research-plan'),
           researchQueries: parsed.value.queries,
@@ -1452,33 +1685,13 @@ export function createNewsletterWorker(deps: Deps) {
         researchStartedAt: started,
       });
       if (saved.isError()) return Result.Error(saved.getError());
-      if (!job.checkpoint.sources) {
-        const elapsed = job.checkpoint.researchElapsedMs ?? 0;
-        const timeoutMs = profile.researchMinutes * 60_000 - elapsed;
-        if (timeoutMs <= 0)
-          return Result.Error(generationError('Research time limit reached'));
-        const researchStarted = deps.clock.now().getTime();
-        const research = await acquireResearch(job, angle, {
-          workspaceId: job.workspaceId,
-          jobId: job.id,
-          queries: job.checkpoint.researchQueries,
-          pages: profile.researchPages,
-          timeoutMs,
-        });
-        const measured = await update(job, 'research', {
-          ...job.checkpoint,
-          researchElapsedMs:
-            elapsed + Math.max(0, deps.clock.now().getTime() - researchStarted),
-        });
-        if (measured.isError()) return Result.Error(measured.getError());
-        if (research.isError()) return Result.Error(research.getError());
-        const checkpoint = await update(job, 'researched', {
-          ...job.checkpoint,
-          sources: research.get(),
-        });
-        if (checkpoint.isError()) return Result.Error(checkpoint.getError());
-        return yieldStage();
-      }
+      if (!job.checkpoint.sources)
+        return captureResearch(
+          job,
+          angle,
+          profile,
+          job.checkpoint.researchQueries
+        );
       const researchSources = (job.checkpoint.sources ?? [])
         .map((s) => liveData.sources.find((v) => v.id === s.id))
         .filter((s): s is EvidenceSource =>
@@ -1522,13 +1735,16 @@ export function createNewsletterWorker(deps: Deps) {
         'research-assessment'
       );
       if (reassessment.isError()) return Result.Error(reassessment.getError());
-      const parsed = parseModel(reassessment.get(), zPrepared);
+      const reassessmentValue = reassessment.get();
+      if (reassessmentValue.type !== 'text_generated')
+        return generationStopped(job, reassessmentValue);
+      const parsed = parseModel(reassessmentValue.text, zPrepared);
       if (parsed.type === 'model_invalid')
         return repairUnit(
           job,
           'research-assessment',
           parsed.issues,
-          reassessment.get()
+          reassessmentValue.text
         );
       const assessed = parsed.value.angles.find((a) => a.id === angle.id);
       if (
@@ -1777,9 +1993,12 @@ export function createNewsletterWorker(deps: Deps) {
           : 'drafting'
       );
       if (result.isError()) return Result.Error(result.getError());
-      const parsed = parseModel(result.get(), zArticle);
+      const resultValue = result.get();
+      if (resultValue.type !== 'text_generated')
+        return generationStopped(job, resultValue);
+      const parsed = parseModel(resultValue.text, zArticle);
       if (parsed.type === 'model_invalid')
-        return repairDraft(job, parsed.issues, result.get());
+        return repairDraft(job, parsed.issues, resultValue.text);
       article = parsed.value;
       const saved = await update(job, 'auditing', {
         ...completedUnit(job.checkpoint, 'draft'),
@@ -1795,9 +2014,12 @@ export function createNewsletterWorker(deps: Deps) {
       'audit'
     );
     if (result.isError()) return Result.Error(result.getError());
-    const parsed = parseModel(result.get(), zAudit);
+    const resultValue = result.get();
+    if (resultValue.type !== 'text_generated')
+      return generationStopped(job, resultValue, angle.id);
+    const parsed = parseModel(resultValue.text, zAudit);
     if (parsed.type === 'model_invalid')
-      return repairDraft(job, parsed.issues, result.get(), article);
+      return repairDraft(job, parsed.issues, resultValue.text, article);
     const links = markdownLinks(article.markdown);
     const allowedUrls = new Set(sources.map((s) => s.url));
     const audits = [...(job.checkpoint.audits ?? []), parsed.value];
@@ -1854,27 +2076,47 @@ export function createNewsletterWorker(deps: Deps) {
   };
   return {
     async reconcile(workspaceId: string): Promise<
-      ApplicationResult<{
-        type: 'disabled' | 'workspace_not_found' | 'up_to_date' | 'enqueued';
-      }>
+      ApplicationResult<
+        | {
+            type:
+              | 'disabled'
+              | 'workspace_not_found'
+              | 'up_to_date'
+              | 'enqueued';
+          }
+        | {
+            type: 'configuration_required';
+            issue: import('../domain/processing').BudgetIssue;
+          }
+      >
     > {
       const publications =
         await deps.repository.pendingPublications(workspaceId);
       if (publications.isError()) return Result.Error(publications.getError());
       if (!publications.get().length) return Result.Ok({ type: 'up_to_date' });
-      return deps.repository.mutate(workspaceId, (current) => {
+      return deps.repository.mutate<
+        | {
+            type:
+              | 'disabled'
+              | 'workspace_not_found'
+              | 'up_to_date'
+              | 'enqueued';
+          }
+        | {
+            type: 'configuration_required';
+            issue: import('../domain/processing').BudgetIssue;
+          }
+      >(workspaceId, (current) => {
         if (!current.profile?.enabled)
           return Result.Ok({ value: { type: 'disabled' as const } });
-        const resolution = resolveGenerationBudget(
-          current.profile.runtime,
-          current.profile.runtime.contextLimit?.operatorCeiling
-        );
+        const resolution = resolveGenerationBudget(current.profile.runtime);
         if (resolution.type !== 'budget_resolved')
-          return Result.Error(
-            generationError(
-              'Declare a context window for this custom model before preparing themes'
-            )
-          );
+          return Result.Ok({
+            value: {
+              type: 'configuration_required' as const,
+              issue: resolution,
+            },
+          });
         return Result.Ok({
           value: { type: 'enqueued' as const },
           alreadyPresent: { type: 'up_to_date' as const },
@@ -1894,7 +2136,7 @@ export function createNewsletterWorker(deps: Deps) {
             status: 'queued' as const,
             stage: 'queued',
             checkpoint: {
-              version: 2,
+              version: 3,
               profile: structuredClone(current.profile!),
               refreshCompleted: true,
             },
@@ -1916,6 +2158,7 @@ export function createNewsletterWorker(deps: Deps) {
             type: 'job_finished';
             jobId: string;
             status: 'failed' | 'succeeded' | 'queued';
+            yieldReason?: 'invocation_budget';
           }
       >
     > {
@@ -1930,9 +2173,19 @@ export function createNewsletterWorker(deps: Deps) {
       const outcome = claimed.get();
       if (outcome.type === 'queue_empty') return Result.Ok(outcome);
       const job = outcome.job;
-      job.checkpoint = normalizeCheckpoint(job);
+      const stored = await deps.repository.read(job.workspaceId, {
+        content: false,
+        drafts: false,
+      });
+      if (stored.isError()) return Result.Error(stored.getError());
+      job.checkpoint = normalizeCheckpoint(job, stored.get().angles);
       const controller = new AbortController();
-      executions.set(job.id, { controller, deadline: options.deadline });
+      const execution = {
+        controller,
+        deadline: options.deadline,
+        budgetYield: false,
+      };
+      executions.set(job.id, execution);
       const deadlineTimer = options.deadline
         ? setTimeout(
             () => controller.abort(deadlineError()),
@@ -2048,6 +2301,9 @@ export function createNewsletterWorker(deps: Deps) {
         type: 'job_finished' as const,
         jobId: job.id,
         status,
+        ...(execution.budgetYield
+          ? { yieldReason: 'invocation_budget' as const }
+          : {}),
       });
     },
   };

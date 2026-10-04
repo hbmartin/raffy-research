@@ -7,10 +7,23 @@ export const fingerprint = (value: string): string =>
   createHash('sha256').update(value, 'utf8').digest('hex');
 
 export const MIN_AUTOMATIC_COPY_WORDS = 40;
-export const isBlockingContent = (content: string) =>
-  /^(?:access denied|forbidden|page not found|404(?:\b|:)|just a moment|verify (?:you are|that you are) human|enable javascript|checking your browser|security verification|captcha)\b/i.test(
-    normalizeEvidenceContent(content)
-  );
+export function isBlockingContent(content: string): boolean {
+  const normalized = normalizeEvidenceContent(content);
+  // A title prefix is not a blocking page. Recognize complete, bounded templates
+  // and leave unfamiliar or substantive prose eligible for editorial review.
+  if (normalized.split(' ').length > 200) return false;
+  return [
+    /^(?:(?:403|error 403)\s*[:-]?\s*)?forbidden[.!]?$/i,
+    /^(?:(?:404|error 404)\s*[:-]?\s*)?(?:page )?not found[.!]?$/i,
+    /^404[.!]?$/i,
+    /^access denied[.!]?(?:\s+(?:you (?:do not|don't) have permission to access (?:this (?:page|resource)|the requested (?:page|resource))[.!]?|please contact (?:the )?(?:site administrator|support)[.!]?|reference\s*#?\s*\S+))*$/i,
+    /^(?:just a moment|checking your browser|security verification|captcha)[.!…]*(?:\s+(?:please wait[.!]?|checking your browser before accessing the site[.!]?|verify (?:you are|that you are) human[.!]?|enable javascript and cookies to continue[.!]?))*$/i,
+    /^verify (?:you are|that you are) human[.!]?$/i,
+    /^(?:please )?enable javascript(?: and cookies)?(?: to (?:continue|view (?:this (?:page|site)|the content)))?[.!]?$/i,
+    /^(?:subscribe|sign in|log in) to (?:continue reading|read (?:this|the) article|access (?:this|the) (?:article|content))[.!]?$/i,
+    /^this (?:article|content) is (?:only )?available to subscribers(?: only)?[.!]?$/i,
+  ].some((template) => template.test(normalized));
+}
 
 /** Formatting differences only; case, punctuation and substantive words survive. */
 export function normalizeEvidenceContent(content: string): string {
