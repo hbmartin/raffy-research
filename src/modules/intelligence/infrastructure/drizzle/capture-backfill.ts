@@ -10,10 +10,12 @@ import { captureFingerprints } from './capture-fingerprints';
 import {
   captureObservation,
   captureVersion,
+  evidenceEquivalenceReview,
   evidenceGroup,
   evidenceJudgment,
   sourceRecord,
 } from './schema';
+import { copyGroups } from '../../domain/evidence-equivalence';
 
 /** Add derived indexes without rewriting capture payloads, dates or direct judgments. */
 export async function backfillCaptureHistory(
@@ -33,16 +35,39 @@ export async function backfillCaptureHistory(
           .select()
           .from(sourceRecord)
           .orderBy(asc(sourceRecord.capturedAt), asc(sourceRecord.id));
+        const relationships = await tx.select().from(evidenceEquivalenceReview);
+        const indexed = captures.map((source) => ({
+          source,
+          hashes: captureFingerprints({
+            ...source,
+            workspaceId: toWorkspaceId(source.workspaceId),
+          }),
+        }));
+        const groups = copyGroups(
+          indexed.map(({ source, hashes }) => ({
+            id: source.id,
+            baseKey: `${source.workspaceId}:${hashes.equivalenceKey ?? `capture:${source.id}`}`,
+          })),
+          relationships
+        );
+        if (groups.conflicts.length)
+          throw new AppError({
+            code: 'EQUIVALENCE_MIGRATION_CONFLICT',
+            category: 'system',
+            status: 409,
+            message:
+              'Historical equivalence decisions conflict. Resolve the listed decisions before migration.',
+            details: { conflicts: groups.conflicts },
+          });
+        await tx.delete(evidenceGroup);
         for (const source of captures) {
           const hashes = captureFingerprints({
             ...source,
             workspaceId: toWorkspaceId(source.workspaceId),
           });
-          const identity =
-            source.evidenceIdentity ??
-            (hashes.normalizedFingerprint
-              ? `body:${hashes.normalizedFingerprint}`
-              : `capture:${source.id}`);
+          const identity = groups.memberships
+            .get(source.id)!
+            .slice(source.workspaceId.length + 1);
           await tx
             .update(sourceRecord)
             .set({
@@ -51,6 +76,7 @@ export async function backfillCaptureHistory(
               contentLength: source.contentText?.length ?? 0,
               normalizedFingerprint: hashes.normalizedFingerprint,
               similarityBucket: hashes.similarityBucket,
+              equivalenceKey: hashes.equivalenceKey ?? `capture:${source.id}`,
               evidenceIdentity: identity,
               updatedAt: source.updatedAt,
             })
@@ -117,6 +143,7 @@ export async function backfillCaptureHistory(
       })
     );
   } catch (cause) {
+    if (cause instanceof AppError) return Result.Error(cause);
     return Result.Error(
       new AppError({
         code: 'CAPTURE_BACKFILL_FAILED',

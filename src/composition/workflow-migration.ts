@@ -111,18 +111,29 @@ export async function runWorkflowMigration(
               'normalizedFingerprint',
               'similarityBucket',
               'evidenceIdentity',
+              'equivalenceKey',
             ],
           },
           { table: 'weeklyReport', omittedColumns: [] },
         ],
-        (snapshot.newsletterWorkspace ?? []).flatMap((row) => {
-          const legacy = row as { state: { drafts: { id: string }[] } };
-          return legacy.state.drafts.map((draft) => ({
-            table: 'newsletterHistory',
-            id: draft.id,
-            payload: draft,
-          }));
-        })
+        [
+          ...(snapshot.newsletterHistory ?? []).map((row) => {
+            const saved = row as { id: string; payload: unknown };
+            return {
+              table: 'newsletterHistory',
+              id: saved.id,
+              payload: saved.payload,
+            };
+          }),
+          ...(snapshot.newsletterWorkspace ?? []).flatMap((row) => {
+            const legacy = row as { state: { drafts: { id: string }[] } };
+            return legacy.state.drafts.map((draft) => ({
+              table: 'newsletterHistory',
+              id: draft.id,
+              payload: draft,
+            }));
+          }),
+        ]
       );
       onProgress(
         JSON.stringify({

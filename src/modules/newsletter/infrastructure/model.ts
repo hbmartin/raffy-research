@@ -10,7 +10,8 @@ export function createHostedNewsletterModel(input: {
   apiKey: () => string | undefined;
 }): NewsletterModel {
   return {
-    async generate({ runtime, prompt, signal, deadline }) {
+    async generate({ runtime, prompt, signal, maxOutputTokens = 4096 }) {
+      const timeout = AbortSignal.timeout(100_000);
       try {
         const key = input.apiKey();
         if (!key)
@@ -26,25 +27,34 @@ export function createHostedNewsletterModel(input: {
           model: createOpenAI({ apiKey: key })(runtime.model),
           prompt,
           maxRetries: 0,
-          maxOutputTokens: 4096,
-          abortSignal: AbortSignal.any([
-            AbortSignal.timeout(
-              Math.max(
-                1,
-                Math.min(
-                  100_000,
-                  deadline ? deadline.getTime() - Date.now() : Infinity
-                )
-              )
-            ),
-            ...(signal ? [signal] : []),
-          ]),
+          maxOutputTokens,
+          abortSignal: AbortSignal.any([timeout, ...(signal ? [signal] : [])]),
         });
+        if (result.finishReason === 'length')
+          return Result.Error(
+            new AppError({
+              code: 'NEWSLETTER_OUTPUT_LIMIT',
+              category: 'system',
+              status: 422,
+              message:
+                'The response token cap was exhausted. Increase the response cap or use a larger context, then Retry.',
+              details: {
+                maxOutputTokens,
+                partialText: result.text,
+                usage: result.usage,
+                finishReason: result.finishReason,
+              },
+            })
+          );
         return Result.Ok(result.text);
       } catch (cause) {
+        if (signal?.aborted && signal.reason instanceof AppError)
+          return Result.Error(signal.reason);
         return Result.Error(
           new AppError({
-            code: 'NEWSLETTER_MODEL_FAILED',
+            code: timeout.aborted
+              ? 'NEWSLETTER_PROVIDER_TIMEOUT'
+              : 'NEWSLETTER_MODEL_FAILED',
             category: 'system',
             status: 502,
             message: 'Hosted newsletter generation failed',

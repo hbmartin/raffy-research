@@ -158,7 +158,10 @@ export function memoryRepository(initial = stateFixture()) {
     },
     async mutate<T>(
       _workspaceId: string,
-      work: (state: NewsletterState) => ApplicationResult<Mutation<T>>,
+      work: (
+        state: NewsletterState,
+        context: { activeSelectionIds: string[] }
+      ) => ApplicationResult<Mutation<T>>,
       lease?: { jobId: string; leaseToken: string }
     ) {
       if (
@@ -182,7 +185,11 @@ export function memoryRepository(initial = stateFixture()) {
           })
         );
       const next = structuredClone(state);
-      const result = work(next);
+      const result = work(next, {
+        activeSelectionIds: jobs
+          .filter((j) => j.status === 'queued' || j.status === 'running')
+          .flatMap((j) => (j.selectionId ? [j.selectionId] : [])),
+      });
       if (result.isError()) return Result.Error(result.getError());
       if (
         result.get().jobs?.length &&
@@ -201,6 +208,14 @@ export function memoryRepository(initial = stateFixture()) {
     },
     async listJobs() {
       return Result.Ok(structuredClone(jobs));
+    },
+    async listJobSummaries() {
+      return Result.Ok(
+        structuredClone(jobs).map(
+          ({ checkpoint: _checkpoint, leaseToken: _token, ...summary }) =>
+            summary
+        )
+      );
     },
     async getJob(workspaceId, jobId) {
       const job = jobs.find(

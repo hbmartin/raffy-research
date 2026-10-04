@@ -26,6 +26,10 @@ _Avoid_: Publication
 A saved article version written for busy industry insiders, with its style inputs, source citations, and audit judgments preserved.
 _Avoid_: Weekly Report
 
+**Generation Attempt**:
+One execution of newsletter preparation or drafting, with its settings, progress, repairs and outcome retained. A manual retry creates a new linked attempt; a failed revision leaves the saved draft available.
+_Avoid_: Newsletter Draft
+
 ### Participants
 
 **Analyst**:
@@ -74,6 +78,16 @@ _Avoid_: Provider, Source Record, Evidence Item
 **Source Record**:
 Raffy Research's durable capture of a Source and its provenance. Multiple Source Records may represent the same or closely related Source.
 _Avoid_: Source, Evidence Item
+
+**Capture Observation**:
+A retained provider encounter with a Source Record, including the search or callback that produced it. An unchanged page can reuse a capture while retaining each observation.
+_Avoid_: Observation
+
+**Equivalent Evidence**:
+Captures of the same substantive content that share the latest explicit Keep or Junk judgment. Material revisions remain separate; uncertain copies require an editorial decision.
+
+**Equivalence Decision**:
+An editor's confirmation, separation or reversal of a relationship between evidence copies. Its history survives reversals, and clear copies stay together.
 
 **Search Result**:
 An item returned by a search performed for a Keyword. It remains distinct from a Source Record unless the underlying item is captured.

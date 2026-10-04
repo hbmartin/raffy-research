@@ -4,6 +4,8 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 import type {
   EditorialAngle,
   EvidenceSource,
+  GenerationBudget,
+  NewsletterJob,
   Runtime,
   TrackedTopic,
 } from './newsletter';
@@ -25,7 +27,84 @@ const knownLimits: Record<string, number> = {
   haiku: 200_000,
 };
 export function resolveContextBudget(runtime: Runtime): number | undefined {
-  return runtime.contextWindowTokens ?? knownLimits[runtime.model];
+  const limit = runtime.contextLimit;
+  const bound =
+    limit?.model === runtime.model && limit.provider === runtime.provider
+      ? limit.tokens
+      : knownContextLimit(runtime.model, runtime.provider);
+  if (runtime.contextWindowTokens && bound)
+    return Math.min(runtime.contextWindowTokens, bound);
+  return runtime.contextWindowTokens ?? bound;
+}
+export const knownContextLimit = (
+  model: string,
+  provider?: Runtime['provider']
+) => {
+  if (
+    provider === 'ollama' ||
+    (provider === 'openai' && !model.startsWith('gpt-')) ||
+    (provider === 'claude-code' && model.startsWith('gpt-')) ||
+    (provider === 'codex-cli' && !model.startsWith('gpt-'))
+  )
+    return undefined;
+  return knownLimits[model];
+};
+export const DEFAULT_HOSTED_OUTPUT_TOKENS = 16384;
+export function resolveGenerationBudget(
+  runtime: Runtime,
+  operatorCeiling?: number
+):
+  | { type: 'budget_resolved'; budget: GenerationBudget }
+  | { type: 'context_required' }
+  | { type: 'local_allocation_required' }
+  | { type: 'budget_invalid'; message: string } {
+  const context = resolveContextBudget(runtime);
+  if (!context) return { type: 'context_required' };
+  if (runtime.provider === 'ollama' && !operatorCeiling)
+    return { type: 'local_allocation_required' };
+  const contextTokens =
+    runtime.provider === 'ollama'
+      ? Math.min(context, operatorCeiling!)
+      : context;
+  const outputTokens =
+    runtime.mode === 'hosted'
+      ? (runtime.maxOutputTokens ?? DEFAULT_HOSTED_OUTPUT_TOKENS)
+      : 4096;
+  const safetyTokens = 2048;
+  const inputBytes = contextTokens - outputTokens - safetyTokens;
+  if (inputBytes < 1024)
+    return {
+      type: 'budget_invalid',
+      message:
+        'The context must fit the response allowance, a 2,048-token margin, and at least 1,024 input tokens. Lower the response cap or increase the available context.',
+    };
+  return {
+    type: 'budget_resolved',
+    budget: {
+      contextTokens,
+      outputTokens,
+      inputBytes,
+      safetyTokens,
+      origin: runtime.contextWindowTokens
+        ? 'declared'
+        : (runtime.contextLimit?.origin ?? 'known'),
+      ...(runtime.provider === 'ollama' ? { operatorCeiling } : {}),
+    },
+  };
+}
+export function jobGenerationBudget(
+  job: NewsletterJob
+): GenerationBudget | undefined {
+  if (job.budget) return job.budget;
+  const contextTokens = job.contextBudget ?? resolveContextBudget(job.runtime);
+  if (!contextTokens) return undefined;
+  return {
+    contextTokens,
+    outputTokens: 4096,
+    inputBytes: contextTokens - 6144,
+    safetyTokens: 2048,
+    origin: 'legacy',
+  };
 }
 
 /** UTF-8 bytes bound token count conservatively, including non-English text. */

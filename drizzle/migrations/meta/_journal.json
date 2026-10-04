@@ -127,6 +127,13 @@
       "when": 1791061491491,
       "tag": "0017_open_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791074458623,
+      "tag": "0018_flat_mariko_yashida",
+      "breakpoints": true
     }
   ]
 }

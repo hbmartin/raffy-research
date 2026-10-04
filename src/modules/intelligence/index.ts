@@ -60,6 +60,7 @@ export {
 export type { IngestionDeps } from './application/use-cases/ingestion/types';
 export type { IntelligenceUseCaseDeps } from './application/use-cases/types';
 export type { WorkspaceConfig } from './application/use-cases/workspace-queries';
+export type { EquivalenceConflict } from './domain/evidence-equivalence';
 export * from './domain/ingestion';
 export * from './domain/local-ai';
 export * from './domain/period';

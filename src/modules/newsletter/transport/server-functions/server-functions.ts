@@ -193,6 +193,15 @@ export const newsletterDetail = createServerFn({ method: 'GET' })
         unwrap(await useCases.detail({ ...input, userId: ctx.user.id }))
     )
   );
+export const newsletterJobDetail = createServerFn({ method: 'GET' })
+  .validator(workspaceInput.extend({ jobId: z.string().min(1).max(200) }))
+  .handler(async ({ data }) =>
+    runProtected.withOperation('newsletter.jobDetail')(
+      data,
+      async ({ useCases }, ctx, input) =>
+        unwrap(await useCases.jobDetail({ ...input, userId: ctx.user.id }))
+    )
+  );
 export const newsletterEquivalenceReviews = createServerFn({ method: 'GET' })
   .validator(workspaceInput.extend({ before: z.string().max(300).optional() }))
   .handler(async ({ data }) =>
@@ -208,7 +217,7 @@ export const newsletterDecideEquivalence = createServerFn({ method: 'POST' })
   .validator(
     workspaceInput.extend({
       reviewId: z.string().min(1).max(200),
-      action: z.enum(['confirm', 'separate']),
+      action: z.enum(['confirm', 'separate', 'reverse']),
     })
   )
   .handler(async ({ data }) =>
@@ -225,6 +234,7 @@ export type NewsletterServerFunctions = {
   newsletterGet: typeof newsletterGet;
   newsletterHistory: typeof newsletterHistory;
   newsletterDetail: typeof newsletterDetail;
+  newsletterJobDetail: typeof newsletterJobDetail;
   newsletterEvidenceDetails: typeof newsletterEvidenceDetails;
   newsletterEquivalenceReviews: typeof newsletterEquivalenceReviews;
 };

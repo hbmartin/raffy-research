@@ -585,8 +585,13 @@ describe('Newsletter shared workflow', () => {
     const view = requireOk(await s.useCases.get(actor));
     if (view.type !== 'newsletter_found')
       throw new Error('Expected newsletter');
-    expect(view.jobs[0]!.audits).toHaveLength(3);
-    expect(view.jobs[0]!.audits[0]!.issues).toContain(
+    const detail = requireOk(
+      await s.useCases.jobDetail({ ...actor, jobId: view.jobs[0]!.id })
+    );
+    if (detail.type !== 'job_detail_found')
+      throw new Error('Expected job details');
+    expect(detail.audits).toHaveLength(3);
+    expect(detail.audits[0]!.issues).toContain(
       'Recap without meaningful synthesis'
     );
   });

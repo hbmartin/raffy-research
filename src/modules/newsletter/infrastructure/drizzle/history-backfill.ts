@@ -11,6 +11,8 @@ import {
   newsletterJob,
   newsletterWorkspace,
 } from './schema';
+import { normalizeCheckpoint } from '../../domain/checkpoint';
+import { jobGenerationBudget } from '../../domain/processing';
 import { resolveContextBudget } from '../../domain/processing';
 
 export async function backfillNewsletterHistory(
@@ -40,6 +42,14 @@ export async function backfillNewsletterHistory(
           ? { ...job.runtime, localOperatorId }
           : job.runtime;
         const budget = job.contextBudget ?? resolveContextBudget(runtime);
+        const normalized = normalizeCheckpoint({
+          ...job,
+          contextBudget: budget,
+        });
+        const pinnedBudget = jobGenerationBudget({
+          ...job,
+          contextBudget: budget,
+        });
         const prefix = `publication:${row.workspaceId}:`;
         const reports = job.key.startsWith(prefix)
           ? job.key.slice(prefix.length).split(':').filter(Boolean)
@@ -50,12 +60,13 @@ export async function backfillNewsletterHistory(
             runtime,
             localOperatorId,
             contextBudget: budget,
+            budget: pinnedBudget,
             targetReportId:
               job.targetReportId ?? (reports.length === 1 ? reports[0] : null),
             checkpoint:
               operator && job.checkpoint.profile?.runtime.mode === 'local'
                 ? {
-                    ...job.checkpoint,
+                    ...normalized,
                     profile: {
                       ...job.checkpoint.profile,
                       runtime: {
@@ -64,7 +75,7 @@ export async function backfillNewsletterHistory(
                       },
                     },
                   }
-                : job.checkpoint,
+                : normalized,
           })
           .where(eq(newsletterJob.id, job.id));
         await db

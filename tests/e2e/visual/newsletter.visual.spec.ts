@@ -6,6 +6,7 @@ import { screenshot } from './helpers';
 
 test.describe('Newsletter visual review', () => {
   test.use({ storageState: USER_FILE });
+
   test('renders theme evidence on desktop and mobile', async ({ page }) => {
     const fixture = await seedNewsletterE2e();
     try {

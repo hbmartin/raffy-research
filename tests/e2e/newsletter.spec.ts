@@ -7,6 +7,7 @@ import { readFile } from 'node:fs/promises';
 
 test.describe('Shared newsletter drafting', () => {
   test.use({ storageState: USER_FILE });
+
   test('selects, resumes after browser closure, versions, exports and warns about evidence', async ({
     page,
     browser,
@@ -120,6 +121,7 @@ test.describe('Shared newsletter drafting', () => {
       await fixture.close();
     }
   });
+
   test('preserves dirty settings, prepares explicitly and retries failed work as a new attempt', async ({
     page,
   }) => {
@@ -166,6 +168,10 @@ test.describe('Shared newsletter drafting', () => {
         panel.getByText(/Deterministic generation outage/)
       ).toBeVisible();
       await panel
+        .getByText('Audit and repair details', { exact: true })
+        .click();
+      await expect(panel.getByText(/Context 128,000/)).toBeVisible();
+      await panel
         .getByRole('button', { name: 'Retry failed work', exact: true })
         .click();
       await expect(panel.getByText(/Queued for local execution/)).toBeVisible();
@@ -186,11 +192,25 @@ test.describe('Shared newsletter drafting', () => {
           exact: true,
         })
       ).toBeVisible();
+      await panel.getByLabel('Generation runtime').selectOption('openai');
+      await panel
+        .getByLabel('Model', { exact: true })
+        .fill('custom-hosted-model');
+      await expect(panel.getByLabel('Response token cap')).toHaveValue('16384');
+      await panel.getByLabel('Context window (tokens)').fill('64000');
+      await panel.getByLabel('Response token cap').fill('8192');
+      await panel.getByRole('button', { name: 'Refresh newsletter' }).click();
+      await expect(panel.getByLabel('Response token cap')).toHaveValue('8192');
+      await panel
+        .getByLabel('Model', { exact: true })
+        .fill('another-custom-model');
+      await expect(panel.getByLabel('Context window (tokens)')).toHaveValue('');
       await page.assertNoUnexpectedConsoleErrors();
     } finally {
       await fixture.close();
     }
   });
+
   test('compares uncertain evidence, confirms equivalence and keeps a revision separate', async ({
     page,
   }) => {

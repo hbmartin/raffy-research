@@ -101,6 +101,7 @@ export default defineConfig(async ({ mode, command }) => {
       : [];
   const nitroConfig: NitroConfig = {
     vercel: {
+      functions: { maxDuration: 'max' },
       functionRules: {
         '/api/cron/newsletter': {
           maxDuration: newsletterInvocationSeconds(privateEnv),

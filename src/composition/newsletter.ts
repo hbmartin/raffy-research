@@ -44,6 +44,24 @@ function buildNewsletterRuntime() {
         );
       try {
         const config = getLocalAiConfig();
+        if (
+          input.runtime.provider === 'ollama' &&
+          (!config.ollamaNumCtx ||
+            (input.contextBudget ?? Infinity) > config.ollamaNumCtx)
+        )
+          return Result.Error(
+            new AppError({
+              code: 'NEWSLETTER_LOCAL_ALLOCATION',
+              category: 'system',
+              status: 422,
+              message:
+                'Set OLLAMA_NUM_CTX at or above the pinned job context, then Retry with current settings.',
+              details: {
+                pinnedContext: input.contextBudget,
+                operatorCeiling: config.ollamaNumCtx,
+              },
+            })
+          );
         const output = await generateLocalText({
           provider: input.runtime.provider,
           model: input.runtime.model,
@@ -55,22 +73,14 @@ function buildNewsletterRuntime() {
           ollamaBaseUrl: config.ollamaBaseUrl,
           ollamaNumCtx: input.contextBudget ?? config.ollamaNumCtx,
           abortSignal: AbortSignal.any([
-            AbortSignal.timeout(
-              Math.max(
-                1,
-                Math.min(
-                  config.timeoutMs,
-                  input.deadline
-                    ? input.deadline.getTime() - Date.now()
-                    : Infinity
-                )
-              )
-            ),
+            AbortSignal.timeout(config.timeoutMs),
             ...(input.signal ? [input.signal] : []),
           ]),
         });
         return Result.Ok(output.text);
       } catch (cause) {
+        if (input.signal?.aborted && input.signal.reason instanceof AppError)
+          return Result.Error(input.signal.reason);
         return Result.Error(
           new AppError({
             code: 'LOCAL_NEWSLETTER_FAILED',
@@ -94,6 +104,7 @@ function buildNewsletterRuntime() {
   const useCases = createNewsletterUseCases({
     repository,
     archive,
+    operatorContextCeiling: () => getLocalAiConfig().ollamaNumCtx,
     discoverContextBudget: createContextDiscovery({
       ollamaBaseUrl: () => getLocalAiConfig().ollamaBaseUrl,
     }),

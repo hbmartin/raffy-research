@@ -211,12 +211,20 @@ describe('Atomic capture versions and observations', () => {
   });
   it('shares the latest explicit Keep/Junk judgment across clear copies without changing raw capture history', async () => {
     const repository = createSourceRepository({ db: database.db });
-    const first = requireOk(await repository.createSourceRecord(page()));
+    const first = requireOk(
+      await repository.createSourceRecord(
+        page({
+          contentText:
+            'A substantial published report describes how clinics changed their reminder workflows after tracking patient intent across appointments. Researchers compared baseline outcomes with the revised process and documented both operational improvements and limitations across multiple participating clinics during a complete year.',
+        })
+      )
+    );
     const copy = requireOk(
       await repository.createSourceRecord(
         page({
           externalUrl: 'https://syndicated.example/copy',
-          contentText: '# Acme launches AI recall reminders.\nCookie settings',
+          contentText:
+            '# A substantial published report describes how clinics changed their reminder workflows after tracking patient intent across appointments. Researchers compared baseline outcomes with the revised process and documented both operational improvements and limitations across multiple participating clinics during a complete year.\nCookie settings',
         })
       )
     );

@@ -30,6 +30,7 @@ export function NewsletterSettings({
     minutes: profile?.researchMinutes ?? 5,
     pages: profile?.researchPages ?? 10,
     context: profile?.runtime.contextWindowTokens?.toString() ?? '',
+    responseCap: profile?.runtime.maxOutputTokens ?? 16384,
   };
   // Untouched fields follow fresh server data; edited fields belong to this form.
   const [dirty, setDirty] = useState<Partial<typeof baseline>>({});
@@ -63,6 +64,8 @@ export function NewsletterSettings({
             contextWindowTokens: values.context.trim()
               ? Number(values.context)
               : undefined,
+            maxOutputTokens:
+              values.provider === 'openai' ? values.responseCap : undefined,
           },
         });
         if (!parsed.success) {
@@ -142,7 +145,13 @@ export function NewsletterSettings({
             maxLength={200}
             id={`${id}-model`}
             value={values.model}
-            onChange={(event) => change('model', event.target.value)}
+            onChange={(event) =>
+              setDirty((current) => ({
+                ...current,
+                model: event.target.value,
+                context: '',
+              }))
+            }
             placeholder="Configured provider model"
           />
         </div>
@@ -161,7 +170,43 @@ export function NewsletterSettings({
             Required for custom models whose limit cannot be discovered.
           </p>
         </div>
+        {values.provider === 'openai' ? (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={`${id}-response`}>Response token cap</Label>
+            <Input
+              required
+              type="number"
+              min={1}
+              max={2000000}
+              id={`${id}-response`}
+              value={values.responseCap}
+              onChange={(event) =>
+                change('responseCap', Number(event.target.value))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Pinned when work is queued. An exhausted cap requires a manual
+              retry.
+            </p>
+          </div>
+        ) : null}
       </div>
+      {profile?.runtime.contextLimit &&
+      values.model === profile.runtime.model &&
+      values.provider === profile.runtime.provider ? (
+        <p className="text-xs text-muted-foreground">
+          Model context: {profile.runtime.contextLimit.tokens.toLocaleString()}{' '}
+          tokens ({profile.runtime.contextLimit.origin}).
+          {profile.runtime.contextLimit.operatorCeiling
+            ? ` Local allocation: ${profile.runtime.contextLimit.operatorCeiling.toLocaleString()} tokens.`
+            : ''}{' '}
+          Responses reserve{' '}
+          {values.provider === 'openai'
+            ? values.responseCap.toLocaleString()
+            : '4,096'}{' '}
+          tokens plus a 2,048-token safety margin.
+        </p>
+      ) : null}
       <p className="text-sm text-muted-foreground">
         Local work runs as the person who saves these settings, while their
         local worker is active. Other editors can choose hosted generation.

@@ -6,6 +6,12 @@ import { canonicalizeSourceUrl } from '../../domain/url';
 export const fingerprint = (value: string): string =>
   createHash('sha256').update(value, 'utf8').digest('hex');
 
+export const MIN_AUTOMATIC_COPY_WORDS = 40;
+export const isBlockingContent = (content: string) =>
+  /^(?:access denied|forbidden|page not found|404(?:\b|:)|just a moment|verify (?:you are|that you are) human|enable javascript|checking your browser|security verification|captcha)\b/i.test(
+    normalizeEvidenceContent(content)
+  );
+
 /** Formatting differences only; case, punctuation and substantive words survive. */
 export function normalizeEvidenceContent(content: string): string {
   return content
@@ -33,6 +39,17 @@ export function captureFingerprints(input: SourceRecordWriteInput) {
   const normalized = normalizeEvidenceContent(input.contentText ?? '');
   const normalizedFingerprint = normalized ? fingerprint(normalized) : null;
   const words = normalized.toLowerCase().split(' ');
+  const prose =
+    input.sourceType !== 'seo_report' &&
+    normalized.length > 0 &&
+    !isBlockingContent(normalized);
+  const equivalenceKey = !prose
+    ? null
+    : words.length >= MIN_AUTOMATIC_COPY_WORDS
+      ? `body:${normalizedFingerprint}`
+      : canonicalUrl
+        ? `url-body:${fingerprint(JSON.stringify([canonicalUrl, normalizedFingerprint]))}`
+        : null;
   const similarityBucket =
     words.length >= 40
       ? (words.map(fingerprint).sort()[0]?.slice(0, 12) ?? null)
@@ -50,6 +67,7 @@ export function captureFingerprints(input: SourceRecordWriteInput) {
     normalizedFingerprint,
     similarityBucket,
     versionKey,
+    equivalenceKey,
   };
 }
 
@@ -59,6 +77,12 @@ export function isUncertainCopy(left: string, right: string): boolean {
     new Set(normalizeEvidenceContent(value).toLowerCase().split(' '));
   const a = words(left),
     b = words(right);
+  if (isBlockingContent(left) || isBlockingContent(right)) return false;
+  if (
+    normalizeEvidenceContent(left) === normalizeEvidenceContent(right) &&
+    left.trim()
+  )
+    return true;
   if (a.size < 40 || b.size < 40) return false;
   let intersection = 0;
   for (const word of a) if (b.has(word)) intersection++;

@@ -17,6 +17,7 @@ import { Textarea } from '@/platform/components/ui/textarea';
 import { ArticlePreview } from './article-preview';
 import { DuplicateReview } from './duplicate-review';
 import { NewsletterHistoryPanel } from './history-panel';
+import { JobDetails } from './job-details';
 import { NewsletterSettings } from './settings';
 import { TopicCorrections } from './topic-corrections';
 import { newsletterQueries } from './wired-queries';
@@ -38,7 +39,7 @@ import {
   newsletterSkip,
 } from '../server';
 
-type ActionResult = { type: string };
+type ActionResult = { type: string; message?: string };
 const messages: Record<string, string> = {
   forbidden: 'You need permission to read reports.',
   style_required: 'Add house guidance or a writing sample before drafting.',
@@ -49,6 +50,8 @@ const messages: Record<string, string> = {
   override_required: 'Provide a reason to reuse this angle.',
   invalid_correction: 'Check the topic title, target, and evidence selection.',
   context_required: 'Enter the context window for this custom model.',
+  local_allocation_required: 'Configure OLLAMA_NUM_CTX for the local worker.',
+  budget_invalid: 'The context cannot fit the chosen response cap and input.',
   not_found: 'This selection or draft is no longer available.',
 };
 function ThemeCard({
@@ -350,7 +353,11 @@ export function NewsletterPanel({
       match(result.type)
         .with('saved', 'queued', () => toast.success(input.success))
         .otherwise((type) =>
-          toast.error(messages[type] ?? 'The action could not be completed.')
+          toast.error(
+            result.message ??
+              messages[type] ??
+              'The action could not be completed.'
+          )
         );
       await Promise.all([
         queryClient.invalidateQueries({
@@ -507,10 +514,10 @@ export function NewsletterPanel({
         </div>
       ) : null}
       {failedJobs.length ? (
-        <details>
-          <summary className="cursor-pointer text-sm">
+        <div>
+          <h4 className="text-sm font-medium">
             Recent generation failures ({failedJobs.length})
-          </summary>
+          </h4>
           {failedJobs.slice(-5).map((j) => (
             <div className="mt-2 text-sm" key={j.id}>
               <p>
@@ -530,16 +537,10 @@ export function NewsletterPanel({
               >
                 Retry failed work
               </Button>
-              {j.audits.map((audit, i) => (
-                <p key={i}>
-                  Audit pass {i + 1}:{' '}
-                  {audit.issues.join('; ') ||
-                    'The support, style, or synthesis checks did not all pass.'}
-                </p>
-              ))}
+              <JobDetails workspaceId={workspaceId} jobId={j.id} />
             </div>
           ))}
-        </details>
+        </div>
       ) : null}
       {selection ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
@@ -702,9 +703,12 @@ export function NewsletterPanel({
             draft={draft}
             warnings={data.warnings[draft.id] ?? []}
             pending={mutation.isPending}
-            canRegenerate={state.selections.some(
-              (s) => s.id === draft.selectionId && s.status === 'ready'
-            )}
+            canRegenerate={
+              !busyJobs.some((job) => job.selectionId === draft.selectionId) &&
+              state.selections.some(
+                (s) => s.id === draft.selectionId && s.status === 'ready'
+              )
+            }
             onExport={(format) => void exportVersion(draft, format)}
             onRegenerate={(feedback) =>
               run(

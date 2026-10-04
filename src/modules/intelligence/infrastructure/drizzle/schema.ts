@@ -157,6 +157,7 @@ export const sourceRecord = pgTable(
     contentFingerprint: text('contentFingerprint'),
     contentLength: integer('contentLength'),
     normalizedFingerprint: text('normalizedFingerprint'),
+    equivalenceKey: text('equivalenceKey'),
     evidenceIdentity: text('evidenceIdentity'),
     similarityBucket: text('similarityBucket'),
   },
@@ -173,6 +174,10 @@ export const sourceRecord = pgTable(
     index('sourceRecord_normalized_idx').on(
       table.workspaceId,
       table.normalizedFingerprint
+    ),
+    index('sourceRecord_equivalence_base_idx').on(
+      table.workspaceId,
+      table.equivalenceKey
     ),
     index('sourceRecord_similarity_idx').on(
       table.workspaceId,
@@ -320,7 +325,9 @@ export const evidenceEquivalenceDecision = pgTable(
       .notNull()
       .references(() => evidenceEquivalenceReview.id, { onDelete: 'restrict' }),
     actorId: text('actorId').notNull(),
-    action: text('action').$type<'confirm' | 'separate'>().notNull(),
+    action: text('action')
+      .$type<'confirm' | 'separate' | 'reverse'>()
+      .notNull(),
     decidedAt: timestamp('decidedAt', {
       withTimezone: true,
       precision: 3,
