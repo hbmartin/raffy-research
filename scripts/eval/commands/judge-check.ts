@@ -12,7 +12,11 @@ import {
 } from '../case';
 import type { CliArgs } from '../cli-args';
 import { createJudgeEvaluators } from '../judge-evaluators';
-import { JUDGE_PROBES, runJudgeProbes } from '../judge-probes';
+import {
+  estimateJudgeCalls,
+  runJudgeProbes,
+  selectProbes,
+} from '../judge-probes';
 import { log } from '../log';
 
 export async function runJudgeCheck(args: CliArgs) {
@@ -32,11 +36,15 @@ export async function runJudgeCheck(args: CliArgs) {
     return;
   }
 
-  log('Probing the judges with degraded reports', {
+  // Resolved before any model call, so a mistyped --probe fails in a second
+  // rather than after an hour of judging.
+  const probes = selectProbes(args.probes);
+  log('Probing the judges with altered reports', {
     case: evalCase.manifest.name,
     provider,
     model,
-    probes: JUDGE_PROBES.length,
+    probes: probes.map((probe) => probe.name),
+    maxJudgeCalls: estimateJudgeCalls(probes),
   });
 
   const judges = createJudgeEvaluators(async ({ prompt, label }) => {
@@ -60,21 +68,47 @@ export async function runJudgeCheck(args: CliArgs) {
     reference,
     sources: caseUsableSources(evalCase),
     log,
+    only: args.probes,
   });
 
-  const blind = results.filter((r) => !r.discriminated);
-  if (blind.length === 0) {
+  console.table(
+    results.map((r) => ({
+      probe: r.probe,
+      kind: r.kind,
+      judge: r.judge,
+      status: r.status.toUpperCase(),
+      detail: r.reason,
+    }))
+  );
+
+  const failed = results.filter((r) => r.status === 'fail');
+  if (failed.length === 0) {
     log('All probes passed: the judges respond to report quality', {
-      probes: results.length,
+      ran: results.filter((r) => r.status === 'pass').length,
+      skipped: results.filter((r) => r.status === 'skip').length,
     });
     return;
   }
 
+  const blind = failed.filter((r) => r.kind !== 'invariant');
+  const biased = failed.filter((r) => r.kind === 'invariant');
+  if (blind.length > 0) {
+    console.error(
+      `[phoenix-eval] ${blind.length} degradation probe(s) failed: ${model} ` +
+        'did not mark down a deliberately broken report ' +
+        `(${blind.map((r) => `${r.probe}/${r.judge}`).join(', ')}).`
+    );
+  }
+  if (biased.length > 0) {
+    console.error(
+      `[phoenix-eval] ${biased.length} invariance probe(s) failed: ${model} ` +
+        'changed its score on a change that should not matter -- position or ' +
+        `format bias (${biased.map((r) => `${r.probe}/${r.judge}`).join(', ')}).`
+    );
+  }
   console.error(
-    `[phoenix-eval] ${blind.length} of ${results.length} probes failed. ` +
-      `${model} returns the same score for a good report and a deliberately ` +
-      'broken one, so its verdicts carry no information. Treat --judge ' +
-      'results from this model as unusable until a probe passes.'
+    '[phoenix-eval] Treat judge scores from the failing judges as unusable ' +
+      'until their probes pass.'
   );
   process.exit(1);
 }

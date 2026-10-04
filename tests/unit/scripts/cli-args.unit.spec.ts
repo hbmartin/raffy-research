@@ -77,6 +77,22 @@ describe('parseArgs', () => {
     expect(args.judgeModel).toBe('gpt-5-codex');
   });
 
+  it('collects probe names from repeated and comma-separated --probe', () => {
+    const args = parse(
+      'judge-check',
+      '--workspace',
+      'ws-1',
+      '--probe',
+      'swapped-citations, padded-clusters',
+      '--probe=reordered-sections'
+    );
+    expect(args.probes).toEqual([
+      'swapped-citations',
+      'padded-clusters',
+      'reordered-sections',
+    ]);
+  });
+
   it('maps --sample onto the sample split', () => {
     expect(parse('summarize', '--workspace', 'ws-1', '--sample').split).toBe(
       'sample'
