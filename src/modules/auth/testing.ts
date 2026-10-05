@@ -14,6 +14,11 @@ export {
   AccountRepositoryDrizzle,
   createAccountRepository,
 } from './infrastructure/drizzle/account-repository-drizzle';
+export {
+  createMachineCredentials,
+  createMachinePermissionChecker,
+} from './infrastructure/drizzle/machine-credentials';
+export { machineCredential } from './infrastructure/drizzle/machine-schema';
 export * as authDrizzleSchema from './infrastructure/drizzle/schema';
 export {
   createUserRepository,

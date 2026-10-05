@@ -2,6 +2,7 @@ import type { ApplicationResult } from '@/modules/kernel/application/result';
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
+import type { JudgmentProvenance } from '../../domain/judgment';
 import type {
   CaptureObservationInput,
   SearchResultRecord,
@@ -17,7 +18,7 @@ export type SourceRecordGetOutcome =
   | { type: 'source_record_not_found' };
 
 export type SourceLabelOutcome =
-  | { type: 'source_labeled'; sourceRecord: SourceRecord }
+  | { type: 'source_labeled'; sourceRecord: SourceRecord; judgmentId?: string }
   | { type: 'source_record_not_found' };
 
 export interface SourceRepository {
@@ -57,6 +58,7 @@ export interface SourceRepository {
     sourceRecordId: SourceRecordId;
     label: SourceRelevanceLabel | null;
     labeledAt: Date;
+    provenance?: JudgmentProvenance;
   }): Promise<ApplicationResult<SourceLabelOutcome>>;
 
   createSearchResult(

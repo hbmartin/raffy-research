@@ -132,6 +132,7 @@ type Deps = {
   localOperatorId?: string;
   requestTimeoutMs?: (runtime: NewsletterJob['runtime']) => number;
   persistenceReserveMs?: number;
+  requireDispatchReconciliation?: boolean;
   measure?: (details: Record<string, unknown>) => void;
 };
 type GenerationOutcome =
@@ -232,6 +233,20 @@ export function createNewsletterWorker(deps: Deps) {
     const signature = processingSignature({ prompt, stage });
     if (state?.response?.signature === signature)
       return Result.Ok({ type: 'text_generated', text: state.response.text });
+    if (
+      (deps.requireDispatchReconciliation ||
+        job.checkpoint.requireDispatchReconciliation) &&
+      state?.requestInFlight
+    )
+      return Result.Error(
+        new AppError({
+          code: 'NEWSLETTER_RECONCILIATION_REQUIRED',
+          category: 'conflict',
+          status: 409,
+          message:
+            'A dispatched generation has no saved response. Inspect diagnostics before an explicit Retry.',
+        })
+      );
     if (state?.exhausted || (state?.requestInFlight && state.repairsUsed >= 2))
       return Result.Error(
         generationError(`${unit} exhausted its two repair requests; use Retry`)
@@ -1045,6 +1060,7 @@ export function createNewsletterWorker(deps: Deps) {
           live.auditSignature = signature;
           live.verified = claimsSupported(article, audit);
         }
+        current.skippedAngles = [];
         current.offers = rankThemes(current, deps.clock.now()).slice(0, 3);
         return Result.Ok({ value: { type: 'verified' as const } });
       });
@@ -1397,6 +1413,7 @@ export function createNewsletterWorker(deps: Deps) {
       current.sources = current.sources.filter(
         (source) => !retiredSources.includes(source)
       );
+      current.skippedAngles = [];
       current.offers = rankThemes(current, deps.clock.now()).slice(0, 3);
       current.offerHistory ??= [];
       if (
@@ -1457,6 +1474,27 @@ export function createNewsletterWorker(deps: Deps) {
       | { type: 'invocation_budget_yield' }
     >
   > => {
+    const strict =
+      deps.requireDispatchReconciliation ||
+      job.checkpoint.requireDispatchReconciliation;
+    const uncertainty = () =>
+      new AppError({
+        code: 'NEWSLETTER_RECONCILIATION_REQUIRED',
+        category: 'conflict',
+        status: 409,
+        message:
+          'A dispatched research request has no saved response. Inspect preserved captures and diagnostics before an explicit Retry.',
+      });
+    if (strict && job.checkpoint.researchDispatch === 'dispatched')
+      return Result.Error(uncertainty());
+    if (
+      job.checkpoint.researchDispatch === 'completed' &&
+      job.checkpoint.sources
+    )
+      return Result.Ok({
+        type: 'research_completed',
+        sources: job.checkpoint.sources,
+      });
     const execution = executions.get(job.id);
     const canceled = executionFailure(job);
     if (canceled) return Result.Error(canceled);
@@ -1476,6 +1514,11 @@ export function createNewsletterWorker(deps: Deps) {
       });
       return Result.Ok({ type: 'invocation_budget_yield' });
     }
+    const dispatched = await update(job, 'research', {
+      ...job.checkpoint,
+      researchDispatch: 'dispatched',
+    });
+    if (dispatched.isError()) return Result.Error(dispatched.getError());
     const started = deps.clock.now().getTime();
     const research = await deps.archive.research({
       ...input,
@@ -1491,11 +1534,22 @@ export function createNewsletterWorker(deps: Deps) {
       durationMs: Math.max(0, deps.clock.now().getTime() - started),
       outcome: research.isOk() ? 'response_received' : research.getError().code,
     });
-    if (research.isOk())
+    if (research.isOk()) {
+      const saved = await update(job, 'research', {
+        ...job.checkpoint,
+        researchDispatch: 'completed',
+        sources: research.get(),
+      });
+      if (saved.isError()) return Result.Error(saved.getError());
       return Result.Ok({ type: 'research_completed', sources: research.get() });
+    }
     const enriched = await recoverResearch(job, angle);
     return Result.Error(
-      enriched.isError() ? enriched.getError() : research.getError()
+      strict
+        ? uncertainty()
+        : enriched.isError()
+          ? enriched.getError()
+          : research.getError()
     );
   };
   const verifyResearchAngle = async (input: {
@@ -2150,7 +2204,7 @@ export function createNewsletterWorker(deps: Deps) {
     },
     async runNext(
       mode: 'hosted' | 'local',
-      options: { deadline?: Date } = {}
+      options: { deadline?: Date; jobId?: string } = {}
     ): Promise<
       ApplicationResult<
         | { type: 'queue_empty' }
@@ -2167,7 +2221,8 @@ export function createNewsletterWorker(deps: Deps) {
         mode,
         deps.clock.now(),
         token,
-        deps.localOperatorId
+        deps.localOperatorId,
+        options.jobId
       );
       if (claimed.isError()) return Result.Error(claimed.getError());
       const outcome = claimed.get();

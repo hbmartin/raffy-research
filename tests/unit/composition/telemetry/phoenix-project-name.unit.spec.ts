@@ -50,4 +50,19 @@ describe('resolvePhoenixProjectName', () => {
       resolvePhoenixProjectName(config({ otelEnvironment: undefined }))
     ).toBe('start-ui-web');
   });
+
+  it('keeps evals in their existing project when the app project is pinned', () => {
+    const pinned = config({
+      serviceName: 'raffy-research-local',
+      phoenixProjectName: 'start-ui-web-local',
+      phoenixEvalProjectName: 'start-ui-web-evals',
+    });
+    expect(resolvePhoenixProjectName(pinned)).toBe('start-ui-web-local');
+    expect(resolvePhoenixProjectName(pinned, 'evals')).toBe(
+      'start-ui-web-evals'
+    );
+    expect(resolvePhoenixProjectName(pinned, 'worker')).toBe(
+      'start-ui-web-local'
+    );
+  });
 });

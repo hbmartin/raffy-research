@@ -136,6 +136,7 @@ export type Selection = {
   overrideReason: string;
   evidenceIdentities: string[];
   selectedBy: string;
+  provenance?: import('@/modules/intelligence').JudgmentProvenance;
 };
 export const zArticle = z.object({
   subject: z.string().min(1).max(250),
@@ -192,6 +193,7 @@ export type NewsletterState = {
   offers: Theme[];
   assignments?: Record<string, string>;
   skippedReports?: string[];
+  skippedAngles?: string[];
   offerHistory?: {
     jobId: string;
     reportId: string;
@@ -255,6 +257,7 @@ export type NewsletterJob = {
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   stage: string;
   checkpoint: {
+    requireDispatchReconciliation?: boolean;
     version?: 2 | 3;
     normalizationIssue?: string;
     stylePlan?: StylePlan;
@@ -274,6 +277,7 @@ export type NewsletterJob = {
     audits?: Audit[];
     article?: Article;
     sources?: EvidenceSource[];
+    researchDispatch?: 'dispatched' | 'completed';
     researchStartedAt?: string;
     researchElapsedMs?: number;
     styleNotesReady?: boolean;
@@ -393,6 +397,9 @@ export function rankThemes(
   const halfLife = state.profile?.halfLifeDays ?? 90;
   const candidates = state.angles
     .filter((a) => !a.failed)
+    .filter(
+      (a) => includeSnoozed || !(state.skippedAngles ?? []).includes(a.id)
+    )
     .filter((a) => includeSnoozed || angleEligible(state, a, now))
     .map((angle): Theme => {
       const seen = new Set<string>();

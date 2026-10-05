@@ -1,4 +1,5 @@
 export { LayoutLogin } from './presentation/layout-login';
+export { MachineApproval } from './presentation/machine-approval';
 export { default as PageLogin } from './presentation/page-login';
 export { default as PageLoginError } from './presentation/page-login-error';
 export { PageLogout } from './presentation/page-logout';

@@ -47,6 +47,57 @@ function setup(initial = stateFixture()) {
   return { ...memory, useCases, idGenerator, clock };
 }
 describe('Newsletter shared workflow', () => {
+  it('pauses an uncertain native research dispatch instead of charging for it again', async () => {
+    const initial = stateFixture();
+    initial.angles[0]!.verified = false;
+    const s = setup(initial);
+    requireOk(
+      await s.useCases.select({
+        ...actor,
+        reportId: 'report-1',
+        angleId: 'angle-1',
+        overrideReason: 'Authorized fixture override',
+      })
+    );
+    const research = vi.fn(archiveFixture.research);
+    const generate = vi.fn<NewsletterModel['generate']>();
+    const worker = createNewsletterWorker({
+      repository: {
+        ...s.repository,
+        claim: async (...args) => {
+          const found = await s.repository.claim(...args);
+          if (found.isError()) return Result.Error(found.getError());
+          const outcome = found.get();
+          if (outcome.type !== 'job_claimed') return Result.Ok(outcome);
+          return Result.Ok({
+            ...outcome,
+            job: {
+              ...outcome.job,
+              checkpoint: {
+                ...outcome.job.checkpoint,
+                requireDispatchReconciliation: true,
+                researchDispatch: 'dispatched',
+                researchQueries: ['study evidence'],
+              },
+            },
+          });
+        },
+      },
+      archive: { ...archiveFixture, research },
+      model: { generate },
+      clock: s.clock,
+      idGenerator: s.idGenerator,
+      localOperatorId: 'reader',
+      requireDispatchReconciliation: true,
+    });
+    expect(requireOk(await worker.runNext('local'))).toMatchObject({
+      type: 'job_finished',
+      status: 'failed',
+    });
+    expect(research).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(s.getJobs()[0]?.failure).toContain('dispatched research request');
+  });
   it('loads scoped text for preparation and preserves unchanged verification on a later attempt', async () => {
     const initial = stateFixture();
     initial.sources[0]!.contentFingerprint = processingSignature(

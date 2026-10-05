@@ -39,7 +39,8 @@ export interface NewsletterRepository {
   >;
   history(
     workspaceId: string,
-    before?: string
+    before?: string,
+    limit?: number
   ): Promise<
     ApplicationResult<{
       type: 'history_found';
@@ -72,7 +73,15 @@ export interface NewsletterRepository {
       context: MutationContext
     ) => ApplicationResult<Mutation<T>>,
     lease?: { jobId: string; leaseToken: string },
-    options?: { content?: boolean; drafts?: boolean }
+    options?: {
+      content?: boolean;
+      drafts?: boolean;
+      decision?: {
+        actorId: string;
+        action: string;
+        provenance: import('@/modules/intelligence').JudgmentProvenance;
+      };
+    }
   ): Promise<ApplicationResult<T>>;
   listJobs(
     workspaceId: string,
@@ -86,7 +95,8 @@ export interface NewsletterRepository {
     mode: Runtime['mode'],
     now: Date,
     token: string,
-    localOperatorId?: string
+    localOperatorId?: string,
+    jobId?: string
   ): Promise<
     ApplicationResult<
       { type: 'job_claimed'; job: NewsletterJob } | { type: 'queue_empty' }
@@ -109,7 +119,8 @@ export interface NewsletterRepository {
 export interface ResearchArchive {
   equivalenceReviews?(
     workspaceId: string,
-    before?: string
+    before?: string,
+    limit?: number
   ): Promise<
     ApplicationResult<{
       type: 'reviews_found';
@@ -120,6 +131,7 @@ export interface ResearchArchive {
         leftTitle: string;
         rightTitle: string;
         status: 'suggested' | 'confirmed' | 'separate';
+        provenance?: import('@/modules/intelligence').JudgmentProvenance | null;
       }[];
       nextCursor: string | null;
     }>
@@ -128,6 +140,7 @@ export interface ResearchArchive {
     workspaceId: string;
     reviewId: string;
     actorId: string;
+    provenance?: import('@/modules/intelligence').JudgmentProvenance;
     action: 'confirm' | 'separate' | 'reverse';
   }): Promise<
     ApplicationResult<

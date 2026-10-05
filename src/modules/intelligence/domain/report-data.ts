@@ -467,7 +467,7 @@ const stripCodeFences = (text: string): string => {
   return body.slice(0, -3).trim();
 };
 
-function parseJsonText(
+export function parseJsonText(
   text: string
 ):
   | { type: 'json_valid'; value: unknown }

@@ -1,26 +1,29 @@
+import { Result } from '@swan-io/boxed';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import type { AuthUseCases } from '@/modules/auth';
 import {
-  buildEvalPrompt,
-  buildSourceSummaryPrompt,
   computeWeeklyPeriod,
-  EVAL_PROMPT_VERSION,
+  evaluateLabReport,
   generateWeeklyReport,
   handleProviderCallback,
   type IngestionDeps,
   type IngestionRepository,
   type IntelligenceUseCases,
+  type LabTextPort,
+  type ReportGetOutcome,
+  type ReportLatestOutcome,
   type ReportRepository,
   runWorkspaceIngest,
-  SOURCE_SUMMARY_PROMPT_VERSION,
   type SourceRepository,
+  summarizeLabSource,
   type WeeklyReportGenerationDeps,
   type WorkspaceRepository,
 } from '@/modules/intelligence';
 import {
   toSourceRecordId,
+  toWeeklyReportId,
   zProviderCallbackEventId,
   zSourceRecordId,
   zWorkspaceId,
@@ -65,6 +68,17 @@ export type LocalAiStreamHandlerDeps = {
     emit: (event: LocalAiNdjsonEvent) => void | Promise<void>;
   }) => WeeklyReportGenerationDeps;
   generateLocalText: LocalTextGenerator;
+  recordEvaluation?: (input: {
+    workspaceId: string;
+    targetId: string;
+    kind: 'evaluation';
+    provenance: import('../../domain/judgment').JudgmentProvenance;
+    payload: Record<string, unknown>;
+  }) => Promise<
+    import('@/modules/kernel/application/result').ApplicationResult<{
+      type: string;
+    }>
+  >;
 };
 
 const zLocalAiAction = z.enum([
@@ -157,34 +171,6 @@ function toJsonValue(value: unknown): JsonValue {
   }
 }
 
-function extractJsonObject(text: string): JsonObject | null {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
-  const candidate = fenced ?? trimmed;
-  try {
-    const parsed = JSON.parse(candidate);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as JsonObject)
-      : null;
-  } catch {
-    const start = candidate.indexOf('{');
-    const end = candidate.lastIndexOf('}');
-    if (start === -1 || end <= start) return null;
-    try {
-      const parsed = JSON.parse(candidate.slice(start, end + 1));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as JsonObject)
-        : null;
-    } catch {
-      return null;
-    }
-  }
-}
-
-function asOptionalString(value: JsonValue | undefined) {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
 async function listPeriodSources(
   deps: LocalAiStreamHandlerDeps,
   input: {
@@ -247,6 +233,41 @@ async function resolveSourcesForRun(
   ).sources;
 }
 
+function streamLabText(
+  deps: LocalAiStreamHandlerDeps,
+  input: Parameters<typeof summarizeSources>[1]
+): LabTextPort {
+  return async ({ prompt, label }) => {
+    try {
+      const output = await deps.generateLocalText({
+        provider: input.provider,
+        model: input.model,
+        prompt,
+        label,
+        action: input.data.action,
+        runId: input.runId,
+        rawOutputDir: input.rawOutputDir,
+        ollamaBaseUrl: input.ollamaBaseUrl,
+        ollamaNumCtx: input.ollamaNumCtx,
+        abortSignal: input.abortSignal,
+        onEvent: input.emit,
+      });
+      return Result.Ok({ type: 'text_generated', ...output });
+    } catch (cause) {
+      return Result.Error(
+        cause instanceof AppError
+          ? cause
+          : new AppError({
+              code: 'LOCAL_MODEL_FAILED',
+              category: 'system',
+              status: 502,
+              cause,
+            })
+      );
+    }
+  };
+}
+
 async function summarizeSources(
   deps: LocalAiStreamHandlerDeps,
   input: {
@@ -271,44 +292,22 @@ async function summarizeSources(
 
   for (const source of sources) {
     throwIfAborted(input.abortSignal);
-    const prompt = buildSourceSummaryPrompt(source);
-    const result = await deps.generateLocalText({
-      provider: input.provider,
-      model: input.model,
-      prompt,
-      action: input.data.action,
-      label: `source-summary-${source.id}`,
-      runId: input.runId,
-      rawOutputDir: input.rawOutputDir,
-      ollamaBaseUrl: input.ollamaBaseUrl,
-      ollamaNumCtx: input.ollamaNumCtx,
-      abortSignal: input.abortSignal,
-      onEvent: input.emit,
-    });
-    const parsed = extractJsonObject(result.text);
-    const summaryText =
-      asOptionalString(parsed?.summary) ?? result.text.trim().slice(0, 4000);
-    const evidenceCandidateText =
-      asOptionalString(parsed?.evidence_candidate) ?? null;
-    const created = await repositories.sourceRepository.createSourceSummary({
-      workspaceId: input.data.workspaceId,
-      sourceRecordId: source.id,
-      summaryText,
-      evidenceCandidateText,
-      modelName: result.modelName,
-      modelProvider: result.modelProvider,
-      promptVersion: SOURCE_SUMMARY_PROMPT_VERSION,
-      inputMetadata: {
-        sourceTitle: source.title,
-        sourceProvider: source.providerName,
+    const created = await summarizeLabSource(
+      {
+        generate: streamLabText(deps, input),
+        sources: repositories.sourceRepository,
       },
-      outputPayload: {
-        rawText: result.text,
-        ...result.metadata,
-      },
-    });
+      source
+    );
     if (created.isError()) throw created.getError();
-    summaries.push(created.get());
+    const outcome = created.get();
+    if (outcome.type !== 'source_summarized')
+      throw new AppError({
+        code: 'LOCAL_AI_INTERRUPTED',
+        category: 'conflict',
+        status: 409,
+      });
+    summaries.push(outcome.summary);
     await input.emit({
       type: 'artifact',
       runId: input.runId,
@@ -317,7 +316,7 @@ async function summarizeSources(
       artifact: {
         kind: 'source_summary',
         sourceRecordId: source.id,
-        sourceSummaryId: created.get().id,
+        sourceSummaryId: outcome.summaryId,
       },
       at: nowIso(),
     });
@@ -387,7 +386,9 @@ async function evaluateLatestReport(
   deps: LocalAiStreamHandlerDeps,
   input: {
     data: LocalAiRequest;
+    reportId?: string;
     runId: string;
+    actorId?: string;
     provider: LocalAiProviderName;
     model: string;
     rawOutputDir: string;
@@ -398,12 +399,18 @@ async function evaluateLatestReport(
   }
 ) {
   const repositories = deps.getRepositories();
-  const latest = await repositories.reportRepository.getLatestPublished(
-    input.data.workspaceId
-  );
+  const latest: import('@/modules/kernel/application/result').ApplicationResult<
+    ReportGetOutcome | ReportLatestOutcome
+  > = input.reportId
+    ? await repositories.reportRepository.getById(
+        toWeeklyReportId(input.reportId)
+      )
+    : await repositories.reportRepository.getLatestPublished(
+        input.data.workspaceId
+      );
   if (latest.isError()) throw latest.getError();
   const latestOutcome = latest.get();
-  if (latestOutcome.type === 'report_none') {
+  if (latestOutcome.type !== 'report_found') {
     throw new AppError({
       code: 'LOCAL_AI_NO_PUBLISHED_REPORT',
       category: 'not_found',
@@ -430,21 +437,29 @@ async function evaluateLatestReport(
     data: { reportId: report.id, sources: sources.get().length },
   });
 
-  const result = await deps.generateLocalText({
-    provider: input.provider,
-    model: input.model,
-    prompt: buildEvalPrompt({ report, sources: sources.get() }),
-    action: input.data.action,
-    label: `report-eval-${report.id}`,
-    runId: input.runId,
-    rawOutputDir: input.rawOutputDir,
-    ollamaBaseUrl: input.ollamaBaseUrl,
-    ollamaNumCtx: input.ollamaNumCtx,
-    abortSignal: input.abortSignal,
-    onEvent: input.emit,
-  });
-
-  const verdict = extractJsonObject(result.text);
+  const result = await evaluateLabReport(
+    streamLabText(deps, { ...input, periodDate: report.periodStart }),
+    report,
+    sources.get()
+  );
+  if (result.isError()) throw result.getError();
+  const verdict = result.get();
+  if (verdict.type === 'report_evaluated' && deps.recordEvaluation) {
+    const saved = await deps.recordEvaluation({
+      workspaceId: input.data.workspaceId,
+      targetId: report.id,
+      kind: 'evaluation',
+      provenance: {
+        origin: 'automated',
+        channel: 'web',
+        actorId: input.actorId,
+        model: verdict.modelName,
+        promptVersion: verdict.promptVersion,
+      },
+      payload: { ...verdict, runId: input.runId },
+    });
+    if (saved.isError()) throw saved.getError();
+  }
   await input.emit({
     type: 'artifact',
     runId: input.runId,
@@ -452,16 +467,14 @@ async function evaluateLatestReport(
     label: 'report-eval',
     artifact: {
       kind: 'report_evaluation',
-      reportId: report.id,
-      promptVersion: EVAL_PROMPT_VERSION,
-      modelName: result.modelName,
-      modelProvider: result.modelProvider,
-      evaluation: verdict ?? result.text,
+      ...(toJsonValue(verdict) as JsonObject),
     },
     at: nowIso(),
   });
-
-  return { reportId: report.id, parsedVerdict: verdict !== null };
+  return {
+    reportId: report.id,
+    parsedVerdict: verdict.type === 'report_evaluated',
+  };
 }
 
 async function runAction(
@@ -469,6 +482,7 @@ async function runAction(
   input: {
     data: LocalAiRequest;
     runId: string;
+    actorId?: string;
     provider: LocalAiProviderName;
     model: string;
     rawOutputDir: string;
@@ -521,6 +535,7 @@ async function runAction(
     });
     const ingest = await runWorkspaceIngest(deps.buildIngestionDeps(), {
       workspaceId: input.data.workspaceId,
+      signal: input.abortSignal,
     });
     if (ingest.isError()) throw ingest.getError();
     await input.emit({
@@ -635,7 +650,18 @@ async function runAction(
       artifact: { kind: 'weekly_report', outcome: toJsonValue(result.get()) },
       at: nowIso(),
     });
-    return result.get();
+    const published = result.get();
+    if (
+      input.data.action === 'full_workflow' &&
+      published.type === 'report_published'
+    ) {
+      const evaluation = await evaluateLatestReport(deps, {
+        ...input,
+        reportId: published.report.id,
+      });
+      return { ...published, evaluation };
+    }
+    return published;
   }
 
   return {};
@@ -655,6 +681,9 @@ async function authenticateAndAuthorize(
     return { status: 401, body: { error: 'unauthorized' } };
   }
 
+  if (sessionOutcome.session.user.role !== 'admin') {
+    return { status: 403, body: { error: 'forbidden' } };
+  }
   const workspaceAccess = await deps
     .getIntelligenceUseCases()
     .getWorkspaceConfig({
@@ -669,7 +698,7 @@ async function authenticateAndAuthorize(
   if (workspaceOutcome.type === 'workspace_not_found') {
     return { status: 404, body: { error: 'workspace_not_found' } };
   }
-  return null;
+  return { actorId: sessionOutcome.session.user.id };
 }
 
 export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
@@ -693,10 +722,11 @@ export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
       );
     }
 
+    let actorId: string;
     try {
-      const authFailure = await authenticateAndAuthorize(deps, request, parsed);
-      if (authFailure)
-        return jsonResponse(authFailure.body, authFailure.status);
+      const access = await authenticateAndAuthorize(deps, request, parsed);
+      if ('status' in access) return jsonResponse(access.body, access.status);
+      actorId = access.actorId;
     } catch (error) {
       return jsonResponse(
         { error: error instanceof Error ? error.message : 'auth_failed' },
@@ -760,6 +790,7 @@ export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
           try {
             const result = await runAction(deps, {
               data: parsed,
+              actorId,
               runId,
               provider,
               model,

@@ -35,6 +35,9 @@ export type RunWorkspaceIngestInput = {
   workspaceId: WorkspaceId;
   /** Legacy callers may supply coverage dates; fetching always uses the clock. */
   now?: Date;
+  executionTime?: Date;
+  providerNames?: string[];
+  signal?: AbortSignal;
   scheduledJobRunId?: string;
 };
 
@@ -94,8 +97,21 @@ export async function runWorkspaceIngest(
   let observationCount = 0;
 
   for (const config of providerConfigs.get()) {
-    const now = deps.clock.now();
-    if (!config.enabled) continue;
+    const now = input.executionTime ?? deps.clock.now();
+    if (
+      !config.enabled ||
+      (input.providerNames &&
+        !input.providerNames.includes(config.providerName))
+    )
+      continue;
+    if (input.signal?.aborted)
+      return Result.Error(
+        new AppError({
+          code: 'INGESTION_CANCELLED',
+          category: 'conflict',
+          status: 409,
+        })
+      );
     const adapter = deps.registry.get(config.providerName);
     if (!adapter?.runDailyIngest) continue;
 
@@ -149,6 +165,7 @@ export async function runWorkspaceIngest(
     };
 
     const context: ProviderDailyContext = {
+      signal: input.signal,
       workspace,
       keywords: keywords.get(),
       competitors: competitors.get(),

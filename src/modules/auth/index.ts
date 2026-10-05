@@ -11,6 +11,14 @@ export {
 } from './application/scope-authorization';
 export type { AuthUseCaseDeps } from './application/use-cases/types';
 export { isAuthSignupEnabled } from './domain/auth-policy';
+export type {
+  MachineCapability,
+  MachineIdentity,
+} from './domain/machine-credential';
+export {
+  MACHINE_CAPABILITIES,
+  zMachineCapabilities,
+} from './domain/machine-credential';
 export {
   defaultUserPermissions,
   hasRolePermission,

@@ -122,7 +122,8 @@ export const SourceDetail = (props: {
             variant={source.relevanceLabel === 'keep' ? 'positive' : 'warning'}
             size="sm"
           >
-            {source.relevanceLabel === 'keep' ? 'Kept' : 'Junk'}
+            {source.relevanceLabel === 'keep' ? 'Kept' : 'Junk'} ·{' '}
+            {source.labelProvenance?.origin ?? 'unknown'}
           </Badge>
         ) : null}
         <span className="text-xs text-muted-foreground">

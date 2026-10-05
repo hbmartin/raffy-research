@@ -60,3 +60,5 @@ export const authServerFunctions = {
 };
 
 export type AuthServerFunctions = typeof authServerFunctions;
+
+export { machineApprove, machinePairing } from './machine-functions';

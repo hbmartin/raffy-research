@@ -10,8 +10,10 @@ export {
   getProviderWebhookSecret,
 } from './infrastructure/config/runtime';
 export { createIntelligenceRuntimeConfig } from './infrastructure/config/runtime';
+export { createAgentResearch } from './infrastructure/drizzle/agent-research';
 export { backfillCaptureHistory } from './infrastructure/drizzle/capture-backfill';
 export { createIngestionRepository } from './infrastructure/drizzle/ingestion-repository-drizzle';
+export { createLinkedinWatchlistRepository } from './infrastructure/drizzle/linkedin-watchlist-repository';
 export { createPublicResearchArchive } from './infrastructure/drizzle/public-research-archive';
 export { createReportRepository } from './infrastructure/drizzle/report-repository-drizzle';
 export { createRubricScoreRepository } from './infrastructure/drizzle/rubric-score-repository-drizzle';
@@ -22,6 +24,7 @@ export { getLocalAiConfig } from './infrastructure/local-ai/config';
 export { generateLocalText } from './infrastructure/local-ai/local-text-generator';
 export { createLocalAiReportGenerator } from './infrastructure/local-ai/report-generator-local-ai';
 export { createOpenAiReportGenerator } from './infrastructure/openai/report-generator-openai';
+export { createLinkedinProviderTask } from './infrastructure/providers/linkedin-provider-task';
 export { createProviderRegistry } from './infrastructure/providers/registry';
 export { createSlackAlert } from './infrastructure/slack/slack-alert';
 export { createIntelligenceJobRequestHandlers } from './transport/http/job-request-handlers';

@@ -6,6 +6,8 @@
  */
 import { getPhoenixConfig } from '@/modules/intelligence/backend';
 
+import { getEvalTelemetryConfig } from './telemetry';
+
 export async function createPhoenixClient() {
   const config = getPhoenixConfig();
   if (!config.enabled) {
@@ -13,10 +15,29 @@ export async function createPhoenixClient() {
     process.exit(1);
   }
   const { createClient } = await import('@arizeai/phoenix-client');
-  return createClient({
+  const client = createClient({
     options: {
       baseUrl: config.appUrl,
       headers: { Authorization: `Bearer ${config.apiKey}` },
     },
   });
+  const { projectName } = getEvalTelemetryConfig();
+  // The SDK has no project-name option and generates a project per experiment.
+  // Phoenix's REST endpoint supports project_name; use the public middleware
+  // hook so its response and the SDK's task tracer both use our existing project.
+  client.use({
+    async onRequest({ request, schemaPath }) {
+      if (
+        request.method !== 'POST' ||
+        schemaPath !== '/v1/datasets/{dataset_id}/experiments'
+      )
+        return;
+      const body = await request.clone().json();
+      return new Request(request, {
+        method: 'POST',
+        body: JSON.stringify({ ...body, project_name: projectName }),
+      });
+    },
+  });
+  return client;
 }

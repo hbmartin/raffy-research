@@ -27,6 +27,7 @@ import {
   type SummaryExampleInput,
   type SummaryExampleOutput,
 } from '../summary-evaluators';
+import { getEvalTelemetryConfig } from '../telemetry';
 
 export async function runSummarizeCase(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
@@ -146,6 +147,7 @@ export async function runSummarizeCase(args: CliArgs) {
     return;
   }
 
+  const telemetry = getEvalTelemetryConfig();
   const experiment = await runExperiment({
     client,
     dataset: {
@@ -158,6 +160,7 @@ export async function runSummarizeCase(args: CliArgs) {
       ? `Stored summary quality on case ${evalCase.manifest.name}`
       : `Summary quality for ${provider}/${model} on case ${evalCase.manifest.name}`,
     experimentMetadata: {
+      ...telemetry.experimentMetadata,
       caseName: evalCase.manifest.name,
       mode,
       provider,

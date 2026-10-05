@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import type { SourceRecordId, WorkspaceId } from '@/modules/kernel/domain/ids';
@@ -28,7 +29,11 @@ import {
 } from '@/modules/kernel/infrastructure/db/types';
 
 import { captureFingerprints, isUncertainCopy } from './capture-fingerprints';
-import { effectiveEvidenceLabel } from './effective-evidence';
+import {
+  effectiveEvidenceLabel,
+  effectiveEvidenceProvenance,
+} from './effective-evidence';
+import { judgmentRecord } from './judgment-schema';
 import {
   intelligenceInvariantError,
   mapIntelligenceDbError,
@@ -45,6 +50,7 @@ import {
   workspace,
 } from './schema';
 import type { SourceRepository } from '../../application/ports/source-repository';
+import type { JudgmentProvenance } from '../../domain/judgment';
 import type {
   CaptureObservationInput,
   SearchResultRecord,
@@ -120,6 +126,7 @@ const toSourceRecord = (row: SourceRow): SourceRecord => ({
   rawPayload: row.rawPayload,
   metadata: row.metadata ?? null,
   relevanceLabel: row.relevanceLabel,
+  labelProvenance: row.labelProvenance,
   labeledAt: row.labeledAt,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -393,6 +400,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
         .select({
           ...getTableColumns(sourceRecordTable),
           relevanceLabel: effectiveEvidenceLabel,
+          labelProvenance: effectiveEvidenceProvenance,
         })
         .from(sourceRecordTable)
         .where(eq(sourceRecordTable.id, id))
@@ -417,6 +425,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
         .select({
           ...getTableColumns(sourceRecordTable),
           relevanceLabel: effectiveEvidenceLabel,
+          labelProvenance: effectiveEvidenceProvenance,
         })
         .from(sourceRecordTable)
         .where(
@@ -509,6 +518,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
         .select({
           ...getTableColumns(sourceRecordTable),
           relevanceLabel: effectiveEvidenceLabel,
+          labelProvenance: effectiveEvidenceProvenance,
         })
         .from(sourceRecordTable)
         .where(
@@ -555,6 +565,7 @@ export class SourceRepositoryDrizzle implements SourceRepository {
     sourceRecordId: SourceRecordId;
     label: SourceRelevanceLabel | null;
     labeledAt: Date;
+    provenance?: JudgmentProvenance;
   }) {
     try {
       return Result.Ok(
@@ -578,7 +589,11 @@ export class SourceRepositoryDrizzle implements SourceRepository {
           );
           const [updated] = await db
             .update(sourceRecordTable)
-            .set({ relevanceLabel: input.label, labeledAt: judgedAt })
+            .set({
+              relevanceLabel: input.label,
+              labeledAt: judgedAt,
+              labelProvenance: input.provenance ?? { origin: 'unknown' },
+            })
             .where(
               and(
                 eq(sourceRecordTable.id, input.sourceRecordId),
@@ -591,10 +606,24 @@ export class SourceRepositoryDrizzle implements SourceRepository {
             workspaceId: input.workspaceId,
             sourceRecordId: input.sourceRecordId,
             label: input.label,
+            provenance: input.provenance ?? { origin: 'unknown' },
             judgedAt,
           });
+          const [judgment] = await db
+            .insert(judgmentRecord)
+            .values({
+              id: randomUUID(),
+              workspaceId: input.workspaceId,
+              targetId: input.sourceRecordId,
+              kind: 'label',
+              provenance: input.provenance ?? { origin: 'unknown' },
+              payload: { label: input.label },
+              createdAt: judgedAt,
+            })
+            .returning({ id: judgmentRecord.id });
           return {
             type: 'source_labeled',
+            judgmentId: judgment!.id,
             sourceRecord: toSourceRecord(updated),
           } as const;
         })

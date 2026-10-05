@@ -116,12 +116,14 @@ export const signalUrl = (
  * anyone remembering to set it: the service plus the environment, or plus the
  * caller's role when a process is not the application (the eval CLI's model
  * calls are experiments, not traffic). PHOENIX_PROJECT_NAME overrides both,
- * for deliberately pinning everything to one project.
+ * for deliberately pinning everything to one project. PHOENIX_EVAL_PROJECT_NAME
+ * can give evals their own project even when the app project is pinned.
  */
 export const resolvePhoenixProjectName = (
   config: ReturnType<typeof getTelemetryConfig>,
   role?: string
 ): string =>
+  (role === 'evals' ? config.phoenixEvalProjectName : undefined) ??
   config.phoenixProjectName ??
   [config.serviceName, role ?? config.otelEnvironment]
     .filter(Boolean)

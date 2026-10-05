@@ -102,7 +102,10 @@ export function DuplicateReview({
               <p className="break-words">
                 {review.leftTitle} · {review.rightTitle}
               </p>
-              <p className="text-muted-foreground">{review.status}</p>
+              <p className="text-muted-foreground">
+                <span>{review.status}</span> ·{' '}
+                <span>{review.provenance?.origin ?? 'unknown'} judgment</span>
+              </p>
               <Button
                 variant="ghost"
                 onClick={() =>

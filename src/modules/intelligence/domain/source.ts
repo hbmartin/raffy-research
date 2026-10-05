@@ -6,6 +6,8 @@ import type {
 } from '@/modules/kernel/domain/ids';
 import type { JsonObject, JsonValue } from '@/modules/kernel/domain/json';
 
+import type { JudgmentProvenance } from './judgment';
+
 export const SOURCE_RELEVANCE_LABELS = ['keep', 'junk'] as const;
 
 export type SourceRelevanceLabel = (typeof SOURCE_RELEVANCE_LABELS)[number];
@@ -37,6 +39,7 @@ export type SourceRecord = {
   rawPayload: JsonValue | null;
   metadata: JsonObject | null;
   relevanceLabel: SourceRelevanceLabel | null;
+  labelProvenance?: JudgmentProvenance | null;
   labeledAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

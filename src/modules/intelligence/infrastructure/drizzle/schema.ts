@@ -16,6 +16,7 @@ import {
   updatedAtColumn,
 } from '@/modules/kernel/infrastructure/db/schema/common';
 
+import type { JudgmentProvenance } from '../../domain/judgment';
 import type { ReportData } from '../../domain/report-data';
 
 type JsonMetadata = JsonObject;
@@ -152,6 +153,7 @@ export const sourceRecord = pgTable(
     rawPayload: jsonb('rawPayload').$type<JsonValue>().notNull().default({}),
     metadata: jsonb('metadata').$type<JsonMetadata>().notNull().default({}),
     relevanceLabel: text('relevanceLabel').$type<'keep' | 'junk'>(),
+    labelProvenance: jsonb('labelProvenance').$type<JudgmentProvenance>(),
     labeledAt: timestamp('labeledAt', { precision: 3, mode: 'date' }),
     canonicalUrl: text('canonicalUrl'),
     contentFingerprint: text('contentFingerprint'),
@@ -261,6 +263,10 @@ export const evidenceJudgment = pgTable(
       .notNull()
       .references(() => sourceRecord.id, { onDelete: 'restrict' }),
     label: text('label').$type<'keep' | 'junk'>(),
+    provenance: jsonb('provenance')
+      .$type<JudgmentProvenance>()
+      .notNull()
+      .default({ origin: 'unknown' }),
     judgedAt: timestamp('judgedAt', {
       withTimezone: true,
       precision: 3,
@@ -653,3 +659,4 @@ export const providerCallbackEvent = pgTable(
     ),
   ]
 );
+export * from './judgment-schema';

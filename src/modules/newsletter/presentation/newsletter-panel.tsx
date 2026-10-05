@@ -565,7 +565,8 @@ export function NewsletterPanel({
           <span className="text-sm">
             Shared selection:{' '}
             {state.angles.find((a) => a.id === selection.angleId)?.title} ·{' '}
-            {selection.status}
+            {selection.status} · {selection.provenance?.origin ?? 'unknown'}{' '}
+            editorial judgment
           </span>
           <Button
             variant="secondary"

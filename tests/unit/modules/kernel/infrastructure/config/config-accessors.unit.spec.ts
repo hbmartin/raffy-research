@@ -441,6 +441,25 @@ describe('server config accessors', () => {
     );
   });
 
+  it('parses independent Phoenix app and eval project overrides', async () => {
+    const { getTelemetryConfig } =
+      await import('@/modules/kernel/infrastructure/config/telemetry');
+    expect(
+      getTelemetryConfig({
+        NODE_ENV: 'development',
+        OTEL_ENVIRONMENT: 'local',
+        PHOENIX_COLLECTOR_URL: 'https://phoenix.example/s/workspace/v1/traces',
+        PHOENIX_PROJECT_NAME: 'start-ui-web-local',
+        PHOENIX_EVAL_PROJECT_NAME: 'start-ui-web-evals',
+      })
+    ).toMatchObject({
+      otelEnvironment: 'local',
+      phoenixCollectorUrl: 'https://phoenix.example/s/workspace/v1/traces',
+      phoenixProjectName: 'start-ui-web-local',
+      phoenixEvalProjectName: 'start-ui-web-evals',
+    });
+  });
+
   it('parses standard OTLP exporter headers without truncating values', async () => {
     vi.stubEnv('OTEL_COLLECTOR_URL', 'https://collector.example');
     vi.stubEnv(

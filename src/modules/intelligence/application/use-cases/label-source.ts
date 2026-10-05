@@ -11,6 +11,7 @@ import { isAllowed } from './permission';
 import type { ForbiddenOutcome, IntelligenceUseCaseDeps } from './types';
 import { sourceBelongsToWorkspace } from './workspace-ownership';
 import type { SourceLabelOutcome } from '../ports/source-repository';
+import type { JudgmentProvenance } from '../../domain/judgment';
 import type { SourceRelevanceLabel } from '../../domain/source';
 
 export type LabelSourceInput = {
@@ -19,6 +20,7 @@ export type LabelSourceInput = {
   sourceRecordId: SourceRecordId;
   /** null clears the label back to unreviewed. */
   label: SourceRelevanceLabel | null;
+  provenance?: JudgmentProvenance;
 };
 
 /**
@@ -51,5 +53,11 @@ export async function labelSource(
     sourceRecordId: input.sourceRecordId,
     label: input.label,
     labeledAt: deps.clock.now(),
+    provenance: {
+      ...input.provenance,
+      origin: input.provenance?.origin ?? 'human',
+      channel: input.provenance?.channel ?? 'web',
+      actorId: input.currentUserId,
+    },
   });
 }

@@ -1,5 +1,6 @@
 import { Result } from '@swan-io/boxed';
 
+import { createAgentResearch } from '@/modules/intelligence/backend';
 import {
   createPublicResearchArchive,
   generateLocalText,
@@ -26,7 +27,9 @@ import { createCachedFactory } from './shared/singleton';
 function buildNewsletterRuntime() {
   const kernel = getKernel();
   const execution = newsletterExecutionConfig();
-  const repository = createNewsletterRepository(kernel.db);
+  const repository = createNewsletterRepository(kernel.db, (tx, decision) =>
+    createAgentResearch(tx).recordJudgment(decision)
+  );
   const archive = createPublicResearchArchive(kernel.db);
   const hosted = createHostedNewsletterModel({
     apiKey: () => createIntelligenceRuntimeConfig().openAiApiKey,

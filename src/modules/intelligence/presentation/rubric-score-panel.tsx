@@ -167,6 +167,7 @@ export const RubricScorePanel = (props: {
     <Card data-testid="rubric-score-panel">
       <CardHeader>
         <CardTitle className="text-base">Score this report</CardTitle>
+        <p className="text-xs text-muted-foreground">Human rubric judgment</p>
         <CardDescription>
           {existing
             ? 'You scored this report. Adjust and save to replace your score.'

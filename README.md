@@ -574,6 +574,27 @@ Iterating on synthesis quality is token-hungry. A single full-workflow run (summ
 
 Evidence mode loads `.env.ai.local`, then `.env.local`, then `.env`. `dotenv-cli` keeps the first value for each key, so personal overrides take precedence over downloaded production settings and defaults. Existing shell variables have the highest precedence. The same ordering is used by `dev:evidence`, `db:migrate:evidence`, `auth:set-credential`, `eval:phoenix`, and `db:migrate:workflows`.
 
+Phoenix Cloud can collect both brains in one space while keeping their traces
+in separate projects. Use the hostname from Phoenix Settings → General,
+including `/s/<space>`, for `PHOENIX_APP_URL`; use that hostname plus
+`/v1/traces` for `PHOENIX_COLLECTOR_URL`. Store `PHOENIX_API_KEY` in ignored
+local env files and encrypted Vercel environment variables.
+
+| Runtime | `PHOENIX_PROJECT_NAME` | `OTEL_ENVIRONMENT` |
+|---|---|---|
+| Local evidence mode | `start-ui-web-local` | `local` |
+| Vercel production | `start-ui-web-production` | `production` |
+| Vercel preview | `start-ui-web-preview` | `preview` |
+
+Set `PHOENIX_EVAL_PROJECT_NAME=start-ui-web-evals` to keep the eval CLI's
+experiment wrappers and model spans in the existing eval project. This override
+wins over the app project for evals. Experiment metadata records `environment`
+and `role`; model/app trace resources carry `deployment.environment.name`.
+Project names are independent of `OTEL_SERVICE_NAME`, so other collectors can
+keep their existing service names. Vercel env changes require a new deployment.
+Put local project and environment overrides in `.env.ai.local` so production
+env pulls cannot relabel local work; keep `VITE_OTEL_ENVIRONMENT=local` there too.
+
 `.env.ai.example` documents the override file:
 
 ```bash
@@ -898,3 +919,7 @@ VITE_ENV_NAME="staging"
 VITE_ENV_EMOJI="🔬"
 VITE_ENV_COLOR="teal"
 ```
+
+## Agent operations
+
+Use `pnpm raffy` for authenticated research, newsletter editing, pipeline operations, and the local quality lab. See [CLI setup and operational contract](docs/raffy-cli.md) for browser pairing, durable workers, idempotency, recovery, and the four Codex/Claude companion skills.

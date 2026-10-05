@@ -21,6 +21,9 @@ import {
 } from '../../domain/rubric';
 
 export type ScoreReportInput = {
+  provenance?: import('../../domain/judgment').JudgmentProvenance & {
+    origin: 'human';
+  };
   currentUserId: UserId;
   workspaceId: WorkspaceId;
   reportId: WeeklyReportId;
@@ -93,6 +96,7 @@ export async function scoreReport(
     accuracy: input.accuracy,
     novelty: input.novelty,
     note: input.note ?? null,
+    provenance: input.provenance,
   });
   if (upserted.isError()) return Result.Error(upserted.getError());
 

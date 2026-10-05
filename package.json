@@ -31,6 +31,7 @@
   },
   "type": "module",
   "scripts": {
+    "raffy": "dotenv -e .env.ai.local -e .env.local -e .env -- node ./run-jiti ./scripts/raffy.ts",
     "postinstall": "pnpm gen:build-info",
     "prepare": "node scripts/install-git-hooks.mjs",
     "dev": "run-p env dev:app",
@@ -140,7 +141,8 @@
     "e2e:ssr:webserver": "node ./run-jiti ./scripts/serve-ssr-e2e.ts",
     "build:e2e:ssr": "node ./run-jiti ./scripts/build-ssr-e2e.ts",
     "test:e2e:ssr:built": "playwright test --config=playwright.ssr.config.ts",
-    "check:ssr-compatibility": "node scripts/check-ssr-compatibility.mjs"
+    "check:ssr-compatibility": "node scripts/check-ssr-compatibility.mjs",
+    "linkedin:monitoring": "dotenv -e .env.ai.local -e .env.local -e .env -- node ./run-jiti ./scripts/linkedin-monitoring.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.79",

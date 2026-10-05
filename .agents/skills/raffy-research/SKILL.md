@@ -1,0 +1,22 @@
+---
+name: raffy-research
+description: Read and assess Raffy research reports and stored evidence; discover sources, apply explicit evidence labels, and distinguish rubric recommendations from human scores.
+---
+
+Run commands from the Raffy repository using `pnpm raffy`. This requires shell access, configured database access, and a browser-approved machine credential. Run `pnpm raffy doctor`, `pnpm raffy auth whoami`, and `pnpm raffy --help` when setup or command details are needed. If authentication is missing, use `pnpm raffy auth login`; the human approves the displayed machine and code in their authenticated browser. Never read or print the private profile secret, or copy Codex/Claude subscription tokens.
+
+Pass `--workspace WORKSPACE_ID` or use an explicitly saved profile workspace. Discover IDs with `research workspaces`; never choose silently among multiple workspaces. Commands emit versioned JSON: inspect `kind`, then the tagged `outcome.type`. An expected conflict is an `ok` business outcome and still requires recovery. Lists use `--limit 20` and `--cursor NEXT_CURSOR`; fetch detail only for relevant IDs.
+
+Preserve existing user authorization. A new confirmation is unnecessary when the requested action is already authorized. Keep assistant judgments, human submissions, and automated evaluations distinct. Do not use `--human` unless the user explicitly supplied or approved the particular scores. Cite immutable report IDs and source IDs/URLs, retain excerpts verbatim, and identify who made each judgment.
+
+For costly starts, generate an idempotency key once and reuse it with identical arguments after a timeout or lost response. Changed arguments require a new key. Save the operation ID returned promptly; monitor with `operations status --id OPERATION_ID`, inspect `operations results`, and use `operations diagnostics --id OPERATION_ID` for stage summaries/events. Fetch a specific checkpoint with `--stage STAGE_NAME`. Cancellation requests abort execution and preserve saved artifacts. Retries require a new key and retain a parent attempt. If `reconciliation_required` or `retry_acknowledgment_required` appears, inspect the recorded dispatch and existing artifacts before acknowledging uncertainty with `operations retry --id OPERATION_ID --key NEW_KEY --acknowledge-uncertainty`; never silently rerun an uncertain paid call. Work survives the initiating shell/chat. `worker start/status/stop` manage execution; stopping pauses until restart.
+
+Use `research reports` or `research latest` first. Fetch one report with `research report --report REPORT_ID --section executive_summary` (inspect the report schema for other section keys), its relationships with `research evidence --report REPORT_ID`, and a selected capture with `research source --source SOURCE_ID --content`. A report ID is an immutable version. `research history` and `research judgments --target REPORT_ID` expose report and judgment history.
+
+Search captures with `research search --kind captures --query QUERY`; search preserved search-result records with `--kind search-results`. Online discovery is a separate manager operation: `research discover --query QUERY --pages 10 --key KEY`, then track its operation. Do not equate search snippets with captured source evidence.
+
+Apply explicit eligibility decisions with `research label --source SOURCE_ID --label keep|junk|clear --rationale REASON --agent codex` (substitute the actual host). These labels affect report/newsletter eligibility and record assistant authorship. Rubric recommendations use `research recommend --report REPORT_ID --input SCORES_JSON --agent codex`, where the file contains relevance, accuracy, novelty (integers 1–5), and optional note. Explicit user-provided values use `research score --report REPORT_ID --input SCORES_JSON --human`. After the user approves a specific recommendation, `research promote --id RECOMMENDATION_ID --human` records a human judgment linked to it. Recommendations never overwrite current human scores.
+
+On `report_not_found`, `source_record_not_found`, or `forbidden`, verify the workspace and rediscover the ID. On `idempotency_conflict`, reuse the original arguments or create a key for the changed intent.
+
+Capture/version IDs are fetched with `research captures --source SOURCE_ID --limit 20`. Judgment lists contain compact provenance summaries; retrieve scores or rationale payloads with `research judgment --id JUDGMENT_ID`. Assistant commands can record available `--agent`, `--model`, and `--prompt-version` metadata.

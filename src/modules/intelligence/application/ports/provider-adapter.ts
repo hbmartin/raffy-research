@@ -23,6 +23,7 @@ export type NormalizedIngest = {
 };
 
 export type ProviderDailyContext = {
+  signal?: AbortSignal;
   workspace: Workspace;
   keywords: Keyword[];
   competitors: Competitor[];
