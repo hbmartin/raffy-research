@@ -82,11 +82,25 @@ export async function runJudgeCheck(args: CliArgs) {
   );
 
   const failed = results.filter((r) => r.status === 'fail');
+  const ran = results.filter((r) => r.status === 'pass').length;
+  const skipped = results.filter((r) => r.status === 'skip').length;
+  if (failed.length === 0 && ran === 0) {
+    // Nothing was tested, so nothing was shown about the judges. Exiting
+    // non-zero keeps anything gated on this check from trusting them.
+    console.error(
+      `[phoenix-eval] No probe ran (${skipped} skipped): the reference ` +
+        'report gives the selected probes nothing to change, so the judges ' +
+        'were not tested.'
+    );
+    process.exit(1);
+  }
   if (failed.length === 0) {
-    log('All probes passed: the judges respond to report quality', {
-      ran: results.filter((r) => r.status === 'pass').length,
-      skipped: results.filter((r) => r.status === 'skip').length,
-    });
+    log(
+      skipped === 0
+        ? 'All probes passed: the judges respond to report quality'
+        : 'No probes failed; some probes were skipped',
+      { ran, skipped }
+    );
     return;
   }
 

@@ -8,7 +8,7 @@
 import { toWorkspaceId, type WorkspaceId } from '@/modules/kernel';
 
 import { SAMPLE_SPLIT } from './case';
-import { parsePositiveInt, parseProvider } from './cli-values';
+import { parseNameList, parsePositiveInt, parseProvider } from './cli-values';
 
 export type Command =
   | 'summarize'
@@ -216,16 +216,16 @@ export function parseArgs(argv: string[]): CliArgs {
         ...(summaryModels ?? []),
         arg.slice('--summary-model='.length),
       ];
-    } else if (arg === '--probe' || arg?.startsWith('--probe=')) {
-      const value =
-        arg === '--probe'
-          ? requireValue(args, ++i, '--probe')
-          : arg.slice('--probe='.length);
-      const names = value
-        .split(',')
-        .map((name) => name.trim())
-        .filter(Boolean);
-      probes = [...(probes ?? []), ...names];
+    } else if (arg === '--probe') {
+      probes = [
+        ...(probes ?? []),
+        ...parseNameList(requireValue(args, ++i, '--probe'), '--probe'),
+      ];
+    } else if (arg?.startsWith('--probe=')) {
+      probes = [
+        ...(probes ?? []),
+        ...parseNameList(arg.slice('--probe='.length), '--probe'),
+      ];
     } else if (arg === '--name') {
       caseName = requireValue(args, ++i, '--name');
     } else if (arg?.startsWith('--name=')) {
