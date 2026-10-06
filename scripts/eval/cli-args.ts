@@ -8,7 +8,7 @@
 import { toWorkspaceId, type WorkspaceId } from '@/modules/kernel';
 
 import { SAMPLE_SPLIT } from './case';
-import { parsePositiveInt, parseProvider } from './cli-values';
+import { parseNameList, parsePositiveInt, parseProvider } from './cli-values';
 
 export type Command =
   | 'summarize'
@@ -37,6 +37,7 @@ export type CliArgs = {
   judge?: boolean;
   judgeProvider?: string;
   judgeModel?: string;
+  probes?: string[];
 };
 
 /**
@@ -98,6 +99,9 @@ export function parseArgs(argv: string[]): CliArgs {
         '  --judge            Add LLM-judge evaluators (3 extra model calls per run)',
         '  --judge-provider <p>  Provider for the judge (default: the generation provider)',
         '  --judge-model <m>  Model for the judge; prefer one that did not write the report',
+        '',
+        'judge-check options:',
+        '  --probe <name>     Run only these probes (repeatable, or comma-separated)',
       ].join('\n')
     );
     process.exit(1);
@@ -121,6 +125,7 @@ export function parseArgs(argv: string[]): CliArgs {
   let judge = false;
   let judgeProvider: string | undefined;
   let judgeModel: string | undefined;
+  let probes: string[] | undefined;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -211,6 +216,16 @@ export function parseArgs(argv: string[]): CliArgs {
         ...(summaryModels ?? []),
         arg.slice('--summary-model='.length),
       ];
+    } else if (arg === '--probe') {
+      probes = [
+        ...(probes ?? []),
+        ...parseNameList(requireValue(args, ++i, '--probe'), '--probe'),
+      ];
+    } else if (arg?.startsWith('--probe=')) {
+      probes = [
+        ...(probes ?? []),
+        ...parseNameList(arg.slice('--probe='.length), '--probe'),
+      ];
     } else if (arg === '--name') {
       caseName = requireValue(args, ++i, '--name');
     } else if (arg?.startsWith('--name=')) {
@@ -248,5 +263,6 @@ export function parseArgs(argv: string[]): CliArgs {
     judge,
     judgeProvider,
     judgeModel,
+    probes,
   };
 }

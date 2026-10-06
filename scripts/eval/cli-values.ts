@@ -23,6 +23,20 @@ export function parseProvider(
   );
 }
 
+/**
+ * A comma-separated list of names, trimmed. Refuses one that leaves no names:
+ * for --probe an empty selection means "every probe" downstream, so `--probe=`
+ * would quietly launch the full hour-long suite instead of failing fast.
+ */
+export function parseNameList(value: string, flag: string): string[] {
+  const names = value
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (names.length === 0) throw new Error(`${flag} expects a value`);
+  return names;
+}
+
 export function parsePositiveInt(
   value: string | undefined,
   flag: string

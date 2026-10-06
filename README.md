@@ -484,10 +484,11 @@ apart — the generation cited 4 of 101 sources against the reference's 19.
 pnpm eval:phoenix judge-check --workspace <id> --case fixtures/eval/acme-2026-06-15
 ```
 
-It degrades the reference in ways a working judge must notice — every claim
-replaced with something no source supports, citations left intact so the judge
-has to read them; and every topic cluster repeated, which is padding by
-construction — then scores the original and the degraded version:
+It alters the reference in ways whose right score is known, then scores the
+original and each altered version. The first version had two probes — every
+claim replaced with something no source supports, citations left intact so the
+judge has to read them; and every topic cluster repeated, which is padding by
+construction:
 
 | Report | `claim_support` | `noise` |
 |---|---|---|
@@ -505,6 +506,41 @@ prompt, may be too coarse a question for any model. Re-running `judge-check`
 with a stronger `--judge-model` distinguishes those in one command, which is
 why it exits non-zero on failure and is worth running before trusting any
 judge.
+
+##### The probes
+
+Three kinds, all built from the case's reference report
+(`scripts/eval/judge-probes.ts`):
+
+- **degrade** — one targeted defect; passes when the judge scores it below the
+  reference.
+- **ladder** — the same defect at rising severity; passes when the scores never
+  climb and the worst rung lands below the reference. A judge that only
+  notices absurd errors passes a degrade probe and fails here.
+- **invariant** — a change that leaves the content untouched; passes when the
+  score moves by at most one raw point (`0.25`). A judge that moves here is
+  reacting to position or layout, not quality.
+
+| Probe | Kind | Judge | What changes |
+|---|---|---|---|
+| `fabricated-claims` | degrade | claim_support | Summary bullets and cluster observations replaced with absurd claims; citations kept |
+| `swapped-citations` | degrade | claim_support | Each evidence item points at another item's sources; the set of cited sources is unchanged |
+| `subtle-fabrication-ladder` | ladder | claim_support | A plausible false detail (a figure, a survey, a funding round) appended to 1, then 2, then 3 real claims |
+| `misattribution` | degrade | claim_support | Two named actors (competitor/lead) swapped in the report's prose; quoted excerpts untouched |
+| `dropped-content` | degrade | coverage | Half the clusters and highlights kept; competitor watch, leads and social feedback emptied. Also passes if the score holds but `missed_signals` grows — a reference already at 2/5 has little room to fall |
+| `padded-clusters` | degrade | noise | Every topic cluster repeated 4× |
+| `reordered-sections` | invariant | all three | Every section and each cluster's evidence in reverse order |
+| `reformatted-json` | invariant | all three | Keys in reverse order, shown as compact JSON |
+
+A probe the reference gives nothing to change (no two actors to swap, say) is
+reported as `SKIP`, not as a pass. The reference is scored once per judge and
+reused across probes. On `qwen3:14b` a full run is close to an hour — the
+coverage judge alone takes minutes per call — so `--probe` runs a subset:
+
+```bash
+pnpm eval:phoenix judge-check --workspace <id> --case fixtures/eval/acme-2026-06-15 \
+  --probe swapped-citations,subtle-fabrication-ladder,reordered-sections
+```
 
 Because the reference is fixed, re-running `evaluate` on one case measures
 judge variance rather than quality — which is the cheapest way to find the
