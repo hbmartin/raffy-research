@@ -16,6 +16,7 @@ import { Route as LogoutRouteImport } from './routes/logout'
 import { Route as ManagerRouteRouteImport } from './routes/manager/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AppCliAuthorizeRouteImport } from './routes/app/cli-authorize'
 import { Route as LoginIndexRouteImport } from './routes/login/index'
 import { Route as ManagerIndexRouteImport } from './routes/manager/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
@@ -75,6 +76,11 @@ const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCliAuthorizeRoute = AppCliAuthorizeRouteImport.update({
+  id: '/cli-authorize',
+  path: '/cli-authorize',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const LoginIndexRoute = LoginIndexRouteImport.update({
@@ -217,6 +223,7 @@ export interface FileRoutesByFullPath {
   '/manager': typeof ManagerRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/logout': typeof LogoutRoute
+  '/app/cli-authorize': typeof AppCliAuthorizeRoute
   '/app/': typeof AppIndexRoute
   '/login/': typeof LoginIndexRoute
   '/manager/': typeof ManagerIndexRoute
@@ -247,6 +254,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/logout': typeof LogoutRoute
+  '/app/cli-authorize': typeof AppCliAuthorizeRoute
   '/app': typeof AppIndexRoute
   '/login': typeof LoginIndexRoute
   '/manager': typeof ManagerIndexRoute
@@ -282,6 +290,7 @@ export interface FileRoutesById {
   '/manager': typeof ManagerRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/logout': typeof LogoutRoute
+  '/app/cli-authorize': typeof AppCliAuthorizeRoute
   '/app/': typeof AppIndexRoute
   '/login/': typeof LoginIndexRoute
   '/manager/': typeof ManagerIndexRoute
@@ -318,6 +327,7 @@ export interface FileRouteTypes {
     | '/manager'
     | '/onboarding'
     | '/logout'
+    | '/app/cli-authorize'
     | '/app/'
     | '/login/'
     | '/manager/'
@@ -348,6 +358,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/logout'
+    | '/app/cli-authorize'
     | '/app'
     | '/login'
     | '/manager'
@@ -382,6 +393,7 @@ export interface FileRouteTypes {
     | '/manager'
     | '/onboarding'
     | '/logout'
+    | '/app/cli-authorize'
     | '/app/'
     | '/login/'
     | '/manager/'
@@ -478,6 +490,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/cli-authorize': {
+      id: '/app/cli-authorize'
+      path: '/cli-authorize'
+      fullPath: '/app/cli-authorize'
+      preLoaderRoute: typeof AppCliAuthorizeRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/login/': {
@@ -659,6 +678,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteRouteChildren {
+  AppCliAuthorizeRoute: typeof AppCliAuthorizeRoute
   AppIndexRoute: typeof AppIndexRoute
   AppAccountIndexRoute: typeof AppAccountIndexRoute
   AppReportsReportIdIndexRoute: typeof AppReportsReportIdIndexRoute
@@ -666,6 +686,7 @@ interface AppRouteRouteChildren {
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppCliAuthorizeRoute: AppCliAuthorizeRoute,
   AppIndexRoute: AppIndexRoute,
   AppAccountIndexRoute: AppAccountIndexRoute,
   AppReportsReportIdIndexRoute: AppReportsReportIdIndexRoute,

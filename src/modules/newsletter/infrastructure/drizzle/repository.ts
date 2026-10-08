@@ -9,6 +9,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import { isMatching, P } from 'ts-pattern';
 import { z } from 'zod';
 
 import { AppError } from '@/modules/kernel/domain/errors/app-error';
@@ -60,7 +61,23 @@ const lightweightDraft = sql<DraftVersion>`(${newsletterHistory.payload} - 'audi
   'profile', (${newsletterHistory.payload}->'profile') || jsonb_build_object('samples', '[]'::jsonb)
 )`;
 
-export function createNewsletterRepository(db: Database): NewsletterRepository {
+export function createNewsletterRepository(
+  db: Database,
+  recordDecision?: (
+    tx: DbLike,
+    input: {
+      workspaceId: string;
+      targetId: string;
+      kind: 'editorial';
+      provenance: import('@/modules/intelligence').JudgmentProvenance;
+      payload: Record<string, unknown>;
+    }
+  ) => Promise<
+    import('@/modules/kernel/application/result').ApplicationResult<{
+      type: string;
+    }>
+  >
+): NewsletterRepository {
   const hydrate = async (
     client: DbLike,
     state: NewsletterState,
@@ -176,6 +193,26 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
           });
           if (outcome.isError()) return Result.Error(outcome.getError());
           const mutation = outcome.get();
+          if (
+            recordDecision &&
+            options?.decision &&
+            isMatching(
+              { type: P.union('saved', 'queued') },
+              mutation.value as unknown
+            )
+          ) {
+            const recorded = await recordDecision(tx, {
+              workspaceId,
+              targetId: state.latestReportId ?? workspaceId,
+              kind: 'editorial',
+              provenance: options.decision.provenance,
+              payload: {
+                action: options.decision.action,
+                result: mutation.value,
+              },
+            });
+            if (recorded.isError()) throw recorded.getError();
+          }
           let inserted = 0;
           for (const job of mutation.jobs ?? []) {
             const [created] = await tx
@@ -397,7 +434,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
         );
       }
     },
-    async history(workspaceId, before) {
+    async history(workspaceId, before, limit = 20) {
       try {
         const rows = await db
           .select({
@@ -422,13 +459,13 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
             desc(newsletterHistory.createdAt),
             desc(newsletterHistory.id)
           )
-          .limit(21);
+          .limit(limit + 1);
         return Result.Ok({
           type: 'history_found' as const,
           entries: rows
-            .slice(0, 20)
+            .slice(0, limit)
             .map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
-          nextCursor: rows.length > 20 ? rows[19]!.id : null,
+          nextCursor: rows.length > limit ? rows[limit - 1]!.id : null,
         });
       } catch (cause) {
         return Result.Error(
@@ -547,7 +584,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
         );
       }
     },
-    async claim(mode, _now, token, localOperatorId) {
+    async claim(mode, _now, token, localOperatorId, jobId) {
       try {
         if (!db.$runInTransaction)
           return Result.Error(
@@ -561,6 +598,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
             .select({ workspaceId: newsletterWorkspace.workspaceId })
             .from(newsletterWorkspace)
             .where(sql`exists (select 1 from "newsletterJob" j where j."workspaceId" = ${newsletterWorkspace.workspaceId} and j.mode = ${mode}
+              and (${jobId ?? null}::text is null or j.id = ${jobId ?? null})
               and (${mode} <> 'local' or j."localOperatorId" = ${localOperatorId ?? ''})
               and (j.status = 'queued' or (j.status = 'running' and j."leaseUntil" <= clock_timestamp())))
               and not exists (select 1 from "newsletterJob" active where active."workspaceId" = ${newsletterWorkspace.workspaceId} and active.status = 'running' and active."leaseUntil" > clock_timestamp())`)
@@ -586,6 +624,7 @@ export function createNewsletterRepository(db: Database): NewsletterRepository {
               and(
                 eq(newsletterJob.workspaceId, workspaceRow.workspaceId),
                 eq(newsletterJob.mode, mode),
+                jobId ? eq(newsletterJob.id, jobId) : undefined,
                 mode === 'local'
                   ? eq(newsletterJob.localOperatorId, localOperatorId!)
                   : undefined,

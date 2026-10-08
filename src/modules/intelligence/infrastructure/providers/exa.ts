@@ -40,7 +40,9 @@ export const exaAdapter: ProviderAdapter = {
     let requestsFailed = 0;
 
     for (const keyword of ctx.keywords) {
+      if (ctx.signal?.aborted) break;
       const response = await fetchJson('exa', EXA_SEARCH_URL, {
+        signal: ctx.signal,
         method: 'POST',
         headers: {
           'content-type': 'application/json',

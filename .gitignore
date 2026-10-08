@@ -85,6 +85,7 @@ docs/adr/*
 !docs/ai-sdk-v7-opportunities.md
 !docs/ingestion-window.md
 !docs/newsletter.md
+!docs/raffy-cli.md
 *.pptx
 *.zip
 audio_docs/

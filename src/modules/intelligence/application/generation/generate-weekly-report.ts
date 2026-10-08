@@ -31,9 +31,31 @@ import {
   parseGeneratedReportJson,
   validateReportData,
 } from '../../domain/report-data';
-import type { SourceSummary } from '../../domain/source';
+import type { SourceRecord, SourceSummary } from '../../domain/source';
+import type {
+  Competitor,
+  Keyword,
+  SocialAccount,
+  Workspace,
+} from '../../domain/workspace';
+
+export type ReportGenerationSnapshot = {
+  workspace: Workspace;
+  keywords: Keyword[];
+  competitors: Competitor[];
+  socialAccounts: SocialAccount[];
+  sources: SourceRecord[];
+  priorReports: WeeklyReportSummary[];
+  sourceSummaries: SourceSummary[];
+};
 
 export type WeeklyReportGenerationDeps = {
+  snapshot?: ReportGenerationSnapshot;
+  publicationTransaction?: (
+    work: (
+      repository: ReportRepository
+    ) => Promise<ApplicationResult<GenerateWeeklyReportOutcome>>
+  ) => Promise<ApplicationResult<GenerateWeeklyReportOutcome>>;
   publicationNotifier?: {
     published(input: {
       workspaceId: WorkspaceId;
@@ -76,9 +98,12 @@ export async function generateWeeklyReport(
 ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> {
   const now = input.now ?? deps.clock.now();
 
-  const workspaceResult = await deps.workspaceRepository.getById(
-    input.workspaceId
-  );
+  const workspaceResult = deps.snapshot
+    ? Result.Ok({
+        type: 'workspace_found' as const,
+        workspace: deps.snapshot.workspace,
+      })
+    : await deps.workspaceRepository.getById(input.workspaceId);
   if (workspaceResult.isError())
     return Result.Error(workspaceResult.getError());
   const workspaceOutcome = workspaceResult.get();
@@ -90,23 +115,32 @@ export async function generateWeeklyReport(
   const period = computeWeeklyPeriod(now, workspace.timezone);
 
   // Gather period evidence and configuration.
-  const [keywords, competitors, social, sources, priorReports] =
-    await Promise.all([
-      deps.workspaceRepository.listKeywords(workspace.id, { activeOnly: true }),
-      deps.workspaceRepository.listCompetitors(workspace.id),
-      deps.workspaceRepository.listSocialAccounts(workspace.id),
-      input.sourceRecordIds
-        ? deps.sourceRepository.getManyByIds(
-            workspace.id,
-            input.sourceRecordIds
-          )
-        : deps.sourceRepository.listForPeriod({
-            workspaceId: workspace.id,
-            periodStart: period.periodStart,
-            periodEnd: period.periodEnd,
-          }),
-      deps.reportRepository.listByWorkspace(workspace.id, { limit: 4 }),
-    ]);
+  const [keywords, competitors, social, sources, priorReports] = deps.snapshot
+    ? [
+        Result.Ok(deps.snapshot.keywords),
+        Result.Ok(deps.snapshot.competitors),
+        Result.Ok(deps.snapshot.socialAccounts),
+        Result.Ok(deps.snapshot.sources),
+        Result.Ok(deps.snapshot.priorReports),
+      ]
+    : await Promise.all([
+        deps.workspaceRepository.listKeywords(workspace.id, {
+          activeOnly: true,
+        }),
+        deps.workspaceRepository.listCompetitors(workspace.id),
+        deps.workspaceRepository.listSocialAccounts(workspace.id),
+        input.sourceRecordIds
+          ? deps.sourceRepository.getManyByIds(
+              workspace.id,
+              input.sourceRecordIds
+            )
+          : deps.sourceRepository.listForPeriod({
+              workspaceId: workspace.id,
+              periodStart: period.periodStart,
+              periodEnd: period.periodEnd,
+            }),
+        deps.reportRepository.listByWorkspace(workspace.id, { limit: 4 }),
+      ]);
   if (keywords.isError()) return Result.Error(keywords.getError());
   if (competitors.isError()) return Result.Error(competitors.getError());
   if (social.isError()) return Result.Error(social.getError());
@@ -125,8 +159,12 @@ export async function generateWeeklyReport(
     });
   }
 
-  let sourceSummaries: SourceSummary[] = [];
-  if (input.includeSourceSummaries && usableSources.length > 0) {
+  let sourceSummaries: SourceSummary[] = deps.snapshot?.sourceSummaries ?? [];
+  if (
+    !deps.snapshot &&
+    input.includeSourceSummaries &&
+    usableSources.length > 0
+  ) {
     const sourceSummariesResult =
       await deps.sourceRepository.listLatestSummariesForSources({
         workspaceId: workspace.id,
@@ -222,90 +260,107 @@ export async function generateWeeklyReport(
     ...generationMetadata,
   };
 
-  // Reserve a report row so report_data can reference the durable report id.
-  let reportId: WeeklyReportId;
-  const created = await deps.reportRepository.create({
-    workspaceId: workspace.id,
-    periodStart: period.periodStart,
-    periodEnd: period.periodEnd,
-    timezone: workspace.timezone,
-    status: 'generated',
-    generatedAt: now,
-  });
-  if (created.isError()) return Result.Error(created.getError());
-  reportId = created.get().id;
-
-  const reportDataValidation = validateReportData({
-    ...generatedData,
-    workspace_id: workspace.id,
-    report_id: reportId,
-    period_start: periodStartLabel,
-    period_end: periodEndLabel,
-    generated_at: now.toISOString(),
-    timezone: workspace.timezone,
-  });
-  if (reportDataValidation.type === 'report_data_invalid') {
-    return recordFailure(deps, {
-      workspace,
-      period,
-      reservedReportId: reportId,
-      reason: 'Report schema validation failed',
-      failureCode: 'REPORT_SCHEMA_INVALID',
-      diagnostics: { validationDiagnostics: reportDataValidation.diagnostics },
-    });
-  }
-  const reportData = reportDataValidation.data;
-
-  const frozen = await deps.reportRepository.replaceContent(reportId, {
-    status: 'published',
-    title: reportData.title,
-    reportData,
-    modelMetadata,
-    generatedAt: now,
-    publishedAt: now,
-  });
-  if (frozen.isError()) return Result.Error(frozen.getError());
-  const frozenOutcome = frozen.get();
-  if (frozenOutcome.type === 'report_not_found') {
-    return Result.Ok({
-      type: 'report_failed',
-      reason: 'report row vanished before freezing',
-      failureCode: 'REPORT_ROW_MISSING',
-    });
-  }
-  if (frozenOutcome.type === 'report_published_protected') {
-    return Result.Ok({
-      type: 'report_failed',
-      reason: 'report row was already published before freezing',
-      failureCode: 'REPORT_PUBLISHED_PROTECTED',
-    });
-  }
-
-  // Link cited / relevant-but-unused sources that exist in this period.
-  const sourceById = new Map(
-    usableSources.map((source) => [source.id as string, source.id])
-  );
-  const links = reportData.source_library
-    .map((item) => {
-      const sourceRecordId = sourceById.get(item.source_id);
-      return sourceRecordId
-        ? {
-            sourceRecordId,
-            relationType: item.relation_type,
-            topicClusterId: item.topic_cluster_id ?? null,
-          }
-        : null;
-    })
-    .filter((link): link is NonNullable<typeof link> => link !== null);
-  if (links.length > 0) {
-    const linked = await deps.reportRepository.addSources({
+  const publish = async (
+    repository: ReportRepository
+  ): Promise<ApplicationResult<GenerateWeeklyReportOutcome>> => {
+    // Reserve a report row so report_data can reference the durable report id.
+    let reportId: WeeklyReportId;
+    const created = await repository.create({
       workspaceId: workspace.id,
-      reportId,
-      sources: links,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      timezone: workspace.timezone,
+      status: 'generated',
+      generatedAt: now,
     });
-    if (linked.isError()) return Result.Error(linked.getError());
-  }
+    if (created.isError()) return Result.Error(created.getError());
+    reportId = created.get().id;
 
+    const reportDataValidation = validateReportData({
+      ...generatedData,
+      workspace_id: workspace.id,
+      report_id: reportId,
+      period_start: periodStartLabel,
+      period_end: periodEndLabel,
+      generated_at: now.toISOString(),
+      timezone: workspace.timezone,
+    });
+    if (reportDataValidation.type === 'report_data_invalid') {
+      return recordFailure(deps, {
+        workspace,
+        period,
+        reservedReportId: reportId,
+        reason: 'Report schema validation failed',
+        failureCode: 'REPORT_SCHEMA_INVALID',
+        diagnostics: {
+          validationDiagnostics: reportDataValidation.diagnostics,
+        },
+      });
+    }
+    const reportData = reportDataValidation.data;
+
+    const frozen = await repository.replaceContent(reportId, {
+      status: 'published',
+      title: reportData.title,
+      reportData,
+      modelMetadata,
+      generatedAt: now,
+      publishedAt: now,
+    });
+    if (frozen.isError()) return Result.Error(frozen.getError());
+    const frozenOutcome = frozen.get();
+    if (frozenOutcome.type === 'report_not_found') {
+      return Result.Ok({
+        type: 'report_failed',
+        reason: 'report row vanished before freezing',
+        failureCode: 'REPORT_ROW_MISSING',
+      });
+    }
+    if (frozenOutcome.type === 'report_published_protected') {
+      return Result.Ok({
+        type: 'report_failed',
+        reason: 'report row was already published before freezing',
+        failureCode: 'REPORT_PUBLISHED_PROTECTED',
+      });
+    }
+
+    // Link cited / relevant-but-unused sources that exist in this period.
+    const sourceById = new Map(
+      usableSources.map((source) => [source.id as string, source.id])
+    );
+    const links = reportData.source_library
+      .map((item) => {
+        const sourceRecordId = sourceById.get(item.source_id);
+        return sourceRecordId
+          ? {
+              sourceRecordId,
+              relationType: item.relation_type,
+              topicClusterId: item.topic_cluster_id ?? null,
+            }
+          : null;
+      })
+      .filter((link): link is NonNullable<typeof link> => link !== null);
+    if (links.length > 0) {
+      const linked = await repository.addSources({
+        workspaceId: workspace.id,
+        reportId,
+        sources: links,
+      });
+      if (linked.isError()) return Result.Error(linked.getError());
+    }
+
+    return Result.Ok({
+      type: 'report_published',
+      report: frozenOutcome.report,
+    });
+  };
+  const published = deps.publicationTransaction
+    ? await deps.publicationTransaction(publish)
+    : await publish(deps.reportRepository);
+  if (published.isError()) return Result.Error(published.getError());
+  const publication = published.get();
+  if (publication.type !== 'report_published') return published;
+  const reportId = publication.report.id;
   deps.logger.info({
     event: 'intelligence.report.published',
     details: { workspaceId: workspace.id, reportId },
@@ -325,7 +380,7 @@ export async function generateWeeklyReport(
         },
       });
   }
-  return Result.Ok({ type: 'report_published', report: frozenOutcome.report });
+  return published;
 }
 
 async function recordFailure(

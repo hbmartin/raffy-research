@@ -1,0 +1,6 @@
+interface:
+  display_name: 'LinkedIn monitoring'
+  short_description: 'Find buyer voices and add selected LinkedIn profiles'
+  default_prompt: "Use $linkedin-monitoring to find people who fill gaps in this workspace's LinkedIn monitoring and add the profiles I select."
+policy:
+  allow_implicit_invocation: true

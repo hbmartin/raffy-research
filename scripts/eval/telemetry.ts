@@ -10,9 +10,23 @@
 import {
   flushOpenTelemetryServer,
   initOpenTelemetryServer,
+  resolvePhoenixProjectName,
 } from '@/composition/telemetry/otel.server';
+import { getTelemetryConfig } from '@/modules/kernel/infrastructure/config/telemetry';
 
 import { log } from './log';
+
+/** Use the same project for the SDK's experiment spans and our model spans. */
+export function getEvalTelemetryConfig() {
+  const config = getTelemetryConfig();
+  return {
+    projectName: resolvePhoenixProjectName(config, 'evals'),
+    experimentMetadata: {
+      environment: config.otelEnvironment,
+      role: 'evals',
+    },
+  };
+}
 
 export function startCliTelemetry(): void {
   // Eval runs are experiments, not application traffic. Filing them under

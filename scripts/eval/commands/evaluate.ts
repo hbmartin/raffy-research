@@ -20,6 +20,7 @@ import { createJudgeEvaluators } from '../judge-evaluators';
 import { log } from '../log';
 import { createPhoenixClient } from '../phoenix-client';
 import { ensureDataset } from '../phoenix-dataset';
+import { getEvalTelemetryConfig } from '../telemetry';
 
 export async function runEvaluate(args: CliArgs) {
   if (!args.caseDir) throw new Error('--case is required');
@@ -85,6 +86,7 @@ export async function runEvaluate(args: CliArgs) {
     return result.text;
   });
 
+  const telemetry = getEvalTelemetryConfig();
   const experiment = await runExperiment({
     client,
     dataset: resolved.versionId
@@ -93,6 +95,7 @@ export async function runEvaluate(args: CliArgs) {
     experimentName: `evaluate-reference-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
     experimentDescription: `Judge the published report ${report.id} of case ${evalCase.manifest.name}`,
     experimentMetadata: {
+      ...telemetry.experimentMetadata,
       caseName: evalCase.manifest.name,
       mode: 'reference',
       reportId: report.id,

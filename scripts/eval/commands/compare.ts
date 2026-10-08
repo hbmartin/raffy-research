@@ -29,6 +29,7 @@ import { log } from '../log';
 import { createPhoenixClient } from '../phoenix-client';
 import { ensureDataset } from '../phoenix-dataset';
 import { REPORT_EVALUATORS } from '../report-evaluators';
+import { getEvalTelemetryConfig } from '../telemetry';
 
 export async function runCompare(args: CliArgs) {
   if (args.split) {
@@ -161,12 +162,14 @@ export async function runCompare(args: CliArgs) {
       })
     : [];
 
+  const telemetry = getEvalTelemetryConfig();
   const experiment = await runExperiment({
     client,
     dataset: versionId ? { datasetId, versionId } : { datasetId },
     experimentName: `compare-${provider}-${model}-${new Date().toISOString().replace(/[:.]/g, '-')}`,
     experimentDescription: `Generate report with ${provider}/${model} and compare to published report ${report.id}`,
     experimentMetadata: {
+      ...telemetry.experimentMetadata,
       provider,
       model,
       // Scores move when the prompt changes, so a run that does not say which

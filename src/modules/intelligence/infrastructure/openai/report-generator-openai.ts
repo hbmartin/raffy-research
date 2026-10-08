@@ -33,23 +33,28 @@ function normalizeFailure(error: unknown): {
 }
 
 /** OpenAI-backed report generator using the AI SDK. */
-export function createOpenAiReportGenerator(): ReportGeneratorPort {
+export function createOpenAiReportGenerator(options?: {
+  model?: string;
+  signal?: AbortSignal;
+}): ReportGeneratorPort {
   return {
     async generate({ prompt, stage = 'initial' }) {
       const startedAt = Date.now();
       let model: string | undefined;
       try {
         const config = getOpenAiConfig();
-        model = config.model;
+        model = options?.model ?? config.model;
         const openai = createOpenAI({ apiKey: config.apiKey });
         const { text } = await generateText({
-          model: openai(config.model),
+          model: openai(model),
+          abortSignal: options?.signal,
+          maxRetries: 0,
           prompt,
           experimental_telemetry: { isEnabled: true },
         });
         return Result.Ok({
           text,
-          modelName: config.model,
+          modelName: model,
           modelProvider: 'openai',
         });
       } catch (error) {

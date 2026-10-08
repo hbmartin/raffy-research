@@ -13,6 +13,7 @@ import {
   type WeeklyReportGenerationDeps,
 } from '@/modules/intelligence';
 import {
+  createAgentResearch,
   createLocalAiReportGenerator,
   createLocalAiStreamHandler,
   createProviderRegistry,
@@ -83,4 +84,6 @@ export const handleLocalAiStreamRequest = createLocalAiStreamHandler({
   buildIngestionDeps,
   buildGenerationDeps,
   generateLocalText,
+  recordEvaluation: (input) =>
+    createAgentResearch(getKernel().db).recordJudgment(input),
 });

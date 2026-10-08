@@ -31,10 +31,14 @@ export const ahrefsAdapter: ProviderAdapter = {
     const date = ctx.now.toISOString().slice(0, 10);
 
     for (const domain of competitorDomains(ctx)) {
+      if (ctx.signal?.aborted) break;
       const response = await fetchJson(
         'ahrefs',
         `https://api.ahrefs.com/v3/site-explorer/domain-rating?target=${encodeURIComponent(domain)}&date=${date}`,
-        { headers: { Authorization: `Bearer ${ctx.credential}` } }
+        {
+          signal: ctx.signal,
+          headers: { Authorization: `Bearer ${ctx.credential}` },
+        }
       );
       if (response.isError()) {
         requestsFailed += 1;
@@ -83,11 +87,13 @@ export const semrushAdapter: ProviderAdapter = {
     let requestsFailed = 0;
 
     for (const domain of competitorDomains(ctx)) {
+      if (ctx.signal?.aborted) break;
       // SEMrush SEO API requires credentials as the `key` query parameter.
       // Keep provider HTTP helpers from logging full URLs for this adapter.
       const response = await fetchText(
         'semrush',
-        `https://api.semrush.com/?type=domain_ranks&key=${encodeURIComponent(ctx.credential)}&domain=${encodeURIComponent(domain)}&database=us`
+        `https://api.semrush.com/?type=domain_ranks&key=${encodeURIComponent(ctx.credential)}&domain=${encodeURIComponent(domain)}&database=us`,
+        { signal: ctx.signal }
       );
       if (response.isError()) {
         requestsFailed += 1;

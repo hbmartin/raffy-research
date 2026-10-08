@@ -1,0 +1,18 @@
+---
+name: raffy-pipeline
+description: Launch and recover Raffy ingestion, hosted report generation, and source discovery using durable manager operations.
+---
+
+Run commands from the Raffy repository using `pnpm raffy`. This requires shell access, configured database access, and a browser-approved machine credential. Run `pnpm raffy doctor`, `pnpm raffy auth whoami`, and `pnpm raffy --help` when setup or command details are needed. If authentication is missing, use `pnpm raffy auth login`; the human approves the displayed machine and code in their authenticated browser. Never read or print the private profile secret, or copy Codex/Claude subscription tokens.
+
+Pass `--workspace WORKSPACE_ID` or use an explicitly saved profile workspace. Discover IDs with `research workspaces`; never choose silently among multiple workspaces. Commands emit versioned JSON: inspect `kind`, then the tagged `outcome.type`. An expected conflict is an `ok` business outcome and still requires recovery. Lists use `--limit 20` and `--cursor NEXT_CURSOR`; fetch detail only for relevant IDs.
+
+Preserve existing user authorization. A new confirmation is unnecessary when the requested action is already authorized. Keep assistant judgments, human submissions, and automated evaluations distinct. Do not use `--human` unless the user explicitly supplied or approved the particular scores. Cite immutable report IDs and source IDs/URLs, retain excerpts verbatim, and identify who made each judgment.
+
+For costly starts, generate an idempotency key once and reuse it with identical arguments after a timeout or lost response. Changed arguments require a new key. Save the operation ID returned promptly; monitor with `operations status --id OPERATION_ID`, inspect `operations results`, and use `operations diagnostics --id OPERATION_ID` for stage summaries/events. Fetch a specific checkpoint with `--stage STAGE_NAME`. Cancellation requests abort execution and preserve saved artifacts. Retries require a new key and retain a parent attempt. If `reconciliation_required` or `retry_acknowledgment_required` appears, inspect the recorded dispatch and existing artifacts before acknowledging uncertainty with `operations retry --id OPERATION_ID --key NEW_KEY --acknowledge-uncertainty`; never silently rerun an uncertain paid call. Work survives the initiating shell/chat. `worker start/status/stop` manage execution; stopping pauses until restart.
+
+Verify a manager identity with the pipeline grant. Start `pipeline ingest --key KEY` or `pipeline generate --period YYYY-MM-DD --model MODEL --key KEY` with an explicit workspace. Pin period/model when reproducibility matters. Starts commit before provider work and return an operation ID; do not wait in a blocking generation command.
+
+Track status, results, and diagnostics separately. Results preserve provider outcomes and immutable published report IDs. Inspect source/report detail through the research skill only when needed. A completed provider or model stage must be reused after restart; do not restart the entire workflow because one stage is slow.
+
+For `worker_unavailable`, the operation remains queued: inspect `worker status` and run `worker start` or `worker run` under an existing supervisor. For revoked credentials or `forbidden`, obtain the appropriate browser approval/current manager permission rather than bypassing authorization. Cancellation preserves captures and reports already committed. Retrying a failed/cancelled attempt uses `operations retry --id OPERATION_ID --key NEW_KEY`, retaining pinned inputs and completed checkpoints. Treat uncertain dispatches as described above. Hosted cron scheduling continues independently; inspect workspace operations before launching duplicate work.

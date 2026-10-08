@@ -13,16 +13,28 @@ const FORMAT_EXTENSIONS = new Set([
   '.cjs',
   '.mjs',
   '.json',
+  '.yaml',
+  '.yml',
   '.css',
 ]);
 
 const hasFormatterExtension = (file) =>
   FORMAT_EXTENSIONS.has(file.match(/\.[^.]+$/)?.[0] ?? '');
 
+const untracked =
+  spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {
+    encoding: 'utf8',
+  })
+    .stdout?.trim()
+    .split('\n')
+    .filter(Boolean) ?? [];
+
 const inputFiles = process.argv.slice(2);
 const changedFiles = [
   ...new Set(
-    inputFiles.length > 0 ? inputFiles : listChangedFiles(resolveBase())
+    inputFiles.length > 0
+      ? inputFiles
+      : [...listChangedFiles(resolveBase()), ...untracked]
   ),
 ].filter(hasFormatterExtension);
 

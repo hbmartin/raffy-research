@@ -32,6 +32,8 @@ import {
 } from './domain/processing';
 
 type Deps = {
+  provenance?: import('@/modules/intelligence').JudgmentProvenance;
+  requireDispatchReconciliation?: boolean;
   repository: NewsletterRepository;
   archive: ResearchArchive;
   permissionChecker: PermissionChecker;
@@ -63,8 +65,8 @@ type ExportOutcome =
   | { type: 'not_found' }
   | { type: 'workspace_not_found' };
 type Outcome =
-  | { type: 'saved' }
-  | { type: 'queued' }
+  | { type: 'saved'; jobIds?: string[] }
+  | { type: 'queued'; jobId: string; selectionId?: string }
   | { type: 'forbidden' }
   | { type: 'workspace_not_found' }
   | { type: 'selection_conflict' }
@@ -88,6 +90,8 @@ const currentAssignments = (
 export function createNewsletterUseCases(deps: Deps) {
   const mutate = <T>(
     workspaceId: string,
+    actorId: string,
+    action: string,
     work: (
       state: NewsletterState,
       context: MutationContext
@@ -96,6 +100,16 @@ export function createNewsletterUseCases(deps: Deps) {
     deps.repository.mutate(workspaceId, work, undefined, {
       content: false,
       drafts: false,
+      decision: {
+        actorId,
+        action,
+        provenance: {
+          ...deps.provenance,
+          origin: deps.provenance?.origin ?? 'human',
+          channel: deps.provenance?.channel ?? 'web',
+          actorId,
+        },
+      },
     });
   const profileBudget = (runtime: NewsletterProfile['runtime']) =>
     resolveGenerationBudget(runtime);
@@ -131,6 +145,7 @@ export function createNewsletterUseCases(deps: Deps) {
       status: 'queued',
       stage: 'queued',
       checkpoint: {
+        requireDispatchReconciliation: deps.requireDispatchReconciliation,
         version: 3,
         profile: structuredClone(state.profile!),
         angle: structuredClone(
@@ -339,41 +354,53 @@ export function createNewsletterUseCases(deps: Deps) {
           return Result.Ok(capacity);
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        return mutate<Outcome>(input.workspaceId, (state) => {
-          if (
-            sameLocal &&
-            (!state.profile ||
-              state.profile.runtime.provider !== previous.provider ||
-              state.profile.runtime.model !== previous.model ||
-              state.profile.runtime.localOperatorId !==
-                previous.localOperatorId ||
-              JSON.stringify(state.profile.runtime.contextLimit) !==
-                JSON.stringify(previous.contextLimit))
-          )
+        return mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'saveProfile',
+          (state) => {
+            if (
+              sameLocal &&
+              (!state.profile ||
+                state.profile.runtime.provider !== previous.provider ||
+                state.profile.runtime.model !== previous.model ||
+                state.profile.runtime.localOperatorId !==
+                  previous.localOperatorId ||
+                JSON.stringify(state.profile.runtime.contextLimit) !==
+                  JSON.stringify(previous.contextLimit))
+            )
+              return Result.Ok({
+                value: { type: 'local_verification_required' as const },
+              });
+            const firstEnable =
+              input.profile.enabled && !state.profile?.enabled;
+            state.profile = {
+              ...input.profile,
+              runtime,
+            };
+            const jobs = firstEnable
+              ? data.reports
+                  .filter((r) => !state.processedReports.includes(r.id))
+                  .map((report) => ({
+                    ...makeJob(
+                      input.workspaceId,
+                      state,
+                      'prepare',
+                      `publication:${input.workspaceId}:${report.id}`
+                    ),
+                    initiatingActorId: input.userId,
+                    targetReportId: report.id,
+                  }))
+              : [];
             return Result.Ok({
-              value: { type: 'local_verification_required' as const },
+              value: {
+                type: 'saved' as const,
+                jobIds: jobs.map((job) => job.id),
+              },
+              jobs,
             });
-          const firstEnable = input.profile.enabled && !state.profile?.enabled;
-          state.profile = {
-            ...input.profile,
-            runtime,
-          };
-          const jobs = firstEnable
-            ? data.reports
-                .filter((r) => !state.processedReports.includes(r.id))
-                .map((report) => ({
-                  ...makeJob(
-                    input.workspaceId,
-                    state,
-                    'prepare',
-                    `publication:${input.workspaceId}:${report.id}`
-                  ),
-                  initiatingActorId: input.userId,
-                  targetReportId: report.id,
-                }))
-            : [];
-          return Result.Ok({ value: { type: 'saved' as const }, jobs });
-        });
+          }
+        );
       });
     },
     async prepareThemes(input: {
@@ -388,21 +415,29 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         if ('type' in archive.get())
           return Result.Ok({ type: 'workspace_not_found' });
-        return mutate<Outcome>(input.workspaceId, (state) => {
-          if (!state.profile)
-            return Result.Ok({ value: { type: 'style_required' } });
-          const capacity = profileBudget(state.profile.runtime);
-          if (capacity.type !== 'budget_resolved')
-            return Result.Ok({ value: capacity });
-          const job = makeJob(
-            input.workspaceId,
-            state,
-            'prepare',
-            `manual:${input.workspaceId}:${deps.idGenerator.createId()}`
-          );
-          job.initiatingActorId = input.userId;
-          return Result.Ok({ value: { type: 'queued' }, jobs: [job] });
-        });
+        return mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'prepareThemes',
+          (state) => {
+            if (!state.profile)
+              return Result.Ok({ value: { type: 'style_required' } });
+            const capacity = profileBudget(state.profile.runtime);
+            if (capacity.type !== 'budget_resolved')
+              return Result.Ok({ value: capacity });
+            const job = makeJob(
+              input.workspaceId,
+              state,
+              'prepare',
+              `manual:${input.workspaceId}:${deps.idGenerator.createId()}`
+            );
+            job.initiatingActorId = input.userId;
+            return Result.Ok({
+              value: { type: 'queued', jobId: job.id },
+              jobs: [job],
+            });
+          }
+        );
       });
     },
     async retry(input: {
@@ -431,61 +466,71 @@ export function createNewsletterUseCases(deps: Deps) {
         if (archive.isError()) return Result.Error(archive.getError());
         const data = archive.get();
         if ('type' in data) return Result.Ok(data);
-        return mutate<Outcome>(input.workspaceId, (state, context) => {
-          if (
-            !state.profile ||
-            (parent.kind === 'draft' && !hasStyle(state.profile))
-          )
-            return Result.Ok({ value: { type: 'style_required' } });
-          const capacity = profileBudget(state.profile.runtime);
-          if (capacity.type !== 'budget_resolved')
-            return Result.Ok({ value: capacity });
-          const selection = state.selections.find(
-            (s) => s.id === parent.selectionId
-          );
-          if (selection && context.activeSelectionIds.includes(selection.id))
-            return Result.Ok({ value: { type: 'selection_conflict' } });
-          if (
-            parent.kind === 'draft' &&
-            (!selection ||
-              selection.status === 'abandoned' ||
-              state.selections.some(
-                (s) =>
-                  s.id !== selection.id &&
-                  s.reportId === selection.reportId &&
-                  (s.status === 'pending' || s.status === 'ready')
-              ))
-          )
-            return Result.Ok({ value: { type: 'selection_conflict' } });
-          const job = makeJob(
-            input.workspaceId,
-            state,
-            parent.kind,
-            `retry:${parent.id}`,
-            parent.selectionId,
-            parent.feedback
-          );
-          job.parentAttemptId = parent.id;
-          job.targetReportId =
-            parent.targetReportId ?? selection?.reportId ?? null;
-          job.initiatingActorId = input.userId;
-          if (selection && selection.status !== 'ready')
-            selection.status = 'pending';
-          return Result.Ok({
-            value: { type: 'queued' },
-            alreadyPresent: { type: 'selection_conflict' },
-            jobs: [job],
-          });
-        });
+        return mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'retry',
+          (state, context) => {
+            if (
+              !state.profile ||
+              (parent.kind === 'draft' && !hasStyle(state.profile))
+            )
+              return Result.Ok({ value: { type: 'style_required' } });
+            const capacity = profileBudget(state.profile.runtime);
+            if (capacity.type !== 'budget_resolved')
+              return Result.Ok({ value: capacity });
+            const selection = state.selections.find(
+              (s) => s.id === parent.selectionId
+            );
+            if (selection && context.activeSelectionIds.includes(selection.id))
+              return Result.Ok({ value: { type: 'selection_conflict' } });
+            if (
+              parent.kind === 'draft' &&
+              (!selection ||
+                selection.status === 'abandoned' ||
+                state.selections.some(
+                  (s) =>
+                    s.id !== selection.id &&
+                    s.reportId === selection.reportId &&
+                    (s.status === 'pending' || s.status === 'ready')
+                ))
+            )
+              return Result.Ok({ value: { type: 'selection_conflict' } });
+            const job = makeJob(
+              input.workspaceId,
+              state,
+              parent.kind,
+              `retry:${parent.id}`,
+              parent.selectionId,
+              parent.feedback
+            );
+            job.parentAttemptId = parent.id;
+            job.targetReportId =
+              parent.targetReportId ?? selection?.reportId ?? null;
+            job.initiatingActorId = input.userId;
+            if (selection && selection.status !== 'ready')
+              selection.status = 'pending';
+            return Result.Ok({
+              value: {
+                type: 'queued',
+                jobId: job.id,
+                selectionId: job.selectionId ?? undefined,
+              },
+              alreadyPresent: { type: 'selection_conflict' },
+              jobs: [job],
+            });
+          }
+        );
       });
     },
     async history(input: {
       userId: UserId;
       workspaceId: string;
       before?: string;
+      limit?: number;
     }) {
       return authorized(input.userId, () =>
-        deps.repository.history(input.workspaceId, input.before)
+        deps.repository.history(input.workspaceId, input.before, input.limit)
       );
     },
     async jobDetail(input: {
@@ -608,10 +653,15 @@ export function createNewsletterUseCases(deps: Deps) {
       userId: UserId;
       workspaceId: string;
       before?: string;
+      limit?: number;
     }) {
       return authorized(input.userId, () =>
         deps.archive.equivalenceReviews
-          ? deps.archive.equivalenceReviews(input.workspaceId, input.before)
+          ? deps.archive.equivalenceReviews(
+              input.workspaceId,
+              input.before,
+              input.limit
+            )
           : Promise.resolve(
               Result.Ok({
                 type: 'reviews_found' as const,
@@ -629,7 +679,16 @@ export function createNewsletterUseCases(deps: Deps) {
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
         deps.archive.decideEquivalence
-          ? deps.archive.decideEquivalence({ ...input, actorId: input.userId })
+          ? deps.archive.decideEquivalence({
+              ...input,
+              actorId: input.userId,
+              provenance: {
+                ...deps.provenance,
+                origin: deps.provenance?.origin ?? 'human',
+                channel: deps.provenance?.channel ?? 'web',
+                actorId: input.userId,
+              },
+            })
           : Promise.resolve(Result.Ok({ type: 'not_found' as const }))
       );
     },
@@ -651,74 +710,129 @@ export function createNewsletterUseCases(deps: Deps) {
         if ('type' in data) return Result.Ok(data);
         if (data.reports.at(-1)?.id !== input.reportId)
           return Result.Ok({ type: 'latest_report_required' });
-        return mutate<Outcome>(input.workspaceId, (state) => {
-          if (!state.profile || !hasStyle(state.profile))
-            return Result.Ok({ value: { type: 'style_required' as const } });
-          const capacity = profileBudget(state.profile.runtime);
-          if (capacity.type !== 'budget_resolved')
-            return Result.Ok({ value: capacity });
-          const active = state.selections.find(
-            (s) =>
-              s.reportId === input.reportId &&
-              (s.status === 'pending' || s.status === 'ready')
-          );
-          if (active && !input.replace)
-            return Result.Ok({
-              value: { type: 'selection_conflict' as const },
+        return mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'select',
+          (state) => {
+            if (!state.profile || !hasStyle(state.profile))
+              return Result.Ok({ value: { type: 'style_required' as const } });
+            const capacity = profileBudget(state.profile.runtime);
+            if (capacity.type !== 'budget_resolved')
+              return Result.Ok({ value: capacity });
+            const active = state.selections.find(
+              (s) =>
+                s.reportId === input.reportId &&
+                (s.status === 'pending' || s.status === 'ready')
+            );
+            if (active && !input.replace)
+              return Result.Ok({
+                value: { type: 'selection_conflict' as const },
+              });
+            state.sources = state.sources.map((s) => {
+              const live = data.sources.find((v) => v.id === s.id);
+              return live
+                ? {
+                    ...live,
+                    authority: s.authority,
+                    authorityExplanation: s.authorityExplanation,
+                  }
+                : { ...s, junk: true };
             });
-          state.sources = state.sources.map((s) => {
-            const live = data.sources.find((v) => v.id === s.id);
-            return live
-              ? {
-                  ...live,
-                  authority: s.authority,
-                  authorityExplanation: s.authorityExplanation,
-                }
-              : { ...s, junk: true };
-          });
-          const theme = rankThemes(state, deps.clock.now(), true).find(
-            (a) => a.id === input.angleId
-          );
-          if (!theme)
-            return Result.Ok({ value: { type: 'angle_unavailable' as const } });
-          const eligible = angleEligible(state, theme, deps.clock.now());
-          if (!eligible && !input.overrideReason?.trim())
-            return Result.Ok({ value: { type: 'override_required' as const } });
-          if (
-            eligible &&
-            !rankThemes(state, deps.clock.now())
-              .slice(0, 3)
-              .some((a) => a.id === theme.id)
-          )
-            return Result.Ok({ value: { type: 'angle_unavailable' as const } });
-          if (active) active.status = 'abandoned';
-          state.skippedReports = (state.skippedReports ?? []).filter(
-            (id) => id !== input.reportId
-          );
-          const now = deps.clock.now();
-          const id = deps.idGenerator.createId();
-          state.selections.push({
-            id,
-            reportId: input.reportId,
-            angleId: theme.id,
-            angleSnapshot: structuredClone(theme),
-            selectedAt: now.toISOString(),
-            snoozedUntil: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
-            status: 'pending',
-            overrideReason: input.overrideReason?.trim() ?? '',
-            evidenceIdentities: state.sources
-              .filter((s) => theme.sourceIds.includes(s.id))
-              .map((s) => s.identity),
-            selectedBy: input.userId,
-          });
-          return Result.Ok({
-            value: { type: 'queued' as const },
-            jobs: [
-              makeJob(input.workspaceId, state, 'draft', `draft:${id}`, id),
-            ],
-          });
-        });
+            const theme = rankThemes(state, deps.clock.now(), true).find(
+              (a) => a.id === input.angleId
+            );
+            if (!theme || state.skippedAngles?.includes(input.angleId))
+              return Result.Ok({
+                value: { type: 'angle_unavailable' as const },
+              });
+            const eligible = angleEligible(state, theme, deps.clock.now());
+            if (!eligible && !input.overrideReason?.trim())
+              return Result.Ok({
+                value: { type: 'override_required' as const },
+              });
+            if (
+              eligible &&
+              !rankThemes(state, deps.clock.now())
+                .slice(0, 3)
+                .some((a) => a.id === theme.id)
+            )
+              return Result.Ok({
+                value: { type: 'angle_unavailable' as const },
+              });
+            if (active) active.status = 'abandoned';
+            state.skippedReports = (state.skippedReports ?? []).filter(
+              (id) => id !== input.reportId
+            );
+            const now = deps.clock.now();
+            const id = deps.idGenerator.createId();
+            state.selections.push({
+              id,
+              reportId: input.reportId,
+              angleId: theme.id,
+              angleSnapshot: structuredClone(theme),
+              selectedAt: now.toISOString(),
+              snoozedUntil: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
+              status: 'pending',
+              overrideReason: input.overrideReason?.trim() ?? '',
+              evidenceIdentities: state.sources
+                .filter((s) => theme.sourceIds.includes(s.id))
+                .map((s) => s.identity),
+              selectedBy: input.userId,
+              provenance: {
+                ...deps.provenance,
+                origin: deps.provenance?.origin ?? 'human',
+                channel: deps.provenance?.channel ?? 'web',
+                actorId: input.userId,
+              },
+            });
+            const job = makeJob(
+              input.workspaceId,
+              state,
+              'draft',
+              `draft:${id}`,
+              id
+            );
+            return Result.Ok({
+              value: {
+                type: 'queued' as const,
+                jobId: job.id,
+                selectionId: id,
+              },
+              jobs: [job],
+            });
+          }
+        );
       });
+    },
+    async skipAngle(input: {
+      userId: UserId;
+      workspaceId: string;
+      reportId: string;
+      angleId: string;
+      skip: boolean;
+    }): Promise<ApplicationResult<Outcome>> {
+      return authorized<Outcome>(input.userId, () =>
+        mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'skipAngle',
+          (state) => {
+            if (state.latestReportId !== input.reportId)
+              return Result.Ok({ value: { type: 'latest_report_required' } });
+            if (
+              !state.offers.some((angle) => angle.id === input.angleId) &&
+              !state.skippedAngles?.includes(input.angleId)
+            )
+              return Result.Ok({ value: { type: 'angle_unavailable' } });
+            state.skippedAngles = (state.skippedAngles ?? []).filter(
+              (id) => id !== input.angleId
+            );
+            if (input.skip) state.skippedAngles.push(input.angleId);
+            return Result.Ok({ value: { type: 'saved' } });
+          }
+        )
+      );
     },
     async skip(input: {
       userId: UserId;
@@ -736,21 +850,26 @@ export function createNewsletterUseCases(deps: Deps) {
         if ('type' in data) return Result.Ok(data);
         if (data.reports.at(-1)?.id !== input.reportId)
           return Result.Ok({ type: 'latest_report_required' });
-        return mutate<Outcome>(input.workspaceId, (state) => {
-          if (
-            state.selections.some(
-              (s) =>
-                s.reportId === input.reportId &&
-                (s.status === 'pending' || s.status === 'ready')
+        return mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'skip',
+          (state) => {
+            if (
+              state.selections.some(
+                (s) =>
+                  s.reportId === input.reportId &&
+                  (s.status === 'pending' || s.status === 'ready')
+              )
             )
-          )
-            return Result.Ok({ value: { type: 'selection_conflict' } });
-          state.skippedReports = (state.skippedReports ?? []).filter(
-            (id) => id !== input.reportId
-          );
-          if (input.skip) state.skippedReports.push(input.reportId);
-          return Result.Ok({ value: { type: 'saved' } });
-        });
+              return Result.Ok({ value: { type: 'selection_conflict' } });
+            state.skippedReports = (state.skippedReports ?? []).filter(
+              (id) => id !== input.reportId
+            );
+            if (input.skip) state.skippedReports.push(input.reportId);
+            return Result.Ok({ value: { type: 'saved' } });
+          }
+        );
       });
     },
     async abandon(input: {
@@ -759,7 +878,7 @@ export function createNewsletterUseCases(deps: Deps) {
       selectionId: string;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        mutate<Outcome>(input.workspaceId, (state) => {
+        mutate<Outcome>(input.workspaceId, input.userId, 'abandon', (state) => {
           const s = state.selections.find((v) => v.id === input.selectionId);
           if (!s) return Result.Ok({ value: { type: 'not_found' as const } });
           s.status = 'abandoned';
@@ -774,33 +893,41 @@ export function createNewsletterUseCases(deps: Deps) {
       feedback: string;
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        mutate<Outcome>(input.workspaceId, (state, context) => {
-          if (context.activeSelectionIds.includes(input.selectionId))
-            return Result.Ok({ value: { type: 'selection_conflict' } });
-          const s = state.selections.find(
-            (v) => v.id === input.selectionId && v.status === 'ready'
-          );
-          if (!s || !state.profile)
-            return Result.Ok({ value: { type: 'not_found' as const } });
-          if (!hasStyle(state.profile))
-            return Result.Ok({ value: { type: 'style_required' as const } });
-          const capacity = profileBudget(state.profile.runtime);
-          if (capacity.type !== 'budget_resolved')
-            return Result.Ok({ value: capacity });
-          return Result.Ok({
-            value: { type: 'queued' as const },
-            jobs: [
-              makeJob(
-                input.workspaceId,
-                state,
-                'draft',
-                `revision:${s.id}:${deps.idGenerator.createId()}`,
-                s.id,
-                input.feedback
-              ),
-            ],
-          });
-        })
+        mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'regenerate',
+          (state, context) => {
+            if (context.activeSelectionIds.includes(input.selectionId))
+              return Result.Ok({ value: { type: 'selection_conflict' } });
+            const s = state.selections.find(
+              (v) => v.id === input.selectionId && v.status === 'ready'
+            );
+            if (!s || !state.profile)
+              return Result.Ok({ value: { type: 'not_found' as const } });
+            if (!hasStyle(state.profile))
+              return Result.Ok({ value: { type: 'style_required' as const } });
+            const capacity = profileBudget(state.profile.runtime);
+            if (capacity.type !== 'budget_resolved')
+              return Result.Ok({ value: capacity });
+            const job = makeJob(
+              input.workspaceId,
+              state,
+              'draft',
+              `revision:${s.id}:${deps.idGenerator.createId()}`,
+              s.id,
+              input.feedback
+            );
+            return Result.Ok({
+              value: {
+                type: 'queued' as const,
+                jobId: job.id,
+                selectionId: s.id,
+              },
+              jobs: [job],
+            });
+          }
+        )
       );
     },
     async correctTopic(input: {
@@ -813,94 +940,103 @@ export function createNewsletterUseCases(deps: Deps) {
       sourceIds?: string[];
     }): Promise<ApplicationResult<Outcome>> {
       return authorized<Outcome>(input.userId, () =>
-        mutate<Outcome>(input.workspaceId, (state) => {
-          const topic = state.topics.find(
-            (t) => t.id === input.topicId && !t.mergedInto
-          );
-          if (!topic)
-            return Result.Ok({ value: { type: 'not_found' as const } });
-          const target = state.topics.find(
-            (t) => t.id === input.targetId && !t.mergedInto
-          );
-          const sourceIds = input.sourceIds ?? [];
-          const valid =
-            sourceIds.length > 0 &&
-            sourceIds.every((id) => state.sources.some((s) => s.id === id));
-          if (input.action === 'rename') {
-            if (!input.title?.trim())
-              return Result.Ok({
-                value: { type: 'invalid_correction' as const },
-              });
-            topic.title = input.title.trim();
-          } else if (input.action === 'merge') {
-            if (
-              !target ||
-              target.id === topic.id ||
-              resolveTopicRoot(state.topics, target.id) === topic.id
-            )
-              return Result.Ok({
-                value: { type: 'invalid_correction' as const },
-              });
-            target.sourceIds = [
-              ...new Set([...target.sourceIds, ...topic.sourceIds]),
-            ];
-            target.corrected = true;
-            topic.mergedInto = target.id;
-            currentAssignments(state, topic.sourceIds, target.id);
-            state.angles
-              .filter((a) => a.topicId === topic.id)
-              .forEach((a) => {
-                a.topicId = target.id;
-              });
-          } else if (input.action === 'split') {
-            if (
-              !valid ||
-              !input.title?.trim() ||
-              !sourceIds.every((id) => topic.sourceIds.includes(id))
-            )
-              return Result.Ok({
-                value: { type: 'invalid_correction' as const },
-              });
-            const id = deps.idGenerator.createId();
-            currentAssignments(state, sourceIds, id);
-            topic.sourceIds = topic.sourceIds.filter(
-              (s) => !sourceIds.includes(s)
+        mutate<Outcome>(
+          input.workspaceId,
+          input.userId,
+          'correctTopic',
+          (state) => {
+            const topic = state.topics.find(
+              (t) => t.id === input.topicId && !t.mergedInto
             );
-            state.topics.push({
-              id,
-              title: input.title.trim(),
-              summary: 'Reader-corrected topic',
-              sourceIds,
-              corrected: true,
-            });
-            state.angles
-              .filter(
-                (a) =>
-                  a.topicId === topic.id &&
-                  a.sourceIds.every((s) => sourceIds.includes(s))
+            if (!topic)
+              return Result.Ok({ value: { type: 'not_found' as const } });
+            const target = state.topics.find(
+              (t) => t.id === input.targetId && !t.mergedInto
+            );
+            const sourceIds = input.sourceIds ?? [];
+            const valid =
+              sourceIds.length > 0 &&
+              sourceIds.every((id) => state.sources.some((s) => s.id === id));
+            if (input.action === 'rename') {
+              if (!input.title?.trim())
+                return Result.Ok({
+                  value: { type: 'invalid_correction' as const },
+                });
+              topic.title = input.title.trim();
+            } else if (input.action === 'merge') {
+              if (
+                !target ||
+                target.id === topic.id ||
+                resolveTopicRoot(state.topics, target.id) === topic.id
               )
-              .forEach((a) => {
-                a.topicId = id;
+                return Result.Ok({
+                  value: { type: 'invalid_correction' as const },
+                });
+              target.sourceIds = [
+                ...new Set([...target.sourceIds, ...topic.sourceIds]),
+              ];
+              target.corrected = true;
+              topic.mergedInto = target.id;
+              currentAssignments(state, topic.sourceIds, target.id);
+              state.angles
+                .filter((a) => a.topicId === topic.id)
+                .forEach((a) => {
+                  a.topicId = target.id;
+                });
+            } else if (input.action === 'split') {
+              if (
+                !valid ||
+                !input.title?.trim() ||
+                !sourceIds.every((id) => topic.sourceIds.includes(id))
+              )
+                return Result.Ok({
+                  value: { type: 'invalid_correction' as const },
+                });
+              const id = deps.idGenerator.createId();
+              currentAssignments(state, sourceIds, id);
+              topic.sourceIds = topic.sourceIds.filter(
+                (s) => !sourceIds.includes(s)
+              );
+              state.topics.push({
+                id,
+                title: input.title.trim(),
+                summary: 'Reader-corrected topic',
+                sourceIds,
+                corrected: true,
               });
-          } else {
-            if (!valid)
-              return Result.Ok({
-                value: { type: 'invalid_correction' as const },
+              state.angles
+                .filter(
+                  (a) =>
+                    a.topicId === topic.id &&
+                    a.sourceIds.every((s) => sourceIds.includes(s))
+                )
+                .forEach((a) => {
+                  a.topicId = id;
+                });
+            } else {
+              if (!valid)
+                return Result.Ok({
+                  value: { type: 'invalid_correction' as const },
+                });
+              state.topics.forEach((t) => {
+                t.sourceIds = t.sourceIds.filter((s) => !sourceIds.includes(s));
               });
-            state.topics.forEach((t) => {
-              t.sourceIds = t.sourceIds.filter((s) => !sourceIds.includes(s));
-            });
-            topic.sourceIds = [...new Set([...topic.sourceIds, ...sourceIds])];
-            currentAssignments(state, sourceIds, topic.id);
-            state.angles
-              .filter((a) => a.sourceIds.every((id) => sourceIds.includes(id)))
-              .forEach((a) => {
-                a.topicId = topic.id;
-              });
+              topic.sourceIds = [
+                ...new Set([...topic.sourceIds, ...sourceIds]),
+              ];
+              currentAssignments(state, sourceIds, topic.id);
+              state.angles
+                .filter((a) =>
+                  a.sourceIds.every((id) => sourceIds.includes(id))
+                )
+                .forEach((a) => {
+                  a.topicId = topic.id;
+                });
+            }
+            topic.corrected = true;
+            return Result.Ok({ value: { type: 'saved' as const } });
           }
-          topic.corrected = true;
-          return Result.Ok({ value: { type: 'saved' as const } });
-        })
+        )
       );
     },
     async export(input: {

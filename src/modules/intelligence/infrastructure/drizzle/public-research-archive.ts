@@ -5,6 +5,7 @@ import { AppError } from '@/modules/kernel/domain/errors/app-error';
 import { toWorkspaceId } from '@/modules/kernel/domain/ids';
 import type { Database } from '@/modules/kernel/infrastructure/db/types';
 
+import { createAgentResearch } from './agent-research';
 import { captureFingerprints, fingerprint } from './capture-fingerprints';
 import { effectiveEvidenceLabel } from './effective-evidence';
 import {
@@ -348,7 +349,7 @@ export function createPublicResearchArchive(db: Database) {
         return Result.Error(error(cause));
       }
     },
-    async equivalenceReviews(workspaceId: string, before?: string) {
+    async equivalenceReviews(workspaceId: string, before?: string, limit = 20) {
       try {
         const rows = await db
           .select({
@@ -356,6 +357,9 @@ export function createPublicResearchArchive(db: Database) {
             leftSourceId: evidenceEquivalenceReview.leftSourceId,
             rightSourceId: evidenceEquivalenceReview.rightSourceId,
             status: evidenceEquivalenceReview.status,
+            provenance: sql<
+              import('../../domain/judgment').JudgmentProvenance | null
+            >`(select provenance from "judgmentRecord" where "targetId" = ${evidenceEquivalenceReview.id} and "workspaceId" = ${evidenceEquivalenceReview.workspaceId} and kind = 'editorial' order by "createdAt" desc, id desc limit 1)`,
             leftTitle: sql<string>`coalesce((select title from "sourceRecord" where id = ${evidenceEquivalenceReview.leftSourceId}), 'Source')`,
             rightTitle: sql<string>`coalesce((select title from "sourceRecord" where id = ${evidenceEquivalenceReview.rightSourceId}), 'Source')`,
           })
@@ -369,11 +373,11 @@ export function createPublicResearchArchive(db: Database) {
             )
           )
           .orderBy(asc(evidenceEquivalenceReview.id))
-          .limit(21);
+          .limit(limit + 1);
         return Result.Ok({
           type: 'reviews_found' as const,
-          reviews: rows.slice(0, 20),
-          nextCursor: rows.length > 20 ? rows[19]!.id : null,
+          reviews: rows.slice(0, limit),
+          nextCursor: rows.length > limit ? rows[limit - 1]!.id : null,
         });
       } catch (cause) {
         return Result.Error(error(cause));
@@ -383,6 +387,7 @@ export function createPublicResearchArchive(db: Database) {
       workspaceId: string;
       reviewId: string;
       actorId: string;
+      provenance?: import('../../domain/judgment').JudgmentProvenance;
       action: 'confirm' | 'separate' | 'reverse';
     }): Promise<
       Result<
@@ -582,6 +587,21 @@ export function createPublicResearchArchive(db: Database) {
               actorId: input.actorId,
               action: input.action,
             });
+            const judgment = await createAgentResearch(tx).recordJudgment({
+              workspaceId: input.workspaceId,
+              targetId: review.id,
+              kind: 'editorial',
+              provenance: input.provenance ?? {
+                origin: 'human',
+                actorId: input.actorId,
+              },
+              payload: {
+                action: input.action,
+                leftSourceId: review.leftSourceId,
+                rightSourceId: review.rightSourceId,
+              },
+            });
+            if (judgment.isError()) throw judgment.getError();
             return { type: 'saved' as const };
           })
         );

@@ -4,6 +4,7 @@ export * from './relations';
 export * from '@/modules/auth/infrastructure/drizzle/schema';
 export * from '@/modules/intelligence/infrastructure/drizzle/schema';
 export * from '@/modules/newsletter/infrastructure/drizzle/schema';
+export * from '@/modules/operations/infrastructure/drizzle/schema';
 
 import {
   account,

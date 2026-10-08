@@ -1,5 +1,6 @@
 import { Result } from '@swan-io/boxed';
 import { and, eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 
 import type { UserId, WeeklyReportId } from '@/modules/kernel/domain/ids';
 import {
@@ -10,7 +11,9 @@ import {
 } from '@/modules/kernel/domain/ids';
 import { observeRepository } from '@/modules/kernel/infrastructure/db/observability';
 import type { DbLike } from '@/modules/kernel/infrastructure/db/types';
+import { isRootDatabase } from '@/modules/kernel/infrastructure/db/types';
 
+import { judgmentRecord } from './judgment-schema';
 import {
   intelligenceInvariantError,
   mapIntelligenceDbError,
@@ -42,37 +45,60 @@ export class RubricScoreRepositoryDrizzle implements RubricScoreRepository {
 
   async upsert(input: ReportRubricScoreWriteInput) {
     try {
-      const [upserted] = await this.db
-        .insert(rubricScoreTable)
-        .values({
-          workspaceId: input.workspaceId,
-          reportId: input.reportId,
-          userId: input.userId,
-          relevance: input.relevance,
-          accuracy: input.accuracy,
-          novelty: input.novelty,
-          note: input.note ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [rubricScoreTable.reportId, rubricScoreTable.userId],
-          set: {
+      const work = async (db: DbLike) => {
+        const [upserted] = await db
+          .insert(rubricScoreTable)
+          .values({
+            workspaceId: input.workspaceId,
+            reportId: input.reportId,
+            userId: input.userId,
             relevance: input.relevance,
             accuracy: input.accuracy,
             novelty: input.novelty,
             note: input.note ?? null,
-            updatedAt: new Date(),
-          },
-        })
-        .returning();
-      if (!upserted) {
-        return Result.Error(
-          intelligenceInvariantError(
+          })
+          .onConflictDoUpdate({
+            target: [rubricScoreTable.reportId, rubricScoreTable.userId],
+            set: {
+              relevance: input.relevance,
+              accuracy: input.accuracy,
+              novelty: input.novelty,
+              note: input.note ?? null,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        if (!upserted) {
+          throw intelligenceInvariantError(
             'RUBRIC_SCORE_UPSERT_EMPTY',
             'rubric score upsert returned no row'
-          )
-        );
-      }
-      return Result.Ok(toRubricScore(upserted));
+          );
+        }
+        await db.insert(judgmentRecord).values({
+          id: randomUUID(),
+          workspaceId: input.workspaceId,
+          targetId: input.reportId,
+          kind: 'rubric',
+          provenance: {
+            ...input.provenance,
+            origin: 'human',
+            channel: input.provenance?.channel ?? 'web',
+            actorId: input.userId,
+          },
+          payload: {
+            relevance: input.relevance,
+            accuracy: input.accuracy,
+            novelty: input.novelty,
+            note: input.note ?? null,
+          },
+        });
+        return toRubricScore(upserted);
+      };
+      const value =
+        isRootDatabase(this.db) && this.db.$runInTransaction
+          ? await this.db.$runInTransaction(work)
+          : await work(this.db);
+      return Result.Ok(value);
     } catch (error) {
       return Result.Error(
         mapIntelligenceDbError(error, 'RUBRIC_SCORE_UPSERT_ERROR')

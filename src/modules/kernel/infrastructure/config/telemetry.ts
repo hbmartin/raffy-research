@@ -36,6 +36,7 @@ const telemetryEnvSchema = baseEnvSchema.extend({
   PHOENIX_COLLECTOR_URL: z.string().url().optional(),
   PHOENIX_API_KEY: z.string().optional(),
   PHOENIX_PROJECT_NAME: z.string().min(1).optional(),
+  PHOENIX_EVAL_PROJECT_NAME: z.string().min(1).optional(),
 });
 
 export type TelemetryConfig = {
@@ -63,6 +64,8 @@ export type TelemetryConfig = {
   phoenixApiKey?: string;
   /** Pins every span to one Phoenix project; otherwise the name is derived. */
   phoenixProjectName?: string;
+  /** Keeps eval experiments separate when the app project is explicitly named. */
+  phoenixEvalProjectName?: string;
 };
 
 export type SentryServerConfig = Pick<
@@ -306,5 +309,6 @@ function buildTelemetryConfig(
     phoenixCollectorUrl: env.PHOENIX_COLLECTOR_URL,
     phoenixApiKey: env.PHOENIX_API_KEY,
     phoenixProjectName: env.PHOENIX_PROJECT_NAME,
+    phoenixEvalProjectName: env.PHOENIX_EVAL_PROJECT_NAME,
   };
 }

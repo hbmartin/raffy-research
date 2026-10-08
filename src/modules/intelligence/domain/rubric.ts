@@ -45,6 +45,7 @@ export type ReportRubricScore = {
 };
 
 export type ReportRubricScoreWriteInput = {
+  provenance?: import('./judgment').JudgmentProvenance & { origin: 'human' };
   workspaceId: WorkspaceId;
   reportId: WeeklyReportId;
   userId: UserId;

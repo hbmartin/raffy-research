@@ -111,6 +111,7 @@ describe('labelSource', () => {
       sourceRecordId,
       label: 'junk',
       labeledAt: now,
+      provenance: { origin: 'human', channel: 'web', actorId: userId },
     });
   });
 

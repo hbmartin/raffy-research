@@ -37,8 +37,7 @@ export type BuildEvalPromptInput = {
 
 /**
  * LLM-judge prompt: verify a published report's claims against the period's
- * source records. Quality-lab only; the verdict is streamed back to the dev
- * console and never persisted.
+ * source records. The quality lab persists validated verdicts against this exact report version.
  */
 export function buildEvalPrompt(input: BuildEvalPromptInput): string {
   const { report, sources } = input;
