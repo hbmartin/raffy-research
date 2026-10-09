@@ -5,18 +5,22 @@ import {
 import type { WeeklyReport } from '../../domain/report';
 import type { SourceRecord } from '../../domain/source';
 
-export const EVAL_PROMPT_VERSION = 'report-eval-v2';
+export const EVAL_PROMPT_VERSION = 'report-eval-v3';
 
 /** What the monolithic evaluator prompt shows of each source. */
 export const EVAL_CONTENT_LIMIT = 4000;
 export const EVAL_DIFF_ADDED_LIMIT = 1500;
+export const EVAL_DIFF_REMOVED_LIMIT = 1000;
+export const EVAL_TITLE_LIMIT = 200;
 
 const renderSourceForEval = (source: SourceRecord) =>
   [
     `id: ${source.id}`,
     `provider: ${source.providerName}`,
     `type: ${source.sourceType}`,
-    source.title ? `title: ${source.title}` : null,
+    source.title
+      ? `title: ${truncateForPrompt(source.title, EVAL_TITLE_LIMIT)}`
+      : null,
     source.authorOrAccount ? `author: ${source.authorOrAccount}` : null,
     source.externalUrl ? `url: ${source.externalUrl}` : null,
     source.relevanceLabel ? `analyst_label: ${source.relevanceLabel}` : null,
@@ -25,6 +29,9 @@ const renderSourceForEval = (source: SourceRecord) =>
       : null,
     source.diffAddedText
       ? `added: ${truncateForPrompt(source.diffAddedText, EVAL_DIFF_ADDED_LIMIT)}`
+      : null,
+    source.diffRemovedText
+      ? `removed: ${truncateForPrompt(source.diffRemovedText, EVAL_DIFF_REMOVED_LIMIT)}`
       : null,
   ]
     .filter(Boolean)

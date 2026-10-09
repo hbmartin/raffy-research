@@ -7,11 +7,16 @@ import {
   buildReportPrompt,
   buildSourceSummaryPrompt,
   CLAIM_SUPPORT_CONTENT_LIMIT,
+  CLAIM_SUPPORT_DIFF_LIMIT,
   COVERAGE_CONTENT_LIMIT,
+  COVERAGE_DIFF_LIMIT,
   EVAL_CONTENT_LIMIT,
+  measureReportPromptTruncation,
   REPORT_PROMPT_BUDGETS,
   SOURCE_SUMMARY_CONTENT_LIMIT,
   type SourceRecord,
+  type SourceSummary,
+  truncateForPrompt,
   type WeeklyReport,
 } from '@/modules/intelligence';
 import {
@@ -75,13 +80,34 @@ const report = {
   updatedAt: now,
 } satisfies WeeklyReport;
 
-const reportPromptWith = (source: SourceRecord) =>
+const summaryFor = (
+  source: SourceRecord,
+  fields: Pick<SourceSummary, 'summaryText' | 'evidenceCandidateText'>
+) =>
+  ({
+    id: 'summary-1',
+    workspaceId,
+    sourceRecordId: source.id,
+    modelName: 'qwen3:14b',
+    modelProvider: 'ollama',
+    promptVersion: null,
+    inputMetadata: null,
+    outputPayload: null,
+    createdAt: now,
+    ...fields,
+  }) as unknown as SourceSummary;
+
+const reportPromptWith = (
+  source: SourceRecord,
+  sourceSummaries: SourceSummary[] = []
+) =>
   buildReportPrompt({
     workspace: { id: workspaceId, name: 'Acme' },
     keywords: [],
     competitors: [],
     socialAccounts: [],
     sources: [source],
+    sourceSummaries,
     priorReports: [],
     periodStartLabel: 'May 25, 2026',
     periodEndLabel: 'May 31, 2026',
@@ -95,7 +121,11 @@ const reportPromptWith = (source: SourceRecord) =>
  * mid-emoji, so this is a real boundary, not a contrived one.
  */
 const builders: [string, number, (source: SourceRecord) => string][] = [
-  ['buildReportPrompt', REPORT_PROMPT_BUDGETS.sourceContent, reportPromptWith],
+  [
+    'buildReportPrompt',
+    REPORT_PROMPT_BUDGETS.sourceContent,
+    (source) => reportPromptWith(source),
+  ],
   [
     'buildClaimSupportPrompt',
     CLAIM_SUPPORT_CONTENT_LIMIT,
@@ -164,4 +194,150 @@ describe('prompt truncation', () => {
       expect(prompt).not.toContain(BEYOND);
     }
   );
+});
+
+describe('truncateForPrompt', () => {
+  it('returns short values untouched and null as empty', () => {
+    expect(truncateForPrompt('short', 10)).toBe('short');
+    expect(truncateForPrompt(null, 10)).toBe('');
+  });
+
+  it('backs off to the last sentence end near the limit', () => {
+    const text = `${'a'.repeat(85)}. Second sentence runs past the limit`;
+
+    expect(truncateForPrompt(text, 100)).toBe(`${'a'.repeat(85)}.…`);
+  });
+
+  it('falls back to the last word break when no sentence ends nearby', () => {
+    const text = `${'word '.repeat(19)}unfinishedword continues`;
+
+    expect(truncateForPrompt(text, 100)).toBe(
+      `${'word '.repeat(19).trimEnd()}…`
+    );
+  });
+
+  it('keeps a word that ends exactly at the limit', () => {
+    const text = `${'a'.repeat(95)} bcde fgh`;
+
+    expect(truncateForPrompt(text, 100)).toBe(`${'a'.repeat(95)} bcde…`);
+  });
+
+  it('hard-cuts when the window holds no boundary', () => {
+    expect(truncateForPrompt('x'.repeat(150), 100)).toBe(`${'x'.repeat(100)}…`);
+  });
+
+  it('never retreats further than its window', () => {
+    // The only space sits outside the last 20% of a 100-char budget.
+    const text = `${'a'.repeat(50)} ${'b'.repeat(100)}`;
+
+    expect(truncateForPrompt(text, 100)).toBe(`${text.slice(0, 100)}…`);
+  });
+
+  it('never exceeds its budget plus the ellipsis', () => {
+    const text = 'The quick brown fox. Jumps over! The lazy dog? '.repeat(40);
+    for (const max of [10, 37, 100, 600, 1000]) {
+      expect(truncateForPrompt(text, max).length).toBeLessThanOrEqual(max + 1);
+    }
+  });
+});
+
+describe('report prompt source summaries', () => {
+  const source = {
+    ...sourceWith('RAW_CONTENT_MARKER'),
+    diffAddedText: 'RAW_DIFF_MARKER',
+  } as SourceRecord;
+
+  it('shows raw source text alongside a separate summaries section', () => {
+    const prompt = reportPromptWith(source, [
+      summaryFor(source, {
+        summaryText: 'SUMMARY_MARKER',
+        evidenceCandidateText: 'EVIDENCE_MARKER',
+      }),
+    ]);
+
+    expect(prompt).toContain('content: RAW_CONTENT_MARKER');
+    expect(prompt).toContain('added: RAW_DIFF_MARKER');
+    expect(prompt).toContain('# Latest source summaries');
+    expect(prompt).toContain('- source_id: src-1');
+    expect(prompt).toContain('summary: SUMMARY_MARKER');
+    expect(prompt).toContain('evidence_candidate: EVIDENCE_MARKER');
+  });
+
+  it('says so when no summaries are supplied', () => {
+    expect(reportPromptWith(source)).toContain(
+      '(no source summaries supplied)'
+    );
+  });
+});
+
+describe('judge diffs', () => {
+  const source = {
+    ...sourceWith('content'),
+    diffAddedText: `ADDED ${'a'.repeat(5000)}`,
+    diffRemovedText: `REMOVED ${'r'.repeat(5000)}`,
+  } as SourceRecord;
+
+  /** A change visible only in a diff is evidence the generator could use. */
+  it('shows the coverage judge diffs at the generator budget', () => {
+    expect(COVERAGE_DIFF_LIMIT).toBe(REPORT_PROMPT_BUDGETS.sourceDiff);
+    const prompt = buildCoveragePrompt({ reportJson: '{}', sources: [source] });
+
+    expect(prompt).toContain('added: ADDED');
+    expect(prompt).toContain('removed: REMOVED');
+  });
+
+  it('shows claim_support diffs', () => {
+    expect(CLAIM_SUPPORT_DIFF_LIMIT).toBeGreaterThan(
+      REPORT_PROMPT_BUDGETS.sourceDiff
+    );
+    const prompt = buildClaimSupportPrompt({
+      reportJson: '{}',
+      sources: [source],
+    });
+
+    expect(prompt).toContain('added: ADDED');
+    expect(prompt).toContain('removed: REMOVED');
+  });
+});
+
+describe('measureReportPromptTruncation', () => {
+  it('counts truncated fields and the characters they lost', () => {
+    const long = { ...sourceWith('x'.repeat(1000)) } as SourceRecord;
+    const short = {
+      ...sourceWith('fits'),
+      id: 'src-2',
+    } as unknown as SourceRecord;
+
+    expect(measureReportPromptTruncation({ sources: [long, short] })).toEqual({
+      sourcesRendered: 2,
+      summariesRendered: 0,
+      fieldsTruncated: 1,
+      charsDropped: 1000 - REPORT_PROMPT_BUDGETS.sourceContent,
+    });
+  });
+
+  it('counts truncated summary fields alongside source fields', () => {
+    const source = sourceWith('x'.repeat(1000));
+
+    expect(
+      measureReportPromptTruncation({
+        sources: [source],
+        sourceSummaries: [
+          summaryFor(source, {
+            summaryText: 's'.repeat(800),
+            evidenceCandidateText: 'brief',
+          }),
+        ],
+      })
+    ).toEqual({
+      sourcesRendered: 1,
+      summariesRendered: 1,
+      fieldsTruncated: 2,
+      charsDropped:
+        1000 -
+        REPORT_PROMPT_BUDGETS.sourceContent +
+        800 -
+        REPORT_PROMPT_BUDGETS.summaryText,
+    });
+  });
 });

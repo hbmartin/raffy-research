@@ -7,7 +7,7 @@ import type {
   Workspace,
 } from '../../domain/workspace';
 
-export const REPORT_PROMPT_VERSION = 'v2';
+export const REPORT_PROMPT_VERSION = 'v3';
 
 /**
  * The hard V1 boundary: surface evidence and questions, never advise. The
@@ -29,12 +29,32 @@ export const UNTRUSTED_SOURCE_GUIDANCE = [
 ].join(' ');
 
 /**
- * Cuts to `max` characters without splitting a surrogate pair.
+ * How far back from the hard limit a cut may retreat to land on a sentence or
+ * word boundary. Bounded both ways so a short budget is not halved to find a
+ * space, and a long one does not give up a paragraph for a full stop.
+ */
+const BOUNDARY_WINDOW_RATIO = 0.2;
+const BOUNDARY_WINDOW_MAX = 120;
+
+const SENTENCE_END = /[.!?]\s|\n/g;
+const WHITESPACE = /\s/g;
+
+const lastMatchEnd = (text: string, pattern: RegExp): number => {
+  let end = -1;
+  for (const match of text.matchAll(pattern)) end = match.index + 1;
+  return end;
+};
+
+/**
+ * Cuts to at most `max` characters, preferring the last sentence end, then the
+ * last word break, near the limit. A cut mid-word hands the model a fragment
+ * that reads as a different word; a cut mid-sentence invites it to complete
+ * the thought.
  *
- * Exported so the eval records source text through the same function the
- * prompt renders it with. A plain slice at the same limit is not equivalent:
- * it can end on a lone high surrogate, which is invalid UTF-16 and which
- * Phoenix's dataset upload rejects with a bare 500.
+ * Never splits a surrogate pair. Exported so the eval records source text
+ * through the same function the prompt renders it with. A plain slice at the
+ * same limit is not equivalent: it can end on a lone high surrogate, which is
+ * invalid UTF-16 and which Phoenix's dataset upload rejects with a bare 500.
  */
 export const truncateForPrompt = (
   value: string | null | undefined,
@@ -45,7 +65,21 @@ export const truncateForPrompt = (
   let end = max;
   const code = value.charCodeAt(end - 1);
   if (code >= 0xd800 && code <= 0xdbff) end -= 1;
-  return `${value.slice(0, end)}…`;
+
+  const window = Math.min(
+    Math.floor(max * BOUNDARY_WINDOW_RATIO),
+    BOUNDARY_WINDOW_MAX
+  );
+  const windowStart = end - window;
+  // Include the character just past the cut so a sentence ending exactly at
+  // the limit ("…end. Next") is still found.
+  const tail = value.slice(windowStart, end + 1);
+  const sentenceEnd = lastMatchEnd(tail, SENTENCE_END);
+  const boundary =
+    sentenceEnd > 0 ? sentenceEnd : lastMatchEnd(tail, WHITESPACE);
+  if (boundary > 0) end = Math.min(windowStart + boundary, end);
+
+  return `${value.slice(0, end).trimEnd()}…`;
 };
 
 /**
@@ -68,43 +102,111 @@ const renderCompetitor = (competitor: Competitor): string => {
   return `${competitor.name}${domainLabel} [${competitor.state}]`;
 };
 
-const renderSource = (source: SourceRecord): string => {
-  const lines = [
-    `- id: ${source.id}`,
-    `  type: ${source.sourceType}`,
-    `  provider: ${source.providerName}`,
-    source.title
-      ? `  title: ${truncateForPrompt(source.title, REPORT_PROMPT_BUDGETS.sourceTitle)}`
-      : null,
-    source.authorOrAccount ? `  author: ${source.authorOrAccount}` : null,
-    source.externalUrl ? `  url: ${source.externalUrl}` : null,
-    source.contentText
-      ? `  content: ${truncateForPrompt(source.contentText, REPORT_PROMPT_BUDGETS.sourceContent)}`
-      : null,
-    source.diffAddedText
-      ? `  added: ${truncateForPrompt(source.diffAddedText, REPORT_PROMPT_BUDGETS.sourceDiff)}`
-      : null,
-    source.diffRemovedText
-      ? `  removed: ${truncateForPrompt(source.diffRemovedText, REPORT_PROMPT_BUDGETS.sourceDiff)}`
-      : null,
-  ];
-  return lines.filter(Boolean).join('\n');
+type PromptField = {
+  key: string;
+  text: string | null | undefined;
+  /** Unbounded when absent: ids, enums and URLs are never cut. */
+  budget?: number;
 };
 
-const renderSourceSummary = (summary: SourceSummary): string => {
-  const lines = [
-    `- source_id: ${summary.sourceRecordId}`,
-    summary.summaryText
-      ? `  summary: ${truncateForPrompt(summary.summaryText, REPORT_PROMPT_BUDGETS.summaryText)}`
-      : null,
-    summary.evidenceCandidateText
-      ? `  evidence_candidate: ${truncateForPrompt(summary.evidenceCandidateText, REPORT_PROMPT_BUDGETS.evidenceCandidate)}`
-      : null,
-    summary.modelProvider ? `  model_provider: ${summary.modelProvider}` : null,
-    summary.modelName ? `  model: ${summary.modelName}` : null,
-  ];
-  return lines.filter(Boolean).join('\n');
+/** The fields the report prompt shows for one source, before truncation. */
+const reportSourceFields = (source: SourceRecord): PromptField[] => [
+  { key: 'id', text: source.id },
+  { key: 'type', text: source.sourceType },
+  { key: 'provider', text: source.providerName },
+  {
+    key: 'title',
+    text: source.title,
+    budget: REPORT_PROMPT_BUDGETS.sourceTitle,
+  },
+  { key: 'author', text: source.authorOrAccount },
+  { key: 'url', text: source.externalUrl },
+  {
+    key: 'content',
+    text: source.contentText,
+    budget: REPORT_PROMPT_BUDGETS.sourceContent,
+  },
+  {
+    key: 'added',
+    text: source.diffAddedText,
+    budget: REPORT_PROMPT_BUDGETS.sourceDiff,
+  },
+  {
+    key: 'removed',
+    text: source.diffRemovedText,
+    budget: REPORT_PROMPT_BUDGETS.sourceDiff,
+  },
+];
+
+/** The fields the report prompt shows for one source summary. */
+const reportSummaryFields = (summary: SourceSummary): PromptField[] => [
+  { key: 'source_id', text: summary.sourceRecordId },
+  {
+    key: 'summary',
+    text: summary.summaryText,
+    budget: REPORT_PROMPT_BUDGETS.summaryText,
+  },
+  {
+    key: 'evidence_candidate',
+    text: summary.evidenceCandidateText,
+    budget: REPORT_PROMPT_BUDGETS.evidenceCandidate,
+  },
+  { key: 'model_provider', text: summary.modelProvider },
+  { key: 'model', text: summary.modelName },
+];
+
+const renderField = (field: PromptField) =>
+  field.budget === undefined
+    ? (field.text ?? '')
+    : truncateForPrompt(field.text, field.budget);
+
+const renderListItem = (fields: PromptField[]): string =>
+  fields
+    .filter((field) => field.text)
+    .map(
+      (field, index) =>
+        `${index === 0 ? '- ' : '  '}${field.key}: ${renderField(field)}`
+    )
+    .join('\n');
+
+export type ReportPromptTruncation = {
+  sourcesRendered: number;
+  summariesRendered: number;
+  fieldsTruncated: number;
+  charsDropped: number;
 };
+
+/**
+ * What the report prompt cut from its sources and summaries, measured against
+ * the same fields and budgets it renders. A prompt that silently drops most of
+ * its evidence looks identical, from the outside, to one that drops none.
+ */
+export function measureReportPromptTruncation(input: {
+  sources: SourceRecord[];
+  sourceSummaries?: SourceSummary[];
+}): ReportPromptTruncation {
+  const summaries = input.sourceSummaries ?? [];
+  const fields = [
+    ...input.sources.flatMap(reportSourceFields),
+    ...summaries.flatMap(reportSummaryFields),
+  ];
+  let fieldsTruncated = 0;
+  let charsDropped = 0;
+  for (const field of fields) {
+    if (!field.text || field.budget === undefined) continue;
+    const rendered = truncateForPrompt(field.text, field.budget);
+    if (rendered === field.text) continue;
+    fieldsTruncated += 1;
+    // The ellipsis is a marker, not source text.
+    charsDropped += field.text.length - (rendered.length - 1);
+  }
+  return {
+    sourcesRendered: input.sources.length,
+    summariesRendered: summaries.length,
+    fieldsTruncated,
+    charsDropped,
+  };
+}
 
 export type BuildReportPromptInput = {
   workspace: Workspace;
@@ -132,11 +234,15 @@ export function buildReportPrompt(input: BuildReportPromptInput): string {
 
   const sourcesBlock =
     input.sources.length > 0
-      ? input.sources.map(renderSource).join('\n')
+      ? input.sources
+          .map((source) => renderListItem(reportSourceFields(source)))
+          .join('\n')
       : '(no source records were captured this period)';
   const sourceSummariesBlock =
     input.sourceSummaries && input.sourceSummaries.length > 0
-      ? input.sourceSummaries.map(renderSourceSummary).join('\n')
+      ? input.sourceSummaries
+          .map((summary) => renderListItem(reportSummaryFields(summary)))
+          .join('\n')
       : '(no source summaries supplied)';
 
   return [

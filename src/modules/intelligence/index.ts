@@ -9,15 +9,19 @@ export {
   buildCoveragePrompt,
   buildNoisePrompt,
   CLAIM_SUPPORT_CONTENT_LIMIT,
+  CLAIM_SUPPORT_DIFF_LIMIT,
   COVERAGE_CONTENT_LIMIT,
+  COVERAGE_DIFF_LIMIT,
   JUDGE_PROMPT_VERSION,
 } from './application/generation/build-judge-prompts';
 export {
   buildRepairPrompt,
   buildReportPrompt,
+  measureReportPromptTruncation,
   NO_RECOMMENDATION_GUIDANCE,
   REPORT_PROMPT_BUDGETS,
   REPORT_PROMPT_VERSION,
+  type ReportPromptTruncation,
   truncateForPrompt,
   UNTRUSTED_SOURCE_GUIDANCE,
 } from './application/generation/build-report-prompt';
