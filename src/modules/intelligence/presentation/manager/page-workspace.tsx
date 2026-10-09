@@ -1,6 +1,13 @@
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { match } from 'ts-pattern';
 
 import {
@@ -65,6 +72,31 @@ type LocalAiEvent = {
 
 const toDateInputValue = (date: Date) => date.toISOString().slice(0, 10);
 
+type RunLogEntry = { id: number; at: Date; line: string };
+
+/** Wall-clock time with milliseconds, so close events stay distinguishable. */
+const formatLogTime = (date: Date) =>
+  date.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+    hour12: false,
+  });
+
+/** The viewer's time zone and UTC offset, e.g. "Europe/Paris (GMT+2)". */
+const describeLocalTimeZone = () => {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const offset = new Intl.DateTimeFormat(undefined, {
+    timeZoneName: 'shortOffset',
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === 'timeZoneName')?.value;
+  return offset ? `${timeZone} (${offset})` : timeZone;
+};
+
+const subscribeToNothing = () => () => {};
+
 /** The server's own message when it sent one, such as a missing model. */
 const describeFailedResponse = async (response: Response) => {
   const body = (await response.json().catch(() => null)) as {
@@ -99,7 +131,14 @@ const DevAiConsole = (props: {
   const [selectedCallbacks, setSelectedCallbacks] = useState<Set<string>>(
     () => new Set()
   );
-  const [events, setEvents] = useState<string[]>([]);
+  const [events, setEvents] = useState<RunLogEntry[]>([]);
+  const nextEventIdRef = useRef(0);
+  // Null on the server so the label always reflects the viewer's zone.
+  const timeZoneLabel = useSyncExternalStore(
+    subscribeToNothing,
+    describeLocalTimeZone,
+    () => null
+  );
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -113,7 +152,8 @@ const DevAiConsole = (props: {
   );
 
   const appendEvent = useCallback((line: string) => {
-    setEvents((current) => [line, ...current].slice(0, 80));
+    const entry = { id: nextEventIdRef.current++, at: new Date(), line };
+    setEvents((current) => [entry, ...current].slice(0, 80));
   }, []);
 
   const runAction = useCallback(
@@ -505,7 +545,15 @@ const DevAiConsole = (props: {
 
         <div className="rounded-md border bg-muted/20 p-2">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-medium">Run log</h3>
+            <h3 className="text-sm font-medium">
+              Run log
+              {timeZoneLabel ? (
+                <span className="text-xs font-normal text-muted-foreground">
+                  {' '}
+                  · times in {timeZoneLabel}
+                </span>
+              ) : null}
+            </h3>
             {runningAction ? (
               <Badge variant="secondary" size="sm">
                 {runningAction}
@@ -516,9 +564,16 @@ const DevAiConsole = (props: {
             <p className="text-xs text-muted-foreground">No runs yet.</p>
           ) : (
             <ol className="max-h-52 overflow-auto text-xs">
-              {events.map((event, index) => (
-                <li key={`${event}-${index}`} className="py-0.5">
-                  {event}
+              {events.map((event) => (
+                <li key={event.id} className="flex gap-2 py-0.5">
+                  <time
+                    dateTime={event.at.toISOString()}
+                    title={event.at.toLocaleString()}
+                    className="shrink-0 font-mono text-muted-foreground tabular-nums"
+                  >
+                    {formatLogTime(event.at)}
+                  </time>
+                  <span className="min-w-0 break-words">{event.line}</span>
                 </li>
               ))}
             </ol>
