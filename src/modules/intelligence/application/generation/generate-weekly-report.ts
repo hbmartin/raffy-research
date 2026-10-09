@@ -13,6 +13,7 @@ import type { JsonObject } from '@/modules/kernel/domain/json';
 import {
   buildRepairPrompt,
   buildReportPrompt,
+  measureReportPromptTruncation,
   REPORT_PROMPT_VERSION,
 } from './build-report-prompt';
 import type { AlertPort, ReportGeneratorPort } from '../ports/report-generator';
@@ -156,6 +157,14 @@ export async function generateWeeklyReport(
     periodEndLabel,
   });
 
+  const promptTruncation = {
+    ...measureReportPromptTruncation({
+      sources: usableSources,
+      sourceSummaries,
+    }),
+    promptChars: prompt.length,
+  };
+
   // Generate, then a single bounded repair pass if the JSON is invalid.
   const first = await deps.reportGenerator.generate({
     prompt,
@@ -173,6 +182,7 @@ export async function generateWeeklyReport(
 
   const generationMetadata: JsonObject = {
     initial: first.get().metadata ?? {},
+    promptTruncation,
   };
   let modelName = first.get().modelName;
   let modelProvider = first.get().modelProvider ?? 'unknown';
@@ -308,7 +318,7 @@ export async function generateWeeklyReport(
 
   deps.logger.info({
     event: 'intelligence.report.published',
-    details: { workspaceId: workspace.id, reportId },
+    details: { workspaceId: workspace.id, reportId, ...promptTruncation },
   });
   if (deps.publicationNotifier) {
     const notified = await deps.publicationNotifier.published({

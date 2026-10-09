@@ -1,7 +1,7 @@
 import { truncateForPrompt } from './build-report-prompt';
 import type { SourceRecord } from '../../domain/source';
 
-export const SOURCE_SUMMARY_PROMPT_VERSION = 'local-source-summary-v2';
+export const SOURCE_SUMMARY_PROMPT_VERSION = 'local-source-summary-v3';
 
 /**
  * How much of a source the summarizer sees.
@@ -14,6 +14,7 @@ export const SOURCE_SUMMARY_PROMPT_VERSION = 'local-source-summary-v2';
 export const SOURCE_SUMMARY_CONTENT_LIMIT = 4000;
 export const SOURCE_SUMMARY_DIFF_ADDED_LIMIT = 1500;
 export const SOURCE_SUMMARY_DIFF_REMOVED_LIMIT = 1000;
+export const SOURCE_SUMMARY_TITLE_LIMIT = 200;
 
 /** The source as the summarizer sees it — evaluators must score against this. */
 export function renderSourceForSummary(source: SourceRecord): string {
@@ -21,7 +22,9 @@ export function renderSourceForSummary(source: SourceRecord): string {
     `id: ${source.id}`,
     `provider: ${source.providerName}`,
     `type: ${source.sourceType}`,
-    source.title ? `title: ${source.title}` : null,
+    source.title
+      ? `title: ${truncateForPrompt(source.title, SOURCE_SUMMARY_TITLE_LIMIT)}`
+      : null,
     source.authorOrAccount ? `author: ${source.authorOrAccount}` : null,
     source.externalUrl ? `url: ${source.externalUrl}` : null,
     source.contentText

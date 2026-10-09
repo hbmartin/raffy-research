@@ -17,7 +17,7 @@ import {
 } from './build-report-prompt';
 import type { SourceRecord } from '../../domain/source';
 
-export const JUDGE_PROMPT_VERSION = 'report-judge-v2';
+export const JUDGE_PROMPT_VERSION = 'report-judge-v3';
 
 /** Cited sources are read closely, so they keep a generous budget. */
 export const CLAIM_SUPPORT_CONTENT_LIMIT = 4000;
@@ -46,7 +46,19 @@ export const JUDGE_TITLE_LIMIT = 200;
 
 const JSON_ONLY = 'Return ONLY compact JSON. No prose outside the JSON.';
 
-const renderSource = (source: SourceRecord, contentLimit: number) =>
+/** Diffs are signal the generator reads; claim_support reads them closely. */
+export const CLAIM_SUPPORT_DIFF_LIMIT = 1500;
+
+/**
+ * Exactly the generator's diff budget, for the same reason coverage matches
+ * its content budget: a change visible only in a diff was evidence the report
+ * could use, so a coverage judge that cannot see it cannot score its absence.
+ */
+export const COVERAGE_DIFF_LIMIT = REPORT_PROMPT_BUDGETS.sourceDiff;
+
+type JudgeSourceLimits = { content: number; diff: number };
+
+const renderSource = (source: SourceRecord, limits: JudgeSourceLimits) =>
   [
     `id: ${source.id}`,
     `provider: ${source.providerName}`,
@@ -55,7 +67,13 @@ const renderSource = (source: SourceRecord, contentLimit: number) =>
       : null,
     source.relevanceLabel ? `analyst_label: ${source.relevanceLabel}` : null,
     source.contentText
-      ? `content: ${truncateForPrompt(source.contentText, contentLimit)}`
+      ? `content: ${truncateForPrompt(source.contentText, limits.content)}`
+      : null,
+    source.diffAddedText
+      ? `added: ${truncateForPrompt(source.diffAddedText, limits.diff)}`
+      : null,
+    source.diffRemovedText
+      ? `removed: ${truncateForPrompt(source.diffRemovedText, limits.diff)}`
       : null,
   ]
     .filter(Boolean)
@@ -95,7 +113,11 @@ export function buildClaimSupportPrompt(input: JudgeReportInput): string {
     '',
     `=== SOURCES CITED BY THIS REPORT (${input.sources.length}) ===`,
     ...input.sources.map(
-      (source) => `---\n${renderSource(source, CLAIM_SUPPORT_CONTENT_LIMIT)}`
+      (source) =>
+        `---\n${renderSource(source, {
+          content: CLAIM_SUPPORT_CONTENT_LIMIT,
+          diff: CLAIM_SUPPORT_DIFF_LIMIT,
+        })}`
     ),
   ].join('\n');
 }
@@ -125,7 +147,11 @@ export function buildCoveragePrompt(input: JudgeReportInput): string {
     '',
     `=== ALL SOURCES FOR THE PERIOD (${input.sources.length}) ===`,
     ...input.sources.map(
-      (source) => `---\n${renderSource(source, COVERAGE_CONTENT_LIMIT)}`
+      (source) =>
+        `---\n${renderSource(source, {
+          content: COVERAGE_CONTENT_LIMIT,
+          diff: COVERAGE_DIFF_LIMIT,
+        })}`
     ),
   ].join('\n');
 }

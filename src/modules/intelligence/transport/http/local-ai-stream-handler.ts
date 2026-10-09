@@ -16,6 +16,7 @@ import {
   runWorkspaceIngest,
   SOURCE_SUMMARY_PROMPT_VERSION,
   type SourceRepository,
+  truncateForPrompt,
   type WeeklyReportGenerationDeps,
   type WorkspaceRepository,
 } from '@/modules/intelligence';
@@ -287,7 +288,8 @@ async function summarizeSources(
     });
     const parsed = extractJsonObject(result.text);
     const summaryText =
-      asOptionalString(parsed?.summary) ?? result.text.trim().slice(0, 4000);
+      asOptionalString(parsed?.summary) ??
+      truncateForPrompt(result.text.trim(), 4000);
     const evidenceCandidateText =
       asOptionalString(parsed?.evidence_candidate) ?? null;
     const created = await repositories.sourceRepository.createSourceSummary({
