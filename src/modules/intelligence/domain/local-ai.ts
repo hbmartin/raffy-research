@@ -24,7 +24,7 @@ export const LOCAL_AI_MODEL_SUGGESTIONS: Record<
     'claude-haiku-4-5-20251001',
     'claude-fable-5-1',
   ],
-  ollama: ['qwen3:14b'],
+  ollama: ['qwen3:14b', 'gemma4:latest'],
 };
 
 /** The model a provider starts with when picked; empty means env default. */
