@@ -706,6 +706,18 @@ export function createLocalAiStreamHandler(deps: LocalAiStreamHandlerDeps) {
 
     const config = deps.getConfig();
     const provider = parsed.provider ?? config.provider;
+    // The configured model names a model of the configured provider. Handing
+    // it to a different provider's CLI fails late and opaquely (claude-code
+    // exits 1 on `gpt-5-codex`), so a provider override needs its own model.
+    if (provider !== config.provider && !parsed.model) {
+      return jsonResponse(
+        {
+          error: 'model_required',
+          message: `Enter a model for ${provider}: the server default model (${config.model}) is for ${config.provider}.`,
+        },
+        400
+      );
+    }
     const model = parsed.model ?? config.model;
     const runId = randomUUID();
     const encoder = new TextEncoder();

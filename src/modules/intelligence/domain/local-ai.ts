@@ -8,6 +8,29 @@ export const LOCAL_AI_PROVIDERS = [
 
 export type LocalAiProviderName = (typeof LOCAL_AI_PROVIDERS)[number];
 
+/**
+ * Known-good models per provider, first one preferred. Suggestions only: model
+ * names change faster than this list and Ollama runs whatever is pulled
+ * locally, so any other name is still accepted.
+ */
+export const LOCAL_AI_MODEL_SUGGESTIONS: Record<
+  LocalAiProviderName,
+  readonly string[]
+> = {
+  'codex-cli': ['gpt-5-codex'],
+  'claude-code': [
+    'claude-opus-5-5',
+    'claude-sonnet-5-5',
+    'claude-haiku-4-5-20251001',
+    'claude-fable-5-1',
+  ],
+  ollama: ['qwen3:14b', 'gemma4:latest'],
+};
+
+/** The model a provider starts with when picked; empty means env default. */
+export const defaultModelFor = (provider: LocalAiProviderName): string =>
+  LOCAL_AI_MODEL_SUGGESTIONS[provider][0] ?? '';
+
 export type LocalAiConfig = {
   provider: LocalAiProviderName;
   model: string;

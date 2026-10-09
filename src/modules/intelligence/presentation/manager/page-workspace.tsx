@@ -20,6 +20,8 @@ import {
 
 import type { ProviderCallbackEvent } from '@/modules/intelligence/domain/ingestion';
 import {
+  defaultModelFor,
+  LOCAL_AI_MODEL_SUGGESTIONS,
   LOCAL_AI_PROVIDERS,
   type LocalAiProviderName,
 } from '@/modules/intelligence/domain/local-ai';
@@ -63,6 +65,16 @@ type LocalAiEvent = {
 
 const toDateInputValue = (date: Date) => date.toISOString().slice(0, 10);
 
+/** The server's own message when it sent one, such as a missing model. */
+const describeFailedResponse = async (response: Response) => {
+  const body = (await response.json().catch(() => null)) as {
+    message?: unknown;
+  } | null;
+  return typeof body?.message === 'string'
+    ? body.message
+    : `HTTP ${response.status}`;
+};
+
 const PROVIDER_LABELS: Record<LocalAiProviderName, string> = {
   'codex-cli': 'Codex CLI',
   'claude-code': 'Claude Code',
@@ -77,7 +89,7 @@ const DevAiConsole = (props: {
     toDateInputValue(new Date())
   );
   const [provider, setProvider] = useState<LocalAiProviderName>('codex-cli');
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState(() => defaultModelFor('codex-cli'));
   const [includeSourceSummaries, setIncludeSourceSummaries] = useState(true);
   const [sources, setSources] = useState<SourceRecord[]>([]);
   const [periodLabel, setPeriodLabel] = useState('');
@@ -130,7 +142,7 @@ const DevAiConsole = (props: {
         });
 
         if (!response.ok || !response.body) {
-          appendEvent(`${action}: HTTP ${response.status}`);
+          appendEvent(`${action}: ${await describeFailedResponse(response)}`);
           return;
         }
 
@@ -302,6 +314,8 @@ const DevAiConsole = (props: {
                 const value = event.target.value;
                 if (LOCAL_AI_PROVIDERS.includes(value as LocalAiProviderName)) {
                   setProvider(value as LocalAiProviderName);
+                  // A model only makes sense for its own provider.
+                  setModel(defaultModelFor(value as LocalAiProviderName));
                 }
               }}
               className="h-9 rounded-md border bg-background px-3"
@@ -320,9 +334,15 @@ const DevAiConsole = (props: {
             <input
               value={model}
               onChange={(event) => setModel(event.target.value)}
-              placeholder="env default"
+              list="local-ai-model-suggestions"
+              placeholder="env default (only for the env provider)"
               className="h-9 rounded-md border bg-background px-3"
             />
+            <datalist id="local-ai-model-suggestions">
+              {LOCAL_AI_MODEL_SUGGESTIONS[provider].map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
           </label>
         </div>
 
