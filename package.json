@@ -195,7 +195,7 @@
     "clsx": "2.1.1",
     "colorette": "2.0.20",
     "dayjs": "1.11.23",
-    "drizzle-orm": "^0.45.3",
+    "drizzle-orm": "^0.45.4",
     "i18next": "26.4.2",
     "i18next-browser-languagedetector": "8.2.1",
     "input-otp": "1.5.0",
