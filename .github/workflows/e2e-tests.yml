@@ -42,7 +42,7 @@ jobs:
       - name: Verify production SSR and hydration
         run: pnpm test:e2e:ssr:built --project=ssr-desktop --project=ssr-mobile
       - name: Upload SSR report and evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: production-ssr-report
@@ -165,7 +165,7 @@ jobs:
         run: pnpm test:e2e --project=${{ matrix.browser }}
 
       - name: Upload Playwright report and traces
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: playwright-report-and-traces-${{ matrix.browser }}
